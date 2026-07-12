@@ -1,0 +1,125 @@
+// Matching types shared between @mercurio/core (the board-ranking engine) and
+// the API (which builds the inputs from DB rows and serves the ranked board).
+// The algorithm itself lives in @mercurio/core/matching — pure functions only.
+
+import type { Msat } from './index';
+
+/** WGS84 coordinates in decimal degrees (DB columns `hubs.lat` / `hubs.lng`). */
+export interface GeoPoint {
+  lat: number;
+  lng: number;
+}
+
+/** Parcel dimensions or hub size limits, in centimeters. */
+export interface DimensionsCm {
+  lengthCm: number;
+  widthCm: number;
+  heightCm: number;
+}
+
+/**
+ * The carrier's declared real journey (`carrier_trips` row) — declared BEFORE
+ * seeing the board, so the ranking reflects the trip, not the other way
+ * around (MATCHING.md §1).
+ */
+export interface CarrierTrip {
+  /** O — current position / reference hub. */
+  origin: GeoPoint;
+  /** Dc — where the carrier is actually going. */
+  destination: GeoPoint;
+  /** dev_max — extra road the carrier tolerates, km. */
+  maxDeviationKm: number;
+  /** rate_min — minimum acceptable pay per km of detour, msat/km
+   *  (`carrier_trips.min_rate_msat_per_km`). */
+  minRateMsatPerKm: Msat;
+}
+
+/** A hub as the matching engine sees it (subset of the `hubs` row). */
+export interface MatchingHub {
+  hubId: string;
+  location: GeoPoint;
+  active: boolean;
+  /** Configured fee in integer basis points (hubFeePercentToBp). */
+  feeBp: number;
+  maxDimsCm: DimensionsCm;
+  maxWeightG: number;
+  acceptsUndeclared: boolean;
+  /** Candidate condition 3 (MATCHING.md §2): only a hub with a connected
+   *  wallet AND automatic deposit acceptance can bind its custody bond when a
+   *  leg is accepted, with no human in the loop (ADR-013, ARCHITECTURE §4). */
+  walletConnected: boolean;
+  autoAcceptDeposits: boolean;
+}
+
+/** A shipment sitting AT_HUB, as shown on the board (MATCHING.md §1). */
+export interface ShipmentAtHub {
+  shipmentId: string;
+  /** S — the hub currently holding the parcel. Must appear in the hubs list. */
+  currentHubId: string;
+  /** T — the destination hub. Must appear in the hubs list. */
+  destHubId: string;
+  /** Remaining accounting pool = remainingPool(P, D, r_S, boosts), msat. */
+  poolMsat: Msat;
+  /** D — segment distance frozen at creation (or at the last reroute), km. */
+  totalKm: number;
+  /** r_S = d(S, T) — remaining distance to the destination, km. */
+  remainingKm: number;
+  dimsCm: DimensionsCm;
+  weightG: number;
+  undeclared: boolean;
+}
+
+/** One admissible drop hub H for a (trip, shipment) pair, priced. */
+export interface DropHubOption {
+  hubId: string;
+  /** detour(H) = d(O,S) + d(S,H) + d(H,Dc) − d(O,Dc), quantized to meters. */
+  detourKm: number;
+  /** Carrier net for the leg S→H (gross × (1 − f_S − f_H)), msat. */
+  netMsat: Msat;
+  /** net − rate_min × detour: what the leg pays beyond the carrier's floor.
+   *  Negative = how far it falls short of being worth it. */
+  surplusMsat: Msat;
+}
+
+/** One board card: a shipment with its proposed drop hub and alternatives. */
+export interface MatchCandidate {
+  shipmentId: string;
+  /** H* — argmax surplus among candidates within dev_max (MATCHING.md §2). */
+  bestDropHub: DropHubOption;
+  /** Up to MAX_ALTERNATIVE_DROP_HUBS runner-ups, surplus-descending. */
+  alternatives: DropHubOption[];
+  /** detour(H*) ≤ dev_max AND surplus(H*) ≥ 0 — the "Per te" section. */
+  isMatch: boolean;
+}
+
+/** Road/great-circle circuity factor k: d = haversine × k (ADR-007). */
+export const ROAD_CIRCUITY_FACTOR = 1.3;
+
+/** Alternative drop hubs shown on a board card ("2–3", MATCHING.md §2). */
+export const MAX_ALTERNATIVE_DROP_HUBS = 3;
+
+/** Observation window for both rate suggesters, days (MATCHING.md §4–5). */
+export const RATE_WINDOW_DAYS = 90;
+
+/** Below this many observations the suggesters stay on their cold-start
+ *  default: too few samples are easier to manipulate than to learn from. */
+export const MIN_RATE_OBSERVATIONS = 30;
+
+/** Observations with a detour below 1 km are discarded: the €/km ratio
+ *  explodes as the denominator approaches zero and means nothing. */
+export const MIN_OBSERVATION_DETOUR_KM = 1;
+
+/** Cold-start carrier rate: ballpark marginal cost per km of a small car
+ *  (fuel + wear, ACI tables ~0.15–0.25 €/km). A default, not a constraint. */
+export const DEFAULT_CARRIER_RATE_EUR_PER_KM = 0.2;
+
+/** Final clamp on the suggested carrier rate, €/km (MATCHING.md §4). */
+export const CARRIER_RATE_MIN_EUR_PER_KM = 0.05;
+export const CARRIER_RATE_MAX_EUR_PER_KM = 1.0;
+
+/** Cold-start sender rate: 5 € per 100 km — the canonical example's price. */
+export const DEFAULT_SENDER_RATE_EUR_PER_KM = 0.05;
+
+/** Floor on the suggested sender offer: below this no journey is worth a
+ *  single handoff (MATCHING.md §5). */
+export const MIN_SUGGESTED_OFFER_EUR = 2;
