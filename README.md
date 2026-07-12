@@ -59,9 +59,34 @@ open channels between them for end-to-end Lightning testing, run
 | `pnpm db:seed`                                              | (Re-)seeds demo data: 3 users, 3 hubs, 1 shipment     |
 | `pnpm format`                                               | Formats the whole repo with Prettier                  |
 
-Money-logic and auth tests (`packages/db`, `apps/api`) run against an
-in-process Postgres (`pglite`) with every migration applied — no Docker
-required for `pnpm test`.
+Money-logic and auth tests (`packages/db`, `packages/escrow`, `apps/api`) run
+against an in-process Postgres (`pglite`) with every migration applied — no
+Docker required for `pnpm test` (the escrow coordinator is unit-tested on an
+in-memory fake Lightning network).
+
+### Lightning integration tests (`pnpm test:integration`)
+
+The escrow coordinator is also tested against **real hold invoices** on the
+regtest environment (ADR-004): HTLCs actually held, preimages actually
+revealed, channel balances actually moving between the three user nodes.
+
+```sh
+docker compose -f infra/docker/docker-compose.yml up -d
+./infra/docker/bootstrap.sh    # mine, fund wallets, open channels alice<->bob<->carol
+pnpm test:integration
+```
+
+The suite covers: hold paid → `held`; release → the payee really collects;
+refund → the payer is made whole; expiry → `expired` with nothing committed.
+It reads the nodes' admin macaroons from `infra/docker/volumes/` and needs
+nothing else running.
+
+### Escrow coordinator key
+
+The coordinator stores payment preimages only encrypted (AES-256-GCM,
+ADR-013). Runtime deployments must set `COORDINATOR_KEY` to 32 random bytes
+in hex — generate one with `openssl rand -hex 32`. Tests generate their own
+throwaway keys.
 
 ### Auth (magic link)
 

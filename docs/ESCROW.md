@@ -112,7 +112,7 @@ Il dominio parla solo con queste interfacce; gli adapter concreti (NWC, LND dire
 per dev/regtest, futuri) sono in `packages/escrow`.
 
 ```ts
-// packages/escrow/src/types.ts — contratto, non implementazione
+// packages/escrow/src/types.ts — contratto (implementato da PreimageCoordinator)
 
 /** A user's own wallet, connected via NWC or a direct node adapter.
  *  Mercurio never holds funds: it only asks the user's wallet to act. */
@@ -120,27 +120,29 @@ export interface WalletConnection {
   makeHoldInvoice(
     amountMsat: bigint,
     hash: Hex,
-    expiry: Duration,
+    expirySeconds: number,
     memo: string,
   ): Promise<{ bolt11: string }>;
   makeInvoice(amountMsat: bigint, memo: string): Promise<{ bolt11: string }>; // instant (hub fees)
-  payInvoice(bolt11: string, maxFeeMsat: bigint): Promise<PaymentHandle>; // may stay pending (hold)
+  payInvoice(bolt11: string, maxFeeMsat: bigint): Promise<{ paymentHash: Hex }>; // resolves at dispatch (hold payments stay in flight)
   settleHoldInvoice(preimage: Hex): Promise<void>;
   cancelHoldInvoice(hash: Hex): Promise<void>;
   lookupInvoice(hash: Hex): Promise<'open' | 'held' | 'settled' | 'cancelled' | 'expired'>;
 }
 
 /** The coordinator: generates and guards preimages, never touches money.
- *  Every state change is mirrored as a double-entry shadow-ledger entry. */
+ *  Every observed transition is mirrored as a double-entry shadow-ledger
+ *  journal entry (dettagli in ADR-013). */
 export interface EscrowCoordinator {
   createConditionalPayment(params: {
+    shipmentId: string; // ledger: the commitment account is per shipment
     payerId: string; // pays the hold invoice
     payeeId: string; // issued it; gets the preimage on release
     amountMsat: bigint;
     purpose: 'leg_payment' | 'custody_bond';
     ref: { type: 'leg' | 'hub_stay'; id: string };
-    holdWindow: Duration;
-    idem: string;
+    holdWindowSeconds: number;
+    idem: string; // retried calls return the existing payment
   }): Promise<ConditionalPaymentId>;
 
   /** Reveal the preimage to the payee: they settle and receive directly from the payer. */
@@ -149,9 +151,12 @@ export interface EscrowCoordinator {
   /** Cancel the hold: funds return to the payer, untouched. */
   refund(id: ConditionalPaymentId, idem: string): Promise<void>;
 
+  /** One observation sweep over unresolved payments (workers schedule it). */
+  pollOnce(): Promise<CoordinatorEvent[]>;
+
   /** Wallet-observed events: payment_held, settled, cancelled, expired.
    *  Core advances the state machine on these. */
-  events(): AsyncIterable<CoordinatorEvent>;
+  events(opts?: { pollIntervalMs?: number; signal?: AbortSignal }): AsyncIterable<CoordinatorEvent>;
 }
 ```
 

@@ -188,12 +188,16 @@ checkin|checkout|evidence), storage_key, sha256, taken_by, created_at, purge_aft
 (cifrato), capabilities (hold_invoice bool…), status, created_at`. Il wallet
 dell'utente, mai i suoi fondi.
 
-**conditional_payments** — `id, payer_id, payee_id, amount_msat, purpose
-(leg_payment|custody_bond), ref_type+ref_id (leg|hub_stay), payment_hash,
-preimage_encrypted, bolt11, state (created|held|settled|cancelled|expired),
-hold_window, created_at, resolved_at`. La hold invoice tra due utenti con preimage
-custodita dal coordinatore (ESCROW.md §2): l'unico "vincolo" che esiste — la
-piattaforma non ha conti né saldi.
+**conditional_payments** — `id, shipment_id, payer_id, payee_id, amount_msat,
+purpose (leg_payment|custody_bond), ref_type+ref_id (leg|hub_stay), payment_hash,
+preimage_encrypted (AES-256-GCM, chiave COORDINATOR_KEY — ADR-013),
+bolt11, state (created|held|settled|cancelled|expired), hold_window,
+idempotency_key (unique: una retry di createConditionalPayment restituisce la
+hold esistente), created_at, resolved_at`. La hold invoice tra due utenti con
+preimage custodita dal coordinatore (ESCROW.md §2): l'unico "vincolo" che
+esiste — la piattaforma non ha conti né saldi. `shipment_id` è denormalizzato:
+il coordinatore scrive le journal entry ombra sul conto commitment della
+spedizione senza join su legs/hub_stays.
 
 **accounts / journal_entries / postings** — partita doppia _ombra_ (ADR-010): registra
 gli impegni e i regolamenti osservati tra wallet esterni.
@@ -327,9 +331,14 @@ forzate dagli invarianti qui sopra (non scelte libere di protocollo):
 
 1. **`leg_funding_expired` è un evento esplicito** (il ramo "finestra scaduta"
    della riga 5): annulla le tre hold, quindi deve passare dalla macchina. I
-   suoi annullamenti non generano journal entry: gli impegni entrano nel
-   ledger ombra solo a `leg_funded` — una hold annullata prima della
-   prenotazione non è mai diventata un impegno.
+   suoi annullamenti non generano journal entry a livello di macchina: gli
+   impegni entrano nel ledger ombra solo a `leg_funded` — una hold annullata
+   prima della prenotazione non è mai diventata un impegno. Precisazione dal
+   coordinatore (ADR-013): una hold che il wallet aveva già accettato viene
+   comunque registrata come impegno **osservato** e il suo annullamento come
+   rimborso — due scritture vere a somma zero; le chiavi di idempotenza
+   deterministiche `cp:<paymentId>:<transizione>` garantiscono che macchina e
+   coordinatore non possano mai contare due volte lo stesso fatto.
 2. **`leg_return` rimborsa anche il bond dell'hub di arrivo** (la sua giacenza
    non si attiverà mai) e **l'hub cedente che riaccetta blocca un bond
    nuovo**: il suo precedente era stato liberato al check-out e chi prende la
