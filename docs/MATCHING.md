@@ -1,6 +1,7 @@
 # Mercurio — Motore di matching vettore ↔ spedizioni
 
-> Stato: **bozza per revisione** — 2026-07-12.
+> Stato: **implementato** — 2026-07-12 (rev. 2: precisazioni implementative in §7,
+> emerse durante l'implementazione in `packages/core/src/matching`).
 > Distanze: [ADR-007](adr/ADR-007-haversine-distance.md). Prezzi delle tratte: [ECONOMICS.md](ECONOMICS.md).
 
 ## 1. Input
@@ -187,27 +188,89 @@ minimo: 2,00 €
 
 ## 6. Interfacce (packages/core)
 
+Implementate in `@mercurio/core` (`packages/core/src/matching`); i tipi di
+input/output e le costanti sono in `@mercurio/shared` (`matching.ts`), come per
+il motore economico.
+
 ```ts
 export interface DistanceProvider {
   /** Road-distance estimate in km. MVP: haversine × 1.3. Future: OSRM. */
   distanceKm(a: GeoPoint, b: GeoPoint): number;
 }
+/** Il provider di produzione (ADR-007); k riconfigurabile sui dati veri. */
+export function createHaversineDistanceProvider(circuityFactor = 1.3): DistanceProvider;
+
+export interface DropHubOption {
+  hubId: string;
+  detourKm: number; // quantizzata al metro
+  netMsat: bigint;
+  surplusMsat: bigint;
+}
 
 export interface MatchCandidate {
   shipmentId: string;
-  bestDropHub: { hubId: string; detourKm: number; netMsat: bigint; surplusMsat: bigint };
-  alternatives: Array<{ hubId: string; detourKm: number; netMsat: bigint; surplusMsat: bigint }>;
-  isMatch: boolean; // detour ≤ dev_max && surplus ≥ 0
+  bestDropHub: DropHubOption; // H*
+  alternatives: DropHubOption[]; // max 3, surplus decrescente
+  isMatch: boolean; // detour(H*) ≤ dev_max && surplus(H*) ≥ 0
 }
 
 /** Pure function: (trip, shipments-at-hubs, hubs, provider) → ranked board. */
 export function rankBoard(
   trip: CarrierTrip,
   shipments: ShipmentAtHub[],
-  hubs: Hub[],
+  hubs: MatchingHub[],
   distance: DistanceProvider,
 ): MatchCandidate[];
+
+/** §4: p25 dei rate effettivi accettati (90 gg, ≥ 30 oss., detour ≥ 1 km). */
+export function suggestCarrierRateEurPerKm(
+  observations: CarrierRateObservation[],
+  now: Date,
+): number;
+
+/** §5: routeKm × p50 di P/D delle spedizioni consegnate; minimo 2 €. */
+export function suggestSenderOfferEur(
+  routeKm: number,
+  observations: DeliveredShipmentObservation[],
+  now: Date,
+): number;
 ```
 
 Funzione pura: testabile con scenari geometrici sintetici (come l'esempio §2) e
 proprietà (mai suggerire hub con progresso ≤ soglia; surplus coerente con ECONOMICS).
+
+## 7. Precisazioni implementative (rev. 2 — `packages/core/src/matching`)
+
+Decisioni minori prese durante l'implementazione, tutte nella direzione della
+soluzione più semplice coerente con questo documento:
+
+1. **Fallback di `H*` fuori `dev_max`.** `H*` è l'argmax del surplus tra i
+   candidati con `detour ≤ dev_max`; se nessun candidato rispetta `dev_max`,
+   la card propone comunque il miglior candidato assoluto (con `isMatch =
+   false`): la sezione "Altre" deve mostrare qualcosa di sensato, e il vettore
+   vede esattamente cosa costerebbe accettare. Le 2–3 alternative provengono
+   dallo stesso insieme usato per scegliere `H*` (quindi mai hub oltre
+   `dev_max` quando almeno uno lo rispetta — coerente con l'esempio §2, dove
+   `H3` è "escluso" e non compare tra le alternative).
+2. **Spedizioni senza candidati**: omesse dalla bacheca restituita (l'interfaccia
+   richiede un `bestDropHub`); lo stesso vale, difensivamente, per righe
+   malformate (hub corrente o destinazione assenti dall'elenco, `r_S` fuori da
+   `(0, D]`) e per gli hub con fee oltre il tetto di validazione, che si
+   auto-escludono senza far fallire l'intera bacheca.
+3. **Quantizzazione**: come nel motore economico, le distanze float del provider
+   sono quantizzate al metro intero prima di qualsiasi calcolo monetario;
+   `netMsat` è esattamente il `priceLeg(...).netMsat` che verrebbe congelato
+   all'accettazione (stesso arrotondamento, nessuna sorpresa dopo); la soglia
+   `rate_min × detour` è aritmetica intera `msat/km × metri / 1000` (floor,
+   a favore del vettore per < 1 msat).
+4. **Vincoli fisici**: il confronto dimensioni ammette la rotazione del pacco
+   (si confrontano le terne ordinate); il vincolo wallet+bond (condizione 3 di
+   §2) è modellato con i flag `walletConnected` e `autoAcceptDeposits` dell'hub.
+5. **Determinismo**: ordinamenti totali con tie-break espliciti — opzioni per
+   (surplus ↓, detour ↑, hubId), bacheca per (match prima, surplus(H*) ↓,
+   shipmentId). Rimescolare gli input non cambia l'output (property test).
+6. **Suggeritori in EUR float**: producono suggerimenti da mostrare accanto a
+   campi liberi, non movimenti di denaro (che restano bigint msat, ADR-008);
+   ogni osservazione è convertita al **proprio** cambio congelato. Percentile
+   con interpolazione lineare (convenzione numpy). Nel rate del mittente
+   (`P/D`) i boost sono esclusi: la formula del §5 usa l'offerta `P`.
