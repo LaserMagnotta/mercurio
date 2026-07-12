@@ -1,8 +1,9 @@
 # Mercurio — Motore economico multi-tratta
 
-> Stato: **bozza per revisione** — 2026-07-12 (rev. 2: le percentuali degli hub si
-> applicano al lordo della tratta del vettore, non all'offerta totale — decisione utente).
-> Decisione formalizzata in [ADR-006](adr/ADR-006-progress-based-economics.md).
+> Stato: **implementato** — 2026-07-12 (rev. 2: le percentuali degli hub si
+> applicano al lordo della tratta del vettore, non all'offerta totale — decisione utente;
+> rev. 3: precisazioni implementative in §6, emerse durante l'implementazione in
+> `packages/core`). Decisione formalizzata in [ADR-006](adr/ADR-006-progress-based-economics.md).
 
 ## 1. Il problema
 
@@ -179,15 +180,22 @@ rurale) — è mitigato da tre meccanismi:
 
 1. **Boost del mittente**: in qualunque momento a pacco fermo (e la UI lo propone se
    ristagna oltre una soglia, es. 48h), il mittente può aumentare l'offerta di `ΔP`,
-   che si somma al pool residuo: `pool = P × r/D + ΔP`, ripartito sui km rimanenti
-   (`lordo = pool × Δr/r`). Non richiede alcun pagamento immediato — l'impegno si
-   paga tratta per tratta (ADR-013); nessun ricalcolo delle tratte già pagate.
+   che si somma al pool residuo nel momento del boost: `pool = P × r_b/D + ΔP` alla
+   distanza residua `r_b`, ripartito sui km rimanenti (`lordo = pool × Δr/r`). Da lì
+   in poi il boost si consuma **in proporzione ai km come il resto del pool**: alla
+   distanza `r < r_b` contribuisce `ΔP × r/r_b` (vedi §6 — se restasse costante,
+   spezzare le tratte dopo un boost pagherebbe in totale più di `P + ΔP`). Non
+   richiede alcun pagamento immediato — l'impegno si paga tratta per tratta
+   (ADR-013); nessun ricalcolo delle tratte già pagate.
 2. **Reroute del mittente**: a pacco fermo (nessuna tratta prenotata) può cambiare
    l'hub di destinazione e/o il destinatario — es. il pacco è finito in un paesino
    poco battuto e conviene spostare la consegna su un hub lungo una direttrice, o
    richiamarlo verso l'origine. Il pool residuo resta quello che è e si ripartisce
    sulla nuova distanza residua `r'` (`lordo = pool × Δr/r'`): la formula è già
-   generale, niente ricalcoli delle tratte pagate. Boost e reroute si combinano
+   generale, niente ricalcoli delle tratte pagate. Operativamente il reroute apre un
+   **nuovo segmento di prezzo** (§6): il pool corrente — boost inclusi — viene
+   congelato come nuovo impegno `P*` e la nuova distanza `r'` fa da nuovo `D*`; i
+   boost successivi si riferiscono al segmento corrente. Boost e reroute si combinano
    (dallo stato di consegna, a pool esaurito, il reroute _richiede_ un boost).
 3. **Il matching protegge il vettore**: nessuno è mai indotto ad accettare in perdita,
    perché la bacheca mostra il **netto** e il criterio di match esige
@@ -206,12 +214,17 @@ all'accettazione) è già compatibile.
   di più, senza meccanica d'asta esplicita. Al mittente viene proposto un prezzo
   consigliato basato sulle spedizioni effettivamente consegnate (MATCHING §5).
 - **Progresso minimo per tratta**: `Δr ≥ max(5 km, 5% × D)`. Evita micro-tratte che
-  moltiplicano i passaggi di mano (ogni passaggio è un rischio).
+  moltiplicano i passaggi di mano (ogni passaggio è un rischio). **Eccezione**: la
+  tratta che consegna all'hub di destinazione (`Δr = r`) è sempre ammessa, per corta
+  che sia — altrimenti un pacco a meno di 5 km dalla meta (es. dopo un reroute) non
+  sarebbe mai consegnabile.
 - **Solo progresso positivo**: hub di deposito ammessi solo se `r` diminuisce.
   Nessun pagamento per spostamenti laterali o all'indietro.
-- **Tetto di validazione sulle fee hub** (es. `f ≤ 30%`) e vincolo
-  `f_dep + f_arr < 100%` per tratta: sopra certe soglie l'hub non è mai conveniente
-  e inquina solo la bacheca.
+- **Tetto di validazione sulle fee hub** (`f ≤ 30%`, costante `MAX_HUB_FEE_BP`) e
+  vincolo `f_dep + f_arr < 100%` per tratta: sopra certe soglie l'hub non è mai
+  conveniente e inquina solo la bacheca. Le percentuali sono trattate come **basis
+  point interi** (1 bp = 0,01%), rappresentazione senza perdita della colonna
+  `hubs.fee_percent numeric(5,2)`.
 - **Compensazione di annullamento**: se il mittente annulla dopo il check-in
   all'hub di origine (nessuna tratta partita), paga `f_o × P` direttamente all'hub —
   quanto avrebbe guadagnato da una tratta unica; la restituzione del pacco si
@@ -220,7 +233,7 @@ all'accettazione) è già compatibile.
   ADR-013).
 - **Arrotondamenti**: ogni importo (lordi, fee) è arrotondato per difetto al sat al
   momento del congelamento della tratta; non esistono resti da redistribuire perché
-  non esiste una pentola comune.
+  non esiste una pentola comune (la scala completa degli arrotondamenti è in §6).
 - **Fee di piattaforma**: 0% nell'MVP. Con l'architettura zero-custodia un'eventuale
   fee futura sarebbe comunque un pagamento diretto separato utente→piattaforma,
   mai una trattenuta su fondi altrui.
@@ -228,10 +241,44 @@ all'accettazione) è già compatibile.
   la volatilità del cambio è a carico di chi incassa sats (come per qualunque prezzo
   in sats — Bitcoin Design Guide: importi mai ambigui, mostrare sempre sats + € indicativo).
 
+## 6. Precisazioni implementative (rev. 3 — `packages/core/src/economics`)
+
+Il motore è implementato come funzioni pure in `@mercurio/core` (`priceLeg`,
+`remainingPool`, `applyReroute`, `cancellationCompensation`, `minLegProgressKm`);
+i tipi condivisi con l'API (`LegPricing`, `PoolBoost`, `PoolSegment`) e le costanti
+sono in `@mercurio/shared`. Tre precisazioni sono emerse implementando le proprietà
+di conservazione, e sono forzate dalle proprietà stesse (non sono scelte libere):
+
+1. **Il boost decade proporzionalmente.** `pool = P × r/D + ΔP` vale nel momento del
+   boost (`r = r_b`); da lì in poi il contributo del boost è `ΔP × r/r_b`. Se restasse
+   costante, il pool si _gonfierebbe_: spezzando le tratte dopo un boost la somma dei
+   lordi supererebbe `P + ΔP` (violazione dell'invariante di conservazione e
+   dell'assenza di incentivo a frammentare). Forma chiusa, indipendente da come sono
+   state spezzate le tratte passate:
+   `pool(r) = P × r/D + Σᵢ ΔPᵢ × r/r_bᵢ` — chiunque può ricalcolare il pool dalla riga
+   della spedizione più gli eventi di boost, senza stato accumulato.
+2. **Il reroute apre un segmento.** Il pool corrente (boost inclusi) è congelato come
+   impegno del nuovo segmento (`P* = pool`, `D* = r'`); i boost successivi sono
+   relativi al segmento corrente. Le tratte già pagate non si toccano per costruzione:
+   erano prezzate sul pool com'era allora.
+3. **Scala degli arrotondamenti** (tutti per difetto, mai a favore di chi incassa):
+   le distanze sono quantizzate al **metro intero** all'ingresso (così ogni divisione
+   è aritmetica bigint esatta e due macchine congelano gli stessi msat); il pool
+   nozionale è troncato al **msat**; gli importi congelati (lordo, fee) al **sat**
+   (ADR-008). I resti di troncamento restano al mittente come impegno non speso.
+
+Proprietà verificate dai test (fixture esatte al msat sulle simulazioni di §4 +
+proprietà su input casuali con PRNG deterministico):
+`Σ lordi ≤ P + Σ boost` sempre; nessun importo negativo; `netto + fee = lordo`
+esatto; spezzare una tratta in due non aumenta mai il totale lordo dei vettori;
+a parità di `f` gli hub incassano `2f × P` (esatto a meno dei floor al sat,
+con bound documentati nei test).
+
 ### Divergenza dichiarata dal CLAUDE.md
 
 Con il Modello B l'esempio canonico cambia: Luca (40 km su 100, hub al 10%) ha un
 lordo di 2,00 € e incassa **1,60 € netti**, non 3,00 €. Il "60%" fisso non
 sopravvive al multi-tratta; in compenso il vettore che fa la tratta unica completa
-netta l'**80%** (4,00 €). Se il modello viene approvato, va aggiornato l'esempio nel
-CLAUDE.md (incluso il chiarimento che le fee hub si calcolano sul lordo del vettore).
+netta l'**80%** (4,00 €). L'esempio nel CLAUDE.md è già stato allineato (lordo
+`5 € × 40/100 = 2 €`, netto 1,60 €, fee hub calcolate sul lordo del vettore):
+nessuna divergenza residua.

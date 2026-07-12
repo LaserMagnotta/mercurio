@@ -1,6 +1,7 @@
 # ADR-006 — Ripartizione proporzionale ai km di avvicinamento
 
-- Stato: proposto (in revisione) — 2026-07-12
+- Stato: accettato — 2026-07-12 (implementazione richiesta dall'utente;
+  motore in `packages/core/src/economics`)
 - Analisi completa e simulazioni: [ECONOMICS.md](../ECONOMICS.md)
 
 ## Contesto
@@ -17,9 +18,16 @@ residuo, proporzionale ai km di avvicinamento, asta per tratta.
 (= `P × Δr / D` in assenza di boost); l'hub di partenza e quello di arrivo della
 tratta prelevano ciascuno la propria percentuale **dal lordo**; il vettore netta
 `lordo × (1 − f_dep − f_arr)` e vede il netto prima di accettare. Regole di
-contorno: progresso minimo `max(5 km, 5% D)`, solo progresso positivo, boost del
-mittente se il pacco ristagna, tetto di validazione sulle fee hub, fee piattaforma
-parametrica a 0%, arrotondamenti a `platform:rounding`.
+contorno: progresso minimo `max(5 km, 5% D)` (esente la tratta che consegna a
+destinazione), solo progresso positivo, boost del mittente se il pacco ristagna,
+tetto fee hub al 30% (basis point interi), fee piattaforma parametrica a 0%,
+arrotondamenti per difetto al sat sugli importi congelati.
+
+Precisazioni fissate in implementazione (ECONOMICS.md §6, forzate dagli invarianti
+di conservazione): il boost si consuma proporzionalmente dopo essersi sommato al
+pool (`ΔP × r/r_b`); il reroute congela il pool corrente come impegno di un nuovo
+segmento sulla nuova distanza; distanze quantizzate al metro, pool al msat, importi
+al sat — tutta aritmetica bigint esatta e riproducibile.
 
 ## Alternative considerate
 
@@ -40,7 +48,6 @@ parametrica a 0%, arrotondamenti a `platform:rounding`.
 - Incentivi: nessun premio a frammentare; le fee hub mordono il netto del vettore →
   pressione competitiva sulle percentuali; a parità di fee il €/km netto è uniforme
   su tutte le tratte.
-- **L'esempio canonico nel CLAUDE.md va aggiornato** (Luca: lordo 2,00 €,
-  netto 1,60 € — non 3,00 €).
+- L'esempio canonico nel CLAUDE.md è allineato (Luca: lordo 2,00 €, netto 1,60 €).
 - Il €/km uniforme non prezza le tratte "difficili": mitigato dal boost;
   se i dati mostreranno pacchi sistematicamente incagliati, si attiva il modello C.

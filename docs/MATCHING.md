@@ -16,8 +16,9 @@
 
 **Ogni spedizione in bacheca** (stato `AT_HUB`) porta: hub corrente `S` (con la sua
 percentuale `f_S`), hub di destinazione `T`, distanza residua `r_S = d(S, T)`,
-distanza totale `D`, pool residuo contabile `pool = P × r_S / D + boost` (aggiornato
-da boost e reroute del mittente — ECONOMICS §5), bond
+distanza totale `D`, pool residuo contabile `pool = remainingPool(P, D, r_S, boosts)`
+(= `P × r_S / D` più i boost, che decadono proporzionalmente; reroute = nuovo
+segmento — ECONOMICS §5–6), bond
 di custodia richiesto, vincoli fisici (dimensioni, peso, contenuto non dichiarato sì/no).
 
 ## 2. Distanza e deviazione
@@ -58,7 +59,9 @@ sola: nessun caso speciale.)
 Candidati: tutti gli hub `H` (incluso `T` stesso) tali che:
 
 1. `H` accetta il pacco (dimensioni, peso, contenuto non dichiarato, capienza, attivo);
-2. **progresso positivo e non-banale**: `r_S − d(H,T) ≥ max(5 km, 5% × D)` (ECONOMICS.md);
+2. **progresso positivo e non-banale**: `r_S − d(H,T) ≥ max(5 km, 5% × D)`; la
+   consegna diretta a destinazione (`H = T`, progresso `r_S`) è sempre ammessa,
+   anche sotto soglia (ECONOMICS.md §6);
 3. l'hub ha il wallet connesso e accetta automaticamente di vincolare il bond di
    custodia (hold invoice — ADR-013; accettazione automatica, ARCHITECTURE §4).
 
