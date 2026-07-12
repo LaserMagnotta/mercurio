@@ -5,8 +5,7 @@
 //
 // Modules to come (see /docs):
 //   state-machine/  — shipment lifecycle (ARCHITECTURE.md §5)
-//   economics/      — progress-based leg pricing (ECONOMICS.md, ADR-006)
 //   matching/       — carrier/shipment board ranking (MATCHING.md)
 //   ledger/         — double-entry shadow ledger postings (ADR-010)
 
-export {};
+export * from './economics/economics';
