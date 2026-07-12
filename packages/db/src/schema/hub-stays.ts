@@ -1,0 +1,27 @@
+import { integer, pgTable, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { hubStayStatusEnum } from './enums';
+import { hubs } from './hubs';
+import { shipments } from './shipments';
+import { conditionalPayments } from './conditional-payments';
+
+// One stay of a shipment at a hub (ARCHITECTURE.md sec.4). The hub's
+// earnings are tracked on the adjacent legs (`arrHubFeeMsat` of the incoming
+// leg, `depHubFeeMsat` of the outgoing one) - this table only tracks
+// custody and the bond hold, never a fee amount (there is no prefunded pot
+// to pay from).
+export const hubStays = pgTable('hub_stays', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  shipmentId: uuid('shipment_id')
+    .notNull()
+    .references(() => shipments.id),
+  hubId: uuid('hub_id')
+    .notNull()
+    .references(() => hubs.id),
+  seq: integer('seq').notNull(),
+  status: hubStayStatusEnum('status').notNull().default('reserved'),
+  reservedAt: timestamp('reserved_at', { withTimezone: true }).notNull().defaultNow(),
+  checkedInAt: timestamp('checked_in_at', { withTimezone: true }),
+  checkedOutAt: timestamp('checked_out_at', { withTimezone: true }),
+  storageDeadlineAt: timestamp('storage_deadline_at', { withTimezone: true }),
+  bondConditionalPaymentId: uuid('bond_cp_id').references(() => conditionalPayments.id),
+});

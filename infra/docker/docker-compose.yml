@@ -25,7 +25,7 @@ services:
       POSTGRES_PASSWORD: mercurio
       POSTGRES_DB: mercurio
     ports:
-      - "5432:5432"
+      - '5432:5432'
     volumes:
       - ./volumes/postgres:/var/lib/postgresql/data
 
@@ -33,8 +33,8 @@ services:
     image: axllent/mailpit:latest
     restart: unless-stopped
     ports:
-      - "1025:1025" # SMTP
-      - "8025:8025" # Web UI
+      - '1025:1025' # SMTP
+      - '8025:8025' # Web UI
 
   bitcoind:
     image: polarlightning/bitcoind:27.0
@@ -52,7 +52,7 @@ services:
       - -zmqpubrawtx=tcp://0.0.0.0:28335
       - -fallbackfee=0.0002
     ports:
-      - "18443:18443"
+      - '18443:18443'
     volumes:
       - ./volumes/bitcoind:/home/bitcoin/.bitcoin
 
@@ -78,8 +78,8 @@ services:
       - --tlsextradomain=lnd-bob
       - --tlsextradomain=lnd-carol
     ports:
-      - "8081:8080"   # REST (WalletConnection lnd_rest adapter)
-      - "10001:10009" # gRPC
+      - '8081:8080' # REST (WalletConnection lnd_rest adapter)
+      - '10001:10009' # gRPC
     volumes:
       - ./volumes/lnd-alice:/home/lnd/.lnd
 
@@ -87,8 +87,8 @@ services:
     <<: *lnd-base
     command: *lnd-cmd
     ports:
-      - "8082:8080"
-      - "10002:10009"
+      - '8082:8080'
+      - '10002:10009'
     volumes:
       - ./volumes/lnd-bob:/home/lnd/.lnd
 
@@ -96,7 +96,7 @@ services:
     <<: *lnd-base
     command: *lnd-cmd
     ports:
-      - "8083:8080"
-      - "10003:10009"
+      - '8083:8080'
+      - '10003:10009'
     volumes:
       - ./volumes/lnd-carol:/home/lnd/.lnd

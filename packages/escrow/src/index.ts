@@ -16,7 +16,12 @@ export type InvoiceState = 'open' | 'held' | 'settled' | 'cancelled' | 'expired'
 /** A user's own wallet, connected via NWC or a direct node adapter.
  *  See ESCROW.md §5 for the full contract. */
 export interface WalletConnection {
-  makeHoldInvoice(amountMsat: bigint, hash: Hex, expirySeconds: number, memo: string): Promise<{ bolt11: string }>;
+  makeHoldInvoice(
+    amountMsat: bigint,
+    hash: Hex,
+    expirySeconds: number,
+    memo: string,
+  ): Promise<{ bolt11: string }>;
   makeInvoice(amountMsat: bigint, memo: string): Promise<{ bolt11: string }>;
   payInvoice(bolt11: string, maxFeeMsat: bigint): Promise<{ paymentHash: Hex }>;
   settleHoldInvoice(preimage: Hex): Promise<void>;

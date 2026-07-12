@@ -5,6 +5,7 @@ node_modules/
 dist/
 .next/
 .turbo/
+*.tsbuildinfo
 
 # Environment & secrets — never commit secrets (CLAUDE.md rule)
 .env
