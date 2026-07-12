@@ -1,0 +1,102 @@
+# Mercurio — regtest Lightning dev environment (ADR-004, ADR-013).
+#
+# The platform has NO wallet of its own: the three LND nodes below are the
+# *users'* wallets (alice = sender, bob = carrier, carol = hub), used to
+# exercise hold invoices, preimage reveals and cancellations end-to-end.
+#
+# Usage:
+#   docker compose -f infra/docker/docker-compose.yml up -d
+#   ./infra/docker/bootstrap.sh     # mine blocks, fund wallets, open channels
+
+name: mercurio-dev
+
+x-lnd-base: &lnd-base
+  image: polarlightning/lnd:0.18.3-beta
+  restart: unless-stopped
+  depends_on:
+    - bitcoind
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: mercurio
+      POSTGRES_PASSWORD: mercurio
+      POSTGRES_DB: mercurio
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./volumes/postgres:/var/lib/postgresql/data
+
+  mailpit:
+    image: axllent/mailpit:latest
+    restart: unless-stopped
+    ports:
+      - "1025:1025" # SMTP
+      - "8025:8025" # Web UI
+
+  bitcoind:
+    image: polarlightning/bitcoind:27.0
+    restart: unless-stopped
+    command:
+      - bitcoind
+      - -regtest
+      - -server=1
+      - -txindex=1
+      - -rpcuser=devuser
+      - -rpcpassword=devpass
+      - -rpcbind=0.0.0.0
+      - -rpcallowip=0.0.0.0/0
+      - -zmqpubrawblock=tcp://0.0.0.0:28334
+      - -zmqpubrawtx=tcp://0.0.0.0:28335
+      - -fallbackfee=0.0002
+    ports:
+      - "18443:18443"
+    volumes:
+      - ./volumes/bitcoind:/home/bitcoin/.bitcoin
+
+  # --- User wallets (the platform never has one) ---------------------------
+
+  lnd-alice: # sender
+    <<: *lnd-base
+    command: &lnd-cmd
+      - lnd
+      - --noseedbackup
+      - --bitcoin.regtest
+      - --bitcoin.node=bitcoind
+      - --bitcoind.rpchost=bitcoind:18443
+      - --bitcoind.rpcuser=devuser
+      - --bitcoind.rpcpass=devpass
+      - --bitcoind.zmqpubrawblock=tcp://bitcoind:28334
+      - --bitcoind.zmqpubrawtx=tcp://bitcoind:28335
+      - --restlisten=0.0.0.0:8080
+      - --rpclisten=0.0.0.0:10009
+      - --listen=0.0.0.0:9735
+      # the command list is shared via YAML anchor, so allow every node name
+      - --tlsextradomain=lnd-alice
+      - --tlsextradomain=lnd-bob
+      - --tlsextradomain=lnd-carol
+    ports:
+      - "8081:8080"   # REST (WalletConnection lnd_rest adapter)
+      - "10001:10009" # gRPC
+    volumes:
+      - ./volumes/lnd-alice:/home/lnd/.lnd
+
+  lnd-bob: # carrier
+    <<: *lnd-base
+    command: *lnd-cmd
+    ports:
+      - "8082:8080"
+      - "10002:10009"
+    volumes:
+      - ./volumes/lnd-bob:/home/lnd/.lnd
+
+  lnd-carol: # hub
+    <<: *lnd-base
+    command: *lnd-cmd
+    ports:
+      - "8083:8080"
+      - "10003:10009"
+    volumes:
+      - ./volumes/lnd-carol:/home/lnd/.lnd
