@@ -1,6 +1,6 @@
 # ADR-009 — Autenticazione: magic link email obbligatorio, LNURL-auth opzionale
 
-- Stato: proposto (in revisione) — 2026-07-12
+- Stato: **implementato (magic link)** — 2026-07-12
 - Analisi identità/Sybil: [RISKS.md](../RISKS.md) §3
 
 ## Contesto
@@ -36,3 +36,15 @@ fuori discussione. La resistenza agli abusi è economica (bond), non anagrafica.
   i pacchi (by design).
 - L'OTP di ritiro viaggia sull'email del destinatario: la sicurezza della consegna
   dipende dalla casella del destinatario — accettato per l'MVP, documentato nei ToS.
+
+## Parametri concreti (implementazione)
+
+- Token magic-link: validi **15 minuti**, monouso (`consumedAt`), solo l'hash
+  SHA-256 è persistito — mai il token in chiaro.
+- Sessione: **30 giorni**, cookie httpOnly/sameSite=lax, revocabile (logout,
+  cancellazione account); solo l'hash del token di sessione è persistito.
+- Anti-abuso: **massimo 5 richieste di magic-link per indirizzo email ogni
+  ora** (oltre alla rate-limit generica per IP a livello HTTP).
+- Consenso GDPR (RISKS.md §6) richiesto **solo alla primissima verifica** di
+  un indirizzo email mai visto prima (creazione account); gli accessi
+  successivi non lo richiedono di nuovo.

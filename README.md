@@ -59,9 +59,27 @@ open channels between them for end-to-end Lightning testing, run
 | `pnpm db:seed`                                              | (Re-)seeds demo data: 3 users, 3 hubs, 1 shipment     |
 | `pnpm format`                                               | Formats the whole repo with Prettier                  |
 
-Money-logic tests (`packages/db`: ledger invariants, seed data) run against
-an in-process Postgres (`pglite`) with every migration applied — no Docker
+Money-logic and auth tests (`packages/db`, `apps/api`) run against an
+in-process Postgres (`pglite`) with every migration applied — no Docker
 required for `pnpm test`.
+
+### Auth (magic link)
+
+- `POST /auth/request-link { email }` — queues a sign-in email (outbox
+  pattern); always responds `202` regardless of whether the address has an
+  account yet (first login = signup). In dev, check
+  http://localhost:8025 (Mailpit) for the email.
+- `POST /auth/verify { token, consent? }` — `consent: { tosVersion,
+privacyVersion }` is required only the first time an email logs in
+  (GDPR explicit consent); sets an httpOnly session cookie.
+- `POST /auth/logout` — revokes the session.
+- `GET /me` — current user + active roles (`carrier`, `hub`).
+- `POST /me/roles/carrier` — activates the carrier role (idempotent).
+- `POST /me/roles/hub { ... }` — activates the hub role (one per account).
+- `GET /me/export` — all of the caller's own data as JSON (GDPR portability).
+- `DELETE /me` — anonymizes the account (GDPR erasure); the ledger and
+  custody chain are append-only and keep referencing the user by id only,
+  never by email, so anonymizing this one row severs the personal data.
 
 ## Ground rules
 
