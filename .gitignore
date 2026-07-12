@@ -1,0 +1,20 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+.next/
+.turbo/
+
+# Environment & secrets — never commit secrets (CLAUDE.md rule)
+.env
+.env.*
+!.env.example
+
+# Runtime data of the dev Lightning environment
+infra/docker/volumes/
+
+# Logs & OS noise
+*.log
+.DS_Store
+Thumbs.db
