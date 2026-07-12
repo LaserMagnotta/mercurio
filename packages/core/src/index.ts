@@ -5,7 +5,9 @@
 //
 // Modules to come (see /docs):
 //   state-machine/  — shipment lifecycle (ARCHITECTURE.md §5)
-//   matching/       — carrier/shipment board ranking (MATCHING.md)
 //   ledger/         — double-entry shadow ledger postings (ADR-010)
 
 export * from './economics/economics';
+export * from './matching/distance';
+export * from './matching/matching';
+export * from './matching/rates';
