@@ -16,8 +16,9 @@ rete stradale europea: il rapporto strada/linea d'aria empirico sta in ~1.2–1.
 Implementata in `packages/core` dietro l'interfaccia `DistanceProvider`.
 
 Perché basta per l'MVP:
+
 - **Coerenza interna**: prezzo e filtro di deviazione usano la stessa metrica, quindi
-  gli errori sistematici si compensano nei *rapporti* (surplus, €/km) anche dove il
+  gli errori sistematici si compensano nei _rapporti_ (surplus, €/km) anche dove il
   valore assoluto sbaglia.
 - La deviazione è una preferenza del vettore, non un vincolo contrattuale: vede mappa
   e hub prima di accettare; l'errore non genera obblighi sbagliati.

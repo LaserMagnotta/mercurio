@@ -11,14 +11,14 @@
 riceve o instrada fondi degli utenti. È la garanzia che il perimetro MiCA/PSD2 sulla
 custodia non si applica per costruzione, non per mitigazione (RISKS §5).
 
-| Requisito | Perché |
-|---|---|
-| **R1 — Vincoli per la durata di una tratta/giacenza** | i lock servono per ore/giorni, non per l'intera spedizione |
-| **R2 — Ogni tratta paga i suoi attori** | vettore e hub incassano al completamento del loro pezzo |
-| **R3 — Bond con release/slash deterministici** | liberato se tutto ok, incamerato dal beneficiario fissato ex-ante altrimenti (ADR-012) |
-| **R4 — Esiti eseguiti dal protocollo** | mai un giudizio umano, mai la piattaforma come beneficiaria |
-| **R5 — UX sostenibile** | pattern Bitcoin Design Guide; frizione dichiarata, non nascosta |
-| **R6 — Open source e self-hostable** | vincolo di progetto |
+| Requisito                                             | Perché                                                                                 |
+| ----------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| **R1 — Vincoli per la durata di una tratta/giacenza** | i lock servono per ore/giorni, non per l'intera spedizione                             |
+| **R2 — Ogni tratta paga i suoi attori**               | vettore e hub incassano al completamento del loro pezzo                                |
+| **R3 — Bond con release/slash deterministici**        | liberato se tutto ok, incamerato dal beneficiario fissato ex-ante altrimenti (ADR-012) |
+| **R4 — Esiti eseguiti dal protocollo**                | mai un giudizio umano, mai la piattaforma come beneficiaria                            |
+| **R5 — UX sostenibile**                               | pattern Bitcoin Design Guide; frizione dichiarata, non nascosta                        |
+| **R6 — Open source e self-hostable**                  | vincolo di progetto                                                                    |
 
 Con R0 le opzioni custodiali muoiono in partenza: **LNbits** (saldi interni = custodia
 piena) e **Cashu/Fedimint** (il mint/la federazione detiene i sats — e il mint saremmo
@@ -42,6 +42,7 @@ solo quando la regola del protocollo lo prevede.
   scade) e i fondi **tornano al pagatore** senza essere mai transitati altrove.
 
 Proprietà chiave:
+
 - La piattaforma **non può dirottare fondi verso di sé**: può solo accelerare o
   negare un esito tra due controparti già fissate. Non è mai nel flusso di denaro.
 - **Default sicuro**: se la piattaforma sparisce, ogni hold invoice scade e ogni
@@ -56,13 +57,13 @@ spesa** (pubblicato e vincolante via ToS), pagato tratta per tratta.
 
 ### All'accettazione di una tratta (`leg_accept` → `leg_funded`, finestra ~60 min)
 
-| # | Hold invoice | Emessa da | Pagata da | Importo |
-|---|---|---|---|---|
-| 1 | Pagamento tratta | Vettore | **Mittente** | lordo tratta (ECONOMICS §3) |
-| 2 | Bond vettore | Mittente | **Vettore** | bond di custodia |
-| 3 | Bond hub di arrivo | Mittente | **Hub di arrivo** | bond di custodia (copre la giacenza successiva) |
+| #   | Hold invoice       | Emessa da | Pagata da         | Importo                                         |
+| --- | ------------------ | --------- | ----------------- | ----------------------------------------------- |
+| 1   | Pagamento tratta   | Vettore   | **Mittente**      | lordo tratta (ECONOMICS §3)                     |
+| 2   | Bond vettore       | Mittente  | **Vettore**       | bond di custodia                                |
+| 3   | Bond hub di arrivo | Mittente  | **Hub di arrivo** | bond di custodia (copre la giacenza successiva) |
 
-Tutte e tre con hash generati dal coordinatore. Quando tutte risultano *held*, la
+Tutte e tre con hash generati dal coordinatore. Quando tutte risultano _held_, la
 tratta è prenotata (`LEG_BOOKED`); se la finestra scade, tutto viene annullato e la
 spedizione resta in bacheca. Il vettore **non si muove mai senza che il pagamento
 della tratta sia già vincolato**: non lavora a credito.
@@ -97,13 +98,13 @@ certificazione solo a pagamento avvenuto.
 
 ## 4. Cosa comporta (onestamente)
 
-| Tema | Implicazione | Gestione |
-|---|---|---|
-| **Wallet degli utenti** | Emettere hold invoice richiede un wallet capace (LND, Core Lightning, Alby Hub…): serve a mittenti (bond), vettori (pagamento tratta). Pagarle richiede wallet che tollerino pagamenti pendenti | Connessione via **NWC (Nostr Wallet Connect)** + adapter diretti (REST LND); guida all'onboarding; in dev: un LND regtest per utente. È il prezzo dichiarato dello zero-custodia |
-| **Durata dei lock (R1)** | Il lock più lungo è il bond hub = intera giacenza. HTLC di settimane = liquidità congelata e rischio force-close | **Giacenza massima 7 giorni nell'MVP** (budget CLTV sano); rinnovo rolling del bond come evoluzione |
-| **Mittente reattivo** | A ogni `leg_accept` il mittente deve pagare/emettere entro la finestra | Notifiche push/email; metrica di reattività del mittente visibile in bacheca (un mittente lento = spedizione poco appetibile) |
-| **Liquidità in-flight** | I bond bloccano liquidità sui canali di chi li paga per ore/giorni | Dimensionamento del bond a discrezione del mittente: il mercato prezza |
-| **Fee di rete LN** | Ogni pagamento diretto paga le sue routing fee | Importi piccoli, rotte corte; mostrate in UI, mai nascoste |
+| Tema                     | Implicazione                                                                                                                                                                                    | Gestione                                                                                                                                                                         |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Wallet degli utenti**  | Emettere hold invoice richiede un wallet capace (LND, Core Lightning, Alby Hub…): serve a mittenti (bond), vettori (pagamento tratta). Pagarle richiede wallet che tollerino pagamenti pendenti | Connessione via **NWC (Nostr Wallet Connect)** + adapter diretti (REST LND); guida all'onboarding; in dev: un LND regtest per utente. È il prezzo dichiarato dello zero-custodia |
+| **Durata dei lock (R1)** | Il lock più lungo è il bond hub = intera giacenza. HTLC di settimane = liquidità congelata e rischio force-close                                                                                | **Giacenza massima 7 giorni nell'MVP** (budget CLTV sano); rinnovo rolling del bond come evoluzione                                                                              |
+| **Mittente reattivo**    | A ogni `leg_accept` il mittente deve pagare/emettere entro la finestra                                                                                                                          | Notifiche push/email; metrica di reattività del mittente visibile in bacheca (un mittente lento = spedizione poco appetibile)                                                    |
+| **Liquidità in-flight**  | I bond bloccano liquidità sui canali di chi li paga per ore/giorni                                                                                                                              | Dimensionamento del bond a discrezione del mittente: il mercato prezza                                                                                                           |
+| **Fee di rete LN**       | Ogni pagamento diretto paga le sue routing fee                                                                                                                                                  | Importi piccoli, rotte corte; mostrate in UI, mai nascoste                                                                                                                       |
 
 ## 5. Interfaccia astratta
 
@@ -116,9 +117,14 @@ per dev/regtest, futuri) sono in `packages/escrow`.
 /** A user's own wallet, connected via NWC or a direct node adapter.
  *  Mercurio never holds funds: it only asks the user's wallet to act. */
 export interface WalletConnection {
-  makeHoldInvoice(amountMsat: bigint, hash: Hex, expiry: Duration, memo: string): Promise<{ bolt11: string }>;
-  makeInvoice(amountMsat: bigint, memo: string): Promise<{ bolt11: string }>;   // instant (hub fees)
-  payInvoice(bolt11: string, maxFeeMsat: bigint): Promise<PaymentHandle>;       // may stay pending (hold)
+  makeHoldInvoice(
+    amountMsat: bigint,
+    hash: Hex,
+    expiry: Duration,
+    memo: string,
+  ): Promise<{ bolt11: string }>;
+  makeInvoice(amountMsat: bigint, memo: string): Promise<{ bolt11: string }>; // instant (hub fees)
+  payInvoice(bolt11: string, maxFeeMsat: bigint): Promise<PaymentHandle>; // may stay pending (hold)
   settleHoldInvoice(preimage: Hex): Promise<void>;
   cancelHoldInvoice(hash: Hex): Promise<void>;
   lookupInvoice(hash: Hex): Promise<'open' | 'held' | 'settled' | 'cancelled' | 'expired'>;
@@ -128,8 +134,8 @@ export interface WalletConnection {
  *  Every state change is mirrored as a double-entry shadow-ledger entry. */
 export interface EscrowCoordinator {
   createConditionalPayment(params: {
-    payerId: string;                       // pays the hold invoice
-    payeeId: string;                       // issued it; gets the preimage on release
+    payerId: string; // pays the hold invoice
+    payeeId: string; // issued it; gets the preimage on release
     amountMsat: bigint;
     purpose: 'leg_payment' | 'custody_bond';
     ref: { type: 'leg' | 'hub_stay'; id: string };
@@ -149,8 +155,8 @@ export interface EscrowCoordinator {
 }
 ```
 
-Il **ledger a partita doppia** (ADR-010) resta obbligatorio ma diventa un *ledger
-ombra*: registra impegni e regolamenti osservati tra wallet esterni; la
+Il **ledger a partita doppia** (ADR-010) resta obbligatorio ma diventa un _ledger
+ombra_: registra impegni e regolamenti osservati tra wallet esterni; la
 riconciliazione confronta lo stato delle invoice nei wallet con le scritture.
 
 ## 6. Profilo normativo risultante
@@ -160,7 +166,7 @@ riconciliazione confronta lo stato delle invoice nei wallet con le scritture.
   costruzione.
 - ⚖️ **Verifica residua (leggera)**: che l'orchestrazione via NWC non qualifichi la
   piattaforma come servizio di disposizione di ordini di pagamento (PISP, PSD2) —
-  argomento di difesa: ogni pagamento è approvato dall'utente nel *proprio* wallet,
+  argomento di difesa: ogni pagamento è approvato dall'utente nel _proprio_ wallet,
   la piattaforma propone, non dispone. Da confermare col legale, rischio molto
   ridotto rispetto all'ipotesi custodial.
 - **AML**: nessun fondo di clienti detenuto; resta la piena tracciabilità interna

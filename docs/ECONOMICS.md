@@ -21,13 +21,13 @@ Sotto: notazione, tre modelli, simulazioni numeriche e raccomandazione.
 
 ## 2. Notazione
 
-| Simbolo | Significato | Esempio canonico |
-|---|---|---|
-| `P` | Offerta del mittente (pool totale delle tratte) | 5,00 € |
-| `D` | Distanza hub origine → hub destinazione (congelata alla creazione) | 100 km |
-| `f_h` | Percentuale configurata dall'hub `h`, applicata al **lordo delle tratte adiacenti** | 10% |
-| `r` | Distanza residua del pacco dalla destinazione | parte da `D`, arriva a 0 |
-| `Δr` | Avvicinamento prodotto da una tratta = `r_prima − r_dopo` | — |
+| Simbolo | Significato                                                                         | Esempio canonico         |
+| ------- | ----------------------------------------------------------------------------------- | ------------------------ |
+| `P`     | Offerta del mittente (pool totale delle tratte)                                     | 5,00 €                   |
+| `D`     | Distanza hub origine → hub destinazione (congelata alla creazione)                  | 100 km                   |
+| `f_h`   | Percentuale configurata dall'hub `h`, applicata al **lordo delle tratte adiacenti** | 10%                      |
+| `r`     | Distanza residua del pacco dalla destinazione                                       | parte da `D`, arriva a 0 |
+| `Δr`    | Avvicinamento prodotto da una tratta = `r_prima − r_dopo`                           | —                        |
 
 Ogni tratta ha un hub di partenza e un hub di arrivo: **entrambi prelevano la loro
 percentuale dal lordo della tratta**, il vettore incassa il resto. L'hub di origine
@@ -52,7 +52,7 @@ differiscono su **come si calcola il lordo della tratta**.
 Ogni vettore ha un lordo pari al 60% (configurabile) del pool residuo, qualunque
 distanza copra. È la lettura più fedele dell'esempio del CLAUDE.md.
 
-Formale: pool iniziale `R₀ = P`. Alla tratta *i*: `lordoᵢ = 60% × Rᵢ`;
+Formale: pool iniziale `R₀ = P`. Alla tratta _i_: `lordoᵢ = 60% × Rᵢ`;
 hub di partenza e arrivo prelevano `f × lordoᵢ` ciascuno; `Rᵢ₊₁ = Rᵢ − lordoᵢ`.
 
 ### Modello B — Quota proporzionale ai km di avvicinamento (progress-based)
@@ -89,12 +89,12 @@ prelevano le percentuali dal lordo aggiudicato.
 
 ### Caso 1 — tratta unica (A→B diretta), hub al 10%
 
-| | Modello A | Modello B | Modello C |
-|---|---|---|---|
-| Lordo vettore (100 km) | 60% × 5,00 = 3,00 | 5,00 × 100/100 = **5,00** | prezzo d'asta, es. 4,20 |
-| Hub origine / destinazione | 0,30 / 0,30 | **0,50 / 0,50** | 0,42 / 0,42 |
-| Netto vettore | 2,40 | **4,00** (80%) | 3,36 |
-| Non assegnato | **2,00** (†) | 0 | 0,80 (†) |
+|                            | Modello A         | Modello B                 | Modello C               |
+| -------------------------- | ----------------- | ------------------------- | ----------------------- |
+| Lordo vettore (100 km)     | 60% × 5,00 = 3,00 | 5,00 × 100/100 = **5,00** | prezzo d'asta, es. 4,20 |
+| Hub origine / destinazione | 0,30 / 0,30       | **0,50 / 0,50**           | 0,42 / 0,42             |
+| Netto vettore              | 2,40              | **4,00** (80%)            | 3,36                    |
+| Non assegnato              | **2,00** (†)      | 0                         | 0,80 (†)                |
 
 † Modello A e C devono anche decidere cosa fare dell'avanzo (rimborso? carry-over?):
 un'ambiguità in più da progettare.
@@ -103,14 +103,14 @@ un'ambiguità in più da progettare.
 
 **Modello A** (lordo = 60% del residuo):
 
-| Voce | Calcolo | Importo | netto €/km |
-|---|---|---|---|
-| Luca, lordo (40 km) | 60% × 5,00 = 3,00 → netto 3,00 × 0,8 | **2,40** | 0,060 |
-| Hub origine / C (arrivo) | 10% × 3,00 ciascuno | 0,30 / 0,30 | |
-| Pool residuo per 60 km | 5,00 − 3,00 = 2,00 | | |
-| Vettore 2, lordo (60 km) | 60% × 2,00 = 1,20 → netto 1,20 × 0,8 | **0,96** | 0,016 |
-| Hub C (partenza) / dest | 10% × 1,20 ciascuno | 0,12 / 0,12 | |
-| Non assegnato | | **0,80** | |
+| Voce                     | Calcolo                              | Importo     | netto €/km |
+| ------------------------ | ------------------------------------ | ----------- | ---------- |
+| Luca, lordo (40 km)      | 60% × 5,00 = 3,00 → netto 3,00 × 0,8 | **2,40**    | 0,060      |
+| Hub origine / C (arrivo) | 10% × 3,00 ciascuno                  | 0,30 / 0,30 |            |
+| Pool residuo per 60 km   | 5,00 − 3,00 = 2,00                   |             |            |
+| Vettore 2, lordo (60 km) | 60% × 2,00 = 1,20 → netto 1,20 × 0,8 | **0,96**    | 0,016      |
+| Hub C (partenza) / dest  | 10% × 1,20 ciascuno                  | 0,12 / 0,12 |            |
+| Non assegnato            |                                      | **0,80**    |            |
 
 Il vettore 2 guadagna **quasi 4 volte meno al km** pur facendo più strada, e 0,80 €
 restano senza destinazione. Peggio: il lordo non dipende dai km, quindi la strategia
@@ -118,15 +118,15 @@ ottima è accettare e depositare all'hub utile più vicino — 60% del pool per 
 
 **Modello B**:
 
-| Voce | Calcolo | Importo | netto €/km |
-|---|---|---|---|
-| Luca: lordo 5,00 × 40/100 = 2,00 | netto 2,00 × (1 − 10% − 10%) | **1,60** | 0,040 |
-| Hub origine (partenza tratta 1) | 10% × 2,00 | 0,20 | |
-| Hub C (arrivo tratta 1) | 10% × 2,00 | 0,20 | |
-| Vettore 2: lordo 5,00 × 60/100 = 3,00 | netto 3,00 × 0,8 | **2,40** | 0,040 |
-| Hub C (partenza tratta 2) | 10% × 3,00 | 0,30 | |
-| Hub destinazione (arrivo tratta 2) | 10% × 3,00 | 0,30 | |
-| **Totale** (hub C incassa 0,50 in tutto) | | **5,00** ✓ | |
+| Voce                                     | Calcolo                      | Importo    | netto €/km |
+| ---------------------------------------- | ---------------------------- | ---------- | ---------- |
+| Luca: lordo 5,00 × 40/100 = 2,00         | netto 2,00 × (1 − 10% − 10%) | **1,60**   | 0,040      |
+| Hub origine (partenza tratta 1)          | 10% × 2,00                   | 0,20       |            |
+| Hub C (arrivo tratta 1)                  | 10% × 2,00                   | 0,20       |            |
+| Vettore 2: lordo 5,00 × 60/100 = 3,00    | netto 3,00 × 0,8             | **2,40**   | 0,040      |
+| Hub C (partenza tratta 2)                | 10% × 3,00                   | 0,30       |            |
+| Hub destinazione (arrivo tratta 2)       | 10% × 3,00                   | 0,30       |            |
+| **Totale** (hub C incassa 0,50 in tutto) |                              | **5,00** ✓ |            |
 
 A parità di fee hub il **€/km netto è uniforme** (0,040) per tutti i vettori del
 viaggio: nessuna tratta è strutturalmente svantaggiata.
@@ -135,14 +135,14 @@ viaggio: nessuna tratta è strutturalmente svantaggiata.
 
 **Modello B**:
 
-| Tratta | Lordo | Fee partenza | Fee arrivo | Netto vettore | netto €/km |
-|---|---|---|---|---|---|
-| A→H1 (30 km) | 5,00 × 0,30 = 1,50 | origine 0,15 | H1 0,15 | **1,20** | 0,040 |
-| H1→H2 (40 km) | 5,00 × 0,40 = 2,00 | H1 0,20 | H2 0,40 | **1,40** | 0,035 |
-| H2→B (30 km) | 5,00 × 0,30 = 1,50 | H2 0,30 | dest 0,15 | **1,05** | 0,035 |
-| Totali | 5,00 | | hub: 1,35 · vettori: 3,65 | | **Σ = 5,00** ✓ |
+| Tratta        | Lordo              | Fee partenza | Fee arrivo                | Netto vettore | netto €/km     |
+| ------------- | ------------------ | ------------ | ------------------------- | ------------- | -------------- |
+| A→H1 (30 km)  | 5,00 × 0,30 = 1,50 | origine 0,15 | H1 0,15                   | **1,20**      | 0,040          |
+| H1→H2 (40 km) | 5,00 × 0,40 = 2,00 | H1 0,20      | H2 0,40                   | **1,40**      | 0,035          |
+| H2→B (30 km)  | 5,00 × 0,30 = 1,50 | H2 0,30      | dest 0,15                 | **1,05**      | 0,035          |
+| Totali        | 5,00               |              | hub: 1,35 · vettori: 3,65 |               | **Σ = 5,00** ✓ |
 
-L'hub H2 al 20% morde il netto di *entrambe* le tratte adiacenti: il matching
+L'hub H2 al 20% morde il netto di _entrambe_ le tratte adiacenti: il matching
 (netto ≥ tariffa minima × deviazione, MATCHING.md) tenderà a scartarlo se esiste
 un'alternativa → **pressione competitiva sulle percentuali degli hub**, che è
 l'incentivo giusto. Si noti anche che il guadagno di un hub cresce con il lordo
@@ -150,29 +150,29 @@ delle tratte adiacenti (cioè con i km serviti), non è fisso per pacco: un hub 
 abilita tratte lunghe guadagna di più.
 
 **Modello A, stesse tratte**: lordi 3,00 → 1,20 → 0,48 (decadimento geometrico:
-ogni tratta vale il 40% della precedente, *indipendentemente dai km*), netti
+ogni tratta vale il 40% della precedente, _indipendentemente dai km_), netti
 2,40 → 0,96 → 0,38, più 0,32 non assegnati. La terza tratta rende 0,013 €/km:
 nessuno la accetta, il pacco si incaglia vicino alla meta ("last mile starvation").
 
 ### Confronto degli incentivi
 
-| Criterio | A — % fissa sul residuo | B — proporzionale ai km | C — asta per tratta |
-|---|---|---|---|
-| Budget distribuito per intero | ✗ resta sempre un residuo non assegnato | ✓ esatto per costruzione | ~ dipende dalle aste |
-| Ultima tratta finanziabile | ✗ decadimento geometrico | ✓ vale sempre `P × r/D` | ~ a rischio se le prime aste chiudono alte |
-| Incentivo a frammentare | ✗✗ 60% del pool anche per 1 km | ✓ neutro (lineare); frammentare aggiunge solo fee hub | ~ dipende |
-| Pressione sulle fee hub | ~ | ✓ le fee mordono il netto e il vettore sceglie | ✓ |
-| Prevedibilità per il mittente | ✗ | ✓ costo totale = `P`, sempre | ✗ tempi e esito incerti |
-| Efficienza di prezzo (tratte "difficili") | ✗ | ~ €/km uniforme anche dove il mercato vorrebbe premi | ✓ price discovery vero |
-| Complessità UX/implementativa | bassa | bassa | alta (bid, timeout, top-up, aggiudicazione) |
+| Criterio                                  | A — % fissa sul residuo                 | B — proporzionale ai km                               | C — asta per tratta                         |
+| ----------------------------------------- | --------------------------------------- | ----------------------------------------------------- | ------------------------------------------- |
+| Budget distribuito per intero             | ✗ resta sempre un residuo non assegnato | ✓ esatto per costruzione                              | ~ dipende dalle aste                        |
+| Ultima tratta finanziabile                | ✗ decadimento geometrico                | ✓ vale sempre `P × r/D`                               | ~ a rischio se le prime aste chiudono alte  |
+| Incentivo a frammentare                   | ✗✗ 60% del pool anche per 1 km          | ✓ neutro (lineare); frammentare aggiunge solo fee hub | ~ dipende                                   |
+| Pressione sulle fee hub                   | ~                                       | ✓ le fee mordono il netto e il vettore sceglie        | ✓                                           |
+| Prevedibilità per il mittente             | ✗                                       | ✓ costo totale = `P`, sempre                          | ✗ tempi e esito incerti                     |
+| Efficienza di prezzo (tratte "difficili") | ✗                                       | ~ €/km uniforme anche dove il mercato vorrebbe premi  | ✓ price discovery vero                      |
+| Complessità UX/implementativa             | bassa                                   | bassa                                                 | alta (bid, timeout, top-up, aggiudicazione) |
 
 ## 5. Raccomandazione: Modello B, con due valvole di sfogo
 
 **Modello B (proporzionale ai km di avvicinamento)** per l'MVP, perché è l'unico dei
 tre che distribuisce sempre l'intero budget fino a destinazione, non premia la
 frammentazione, mette in concorrenza le fee degli hub ed è spiegabile in una riga:
-*"guadagni in proporzione a quanto avvicini il pacco; gli hub trattengono la loro
-percentuale dal lordo della tua tratta"*.
+_"guadagni in proporzione a quanto avvicini il pacco; gli hub trattengono la loro
+percentuale dal lordo della tua tratta"_.
 
 Il suo limite — €/km uniforme anche dove il mercato vorrebbe premi (ultimo miglio
 rurale) — è mitigato da tre meccanismi:
@@ -188,12 +188,12 @@ rurale) — è mitigato da tre meccanismi:
    richiamarlo verso l'origine. Il pool residuo resta quello che è e si ripartisce
    sulla nuova distanza residua `r'` (`lordo = pool × Δr/r'`): la formula è già
    generale, niente ricalcoli delle tratte pagate. Boost e reroute si combinano
-   (dallo stato di consegna, a pool esaurito, il reroute *richiede* un boost).
+   (dallo stato di consegna, a pool esaurito, il reroute _richiede_ un boost).
 3. **Il matching protegge il vettore**: nessuno è mai indotto ad accettare in perdita,
    perché la bacheca mostra il **netto** e il criterio di match esige
    `netto ≥ tariffa_minima × km di deviazione` (MATCHING.md).
 
-Il **Modello C resta la roadmap** (v2) come *overlay*: il prezzo progress-based diventa
+Il **Modello C resta la roadmap** (v2) come _overlay_: il prezzo progress-based diventa
 il prezzo esposto "accetta subito", con possibilità di controfferte. L'interfaccia dati
 (`legs.gross_msat / dep_hub_fee_msat / arr_hub_fee_msat / net_msat` congelati
 all'accettazione) è già compatibile.
@@ -201,7 +201,7 @@ all'accettazione) è già compatibile.
 ### Regole di contorno
 
 - **Offerta libera, effetto asta implicito**: nessun tetto all'offerta `P`. Alzare
-  `P` alza il lordo di *ogni* tratta e quindi il surplus nel matching: la spedizione
+  `P` alza il lordo di _ogni_ tratta e quindi il surplus nel matching: la spedizione
   sale nella bacheca di tutti i vettori (MATCHING §3). L'urgenza si compra offrendo
   di più, senza meccanica d'asta esplicita. Al mittente viene proposto un prezzo
   consigliato basato sulle spedizioni effettivamente consegnate (MATCHING §5).

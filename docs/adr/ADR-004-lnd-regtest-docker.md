@@ -33,7 +33,7 @@ l'ecosistema di tooling è il più ampio.
 - **Testnet/signet invece di regtest**: lenti (blocchi veri), faucet, flakiness in CI.
   Regtest è deterministico; signet utile più avanti come staging pre-mainnet.
 - **Mock del layer Lightning nei test**: c'è comunque (adapter `fake` di
-  `WalletConnection` per i test unitari di core), ma i test *di integrazione*
+  `WalletConnection` per i test unitari di core), ma i test _di integrazione_
   devono attraversare hold invoice vere.
 
 ## Conseguenze

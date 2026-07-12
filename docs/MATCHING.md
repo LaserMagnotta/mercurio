@@ -7,12 +7,12 @@
 
 **Il vettore dichiara il viaggio reale** prima di vedere la bacheca (`carrier_trips`):
 
-| Campo | Simbolo | Esempio |
-|---|---|---|
-| Partenza (posizione attuale / hub di riferimento) | `O` | Bologna |
-| Destinazione del viaggio | `Dc` | Firenze |
-| Deviazione massima | `dev_max` | 15 km |
-| Tariffa minima per km di deviazione | `rate_min` | 0,20 €/km (suggerita dal sistema, §4) |
+| Campo                                             | Simbolo    | Esempio                               |
+| ------------------------------------------------- | ---------- | ------------------------------------- |
+| Partenza (posizione attuale / hub di riferimento) | `O`        | Bologna                               |
+| Destinazione del viaggio                          | `Dc`       | Firenze                               |
+| Deviazione massima                                | `dev_max`  | 15 km                                 |
+| Tariffa minima per km di deviazione               | `rate_min` | 0,20 €/km (suggerita dal sistema, §4) |
 
 **Ogni spedizione in bacheca** (stato `AT_HUB`) porta: hub corrente `S` (con la sua
 percentuale `f_S`), hub di destinazione `T`, distanza residua `r_S = d(S, T)`,
@@ -30,10 +30,10 @@ Europa). Scelta motivata in ADR-007, in sintesi:
 - **Coerenza interna**: la stessa metrica è usata sia per il **prezzo** della tratta
   (`Δr`, ECONOMICS.md) sia per il **filtro** di deviazione. Gli errori sistematici
   (montagne, laghi) distorcono numeratore e denominatore nella stessa direzione,
-  quindi il *rapporto* convenienza/costo regge meglio del valore assoluto.
+  quindi il _rapporto_ convenienza/costo regge meglio del valore assoluto.
 - Zero dipendenze esterne, deterministica, gratuita, testabile — giusto per un MVP
   il cui collo di bottiglia è la liquidità di vettori, non la precisione geografica.
-- Il costo dell'errore è basso: la deviazione dichiarata è una *preferenza* del
+- Il costo dell'errore è basso: la deviazione dichiarata è una _preferenza_ del
   vettore, non un vincolo contrattuale; il vettore vede sempre hub e mappa prima
   di accettare.
 - Interfaccia `DistanceProvider` in `packages/core`; upgrade futuro a routing reale
@@ -91,11 +91,11 @@ Vettore: `O=(0,0)`, `Dc=(100,0)`, viaggio diretto 100 km, `dev_max = 15 km`,
 `f_S = 10%`, destinazione `T=(90,10)` con `f_T = 10%`, `r_S = 60 km`, `D = 80 km`,
 pool residuo `5,00 × 60/80 = 3,75 €`.
 
-| Candidato | `f_H` | progresso | detour | gross | net (`×(1−f_S−f_H)`) | soglia (`rate_min×detour`) | surplus | esito |
-|---|---|---|---|---|---|---|---|---|
-| `H1=(60,5)` | 10% | 29,6 km | 2,3 km | 1,85 | 1,48 | 0,46 | **+1,02** | match |
-| `T=(90,10)` (consegna finale) | 10% | 60 km | 5,7 km | 3,75 | 3,00 | 1,14 | **+1,86** | match, `H*` |
-| `H3=(50,40)` | 5% | 10 km | 31,7 km | — | — | — | — | escluso: `detour > dev_max` |
+| Candidato                     | `f_H` | progresso | detour  | gross | net (`×(1−f_S−f_H)`) | soglia (`rate_min×detour`) | surplus   | esito                       |
+| ----------------------------- | ----- | --------- | ------- | ----- | -------------------- | -------------------------- | --------- | --------------------------- |
+| `H1=(60,5)`                   | 10%   | 29,6 km   | 2,3 km  | 1,85  | 1,48                 | 0,46                       | **+1,02** | match                       |
+| `T=(90,10)` (consegna finale) | 10%   | 60 km     | 5,7 km  | 3,75  | 3,00                 | 1,14                       | **+1,86** | match, `H*`                 |
+| `H3=(50,40)`                  | 5%    | 10 km     | 31,7 km | —     | —                    | —                          | —         | escluso: `detour > dev_max` |
 
 La consegna diretta a destinazione vince (surplus massimo): è l'esito desiderato quando
 la destinazione è quasi sulla rotta del vettore. `H1` resta visibile come alternativa.
@@ -145,7 +145,7 @@ clamp finale: [0,05 , 1,00] €/km
 - **Cold start**: `DEFAULT_RATE = 0,20 €/km` — ordine di grandezza del costo marginale
   chilometrico di un'auto (carburante + usura, tabelle ACI ~0,15–0,25 €/km per utilitarie).
   È un default, non un vincolo: il campo è libero.
-- **Anti-manipolazione**: si osservano solo tratte *accettate e poi completate* (una
+- **Anti-manipolazione**: si osservano solo tratte _accettate e poi completate_ (una
   campagna di accettazioni fasulle costa bond e tempo); minimo 30 osservazioni prima
   di abbandonare il default; in futuro bucket per area geografica quando i volumi lo
   giustificano.
@@ -157,7 +157,7 @@ clamp finale: [0,05 , 1,00] €/km
 Speculare alla tariffa del vettore, ma dal lato opposto del mercato: al mittente che
 compila la spedizione il sistema propone **un'offerta che consegna**, non un ribasso.
 L'offerta resta **libera** (decisione utente): più si offre, più cresce il surplus di
-ogni tratta e più in alto la spedizione compare nella bacheca di *tutti* i vettori
+ogni tratta e più in alto la spedizione compare nella bacheca di _tutti_ i vettori
 (§3) — l'urgenza si compra alzando l'offerta, un'asta implicita senza meccanica
 d'asta.
 
@@ -194,7 +194,7 @@ export interface MatchCandidate {
   shipmentId: string;
   bestDropHub: { hubId: string; detourKm: number; netMsat: bigint; surplusMsat: bigint };
   alternatives: Array<{ hubId: string; detourKm: number; netMsat: bigint; surplusMsat: bigint }>;
-  isMatch: boolean;   // detour ≤ dev_max && surplus ≥ 0
+  isMatch: boolean; // detour ≤ dev_max && surplus ≥ 0
 }
 
 /** Pure function: (trip, shipments-at-hubs, hubs, provider) → ranked board. */

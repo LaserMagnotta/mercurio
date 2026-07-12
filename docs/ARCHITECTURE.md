@@ -10,31 +10,31 @@ Definire stack, componenti, modello dati e macchina a stati del pacco per l'MVP 
 Mercurio: rete logistica peer-to-peer con pagamenti Lightning, escrow e bond.
 I temi verticali sono trattati nei documenti dedicati:
 
-| Documento | Contenuto |
-|---|---|
+| Documento                    | Contenuto                                                             |
+| ---------------------------- | --------------------------------------------------------------------- |
 | [ECONOMICS.md](ECONOMICS.md) | Motore economico multi-tratta (modelli, simulazioni, raccomandazione) |
-| [ESCROW.md](ESCROW.md) | Scelta del backend escrow/bond su Lightning e interfaccia astratta |
-| [MATCHING.md](MATCHING.md) | Motore di matching vettore ↔ spedizioni |
-| [RISKS.md](RISKS.md) | Rischi, anti-abuso, identità, aspetti legali, domande aperte |
+| [ESCROW.md](ESCROW.md)       | Scelta del backend escrow/bond su Lightning e interfaccia astratta    |
+| [MATCHING.md](MATCHING.md)   | Motore di matching vettore ↔ spedizioni                               |
+| [RISKS.md](RISKS.md)         | Rischi, anti-abuso, identità, aspetti legali, domande aperte          |
 
 ## 2. Stack tecnologico
 
 Confermata la proposta di partenza, con alcune precisazioni. Motivazioni estese negli ADR.
 
-| Livello | Scelta | ADR |
-|---|---|---|
-| Repo | Monorepo TypeScript, pnpm workspaces + Turborepo | [ADR-001](adr/ADR-001-monorepo-typescript-pnpm.md) |
-| Web | Next.js (App Router), mobile-first, i18n `it` default con `en` pronto | [ADR-002](adr/ADR-002-nextjs-web-fastify-api.md) |
-| API | Servizio Fastify separato, REST + OpenAPI generata da schema Zod | [ADR-002](adr/ADR-002-nextjs-web-fastify-api.md) |
-| Database | PostgreSQL 16 + Drizzle ORM (SQL esplicito, transazioni controllate) | [ADR-003](adr/ADR-003-postgresql-drizzle.md) |
-| Lightning | bitcoind regtest + LND (nodi *utente* di test — la piattaforma non ha wallet) via Docker Compose | [ADR-004](adr/ADR-004-lnd-regtest-docker.md) |
+| Livello        | Scelta                                                                                                                 | ADR                                                                         |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Repo           | Monorepo TypeScript, pnpm workspaces + Turborepo                                                                       | [ADR-001](adr/ADR-001-monorepo-typescript-pnpm.md)                          |
+| Web            | Next.js (App Router), mobile-first, i18n `it` default con `en` pronto                                                  | [ADR-002](adr/ADR-002-nextjs-web-fastify-api.md)                            |
+| API            | Servizio Fastify separato, REST + OpenAPI generata da schema Zod                                                       | [ADR-002](adr/ADR-002-nextjs-web-fastify-api.md)                            |
+| Database       | PostgreSQL 16 + Drizzle ORM (SQL esplicito, transazioni controllate)                                                   | [ADR-003](adr/ADR-003-postgresql-drizzle.md)                                |
+| Lightning      | bitcoind regtest + LND (nodi _utente_ di test — la piattaforma non ha wallet) via Docker Compose                       | [ADR-004](adr/ADR-004-lnd-regtest-docker.md)                                |
 | Pagamenti/bond | **Zero custodia**: hold invoice dirette tra utenti, coordinatore per preimage; wallet utente via NWC o adapter diretti | [ADR-013](adr/ADR-013-non-custodial-coordinator.md), [ESCROW.md](ESCROW.md) |
-| Importi | Tutto in **satoshi**; EUR solo per input/display con cambio fotografato | [ADR-008](adr/ADR-008-amounts-in-sats.md) |
-| Contabilità | Ledger a partita doppia in Postgres, nessun movimento fuori ledger | [ADR-010](adr/ADR-010-double-entry-ledger.md) |
-| Job/timeout | pg-boss (code su Postgres, niente Redis) | [ADR-011](adr/ADR-011-pg-boss-jobs.md) |
-| Auth | Magic link email (obbligatoria) + LNURL-auth opzionale | [ADR-009](adr/ADR-009-auth-email-lnurl.md) |
-| Distanze | Haversine × fattore di circuità 1.3, dietro interfaccia `DistanceProvider` | [ADR-007](adr/ADR-007-haversine-distance.md) |
-| Email | Adapter SMTP; Mailpit in dev; outbox pattern (invii solo post-commit) | — |
+| Importi        | Tutto in **satoshi**; EUR solo per input/display con cambio fotografato                                                | [ADR-008](adr/ADR-008-amounts-in-sats.md)                                   |
+| Contabilità    | Ledger a partita doppia in Postgres, nessun movimento fuori ledger                                                     | [ADR-010](adr/ADR-010-double-entry-ledger.md)                               |
+| Job/timeout    | pg-boss (code su Postgres, niente Redis)                                                                               | [ADR-011](adr/ADR-011-pg-boss-jobs.md)                                      |
+| Auth           | Magic link email (obbligatoria) + LNURL-auth opzionale                                                                 | [ADR-009](adr/ADR-009-auth-email-lnurl.md)                                  |
+| Distanze       | Haversine × fattore di circuità 1.3, dietro interfaccia `DistanceProvider`                                             | [ADR-007](adr/ADR-007-haversine-distance.md)                                |
+| Email          | Adapter SMTP; Mailpit in dev; outbox pattern (invii solo post-commit)                                                  | —                                                                           |
 
 ### Struttura del monorepo
 
@@ -89,8 +89,9 @@ flowchart LR
 ```
 
 Note:
+
 - **La piattaforma non ha un wallet**: ogni pagamento è una hold invoice o una
-  invoice istantanea *tra due utenti*; il coordinatore detiene solo le preimage
+  invoice istantanea _tra due utenti_; il coordinatore detiene solo le preimage
   (ESCROW.md §2). I fondi non toccano mai Mercurio.
 - I **worker** girano nello stesso processo di `apps/api` nell'MVP (pg-boss lo consente);
   separabili in seguito senza cambi di codice.
@@ -194,10 +195,11 @@ hold_window, created_at, resolved_at`. La hold invoice tra due utenti con preima
 custodita dal coordinatore (ESCROW.md §2): l'unico "vincolo" che esiste — la
 piattaforma non ha conti né saldi.
 
-**accounts / journal_entries / postings** — partita doppia *ombra* (ADR-010): registra
+**accounts / journal_entries / postings** — partita doppia _ombra_ (ADR-010): registra
 gli impegni e i regolamenti osservati tra wallet esterni.
+
 - `accounts`: `id, owner_type (user|shipment), owner_id, kind
-  (external_wallet|commitment), currency ('msat')`.
+(external_wallet|commitment), currency ('msat')`.
 - `journal_entries`: `id, event_type, ref_type+ref_id, idempotency_key (unique), created_at`.
 - `postings`: `id, journal_entry_id, account_id, amount_msat (signed)`.
   Vincolo: per ogni journal entry `SUM(amount_msat) = 0`, applicato da trigger.
@@ -268,25 +270,25 @@ e timeout — mai da un giudizio umano. Il ritiro del destinatario (OTP dopo isp
 
 ### Tabella eventi, guardie ed effetti monetari
 
-| # | Evento | Attore | Guardia | Effetti monetari (tutti P2P, journal entry ombra) |
-|---|---|---|---|---|
-| 1 | `create` | Mittente | dati completi, hub validi, **wallet mittente connesso** (NWC) | — (snapshot cambio EUR congelato) |
-| 2 | `origin_hub_accept` | Hub origine (auto se `auto_accept`) | dims/peso/undeclared ok, wallet hub connesso | ⏳ bond hub: l'hub paga la hold invoice emessa dal mittente (hash del coordinatore) |
-| 3 | `origin_checkin` | Hub origine | scan QR, foto obbligatoria | — (parte il timer di giacenza) |
-| 4 | `leg_accept` | Vettore | viaggio attivo, criteri match, wallet connesso; hub di arrivo accetta (auto) | tratta in `pending_funding`; importi calcolati e congelati (ECONOMICS) |
-| 5 | `leg_funded` | Wallet-event | entro 60 min da `leg_accept`: ⏳ pagamento tratta (mittente paga hold del vettore) · ⏳ bond vettore (vettore paga hold del mittente) · ⏳ bond hub arrivo | le tre hold risultano *held* → `LEG_BOOKED`; finestra scaduta → tutto annullato, si torna in bacheca |
-| 6 | `pickup_checkout` | Hub cedente + vettore (doppia conferma QR) | entro `pickup_deadline`; certificazione sbloccata dal pagamento | 💸 fee di partenza (`f_dep` × lordo) vettore→hub, sul posto · ↩ bond hub cedente annullato |
-| 7 | `pickup_timeout` | Worker | deadline superata | 🔑⚔ preimage del bond vettore al mittente (incassa dal vettore) · ↩ pagamento tratta e bond hub arrivo annullati; spedizione torna in bacheca |
-| 8 | `leg_checkin` (hub intermedio) | Hub ricevente | scan QR, foto, **conferma integrità**; certificazione sbloccata dal pagamento della fee | 💸 fee di arrivo (`f_arr` × lordo) vettore→hub · 🔑 preimage al vettore: incassa il lordo direttamente dal mittente · ↩ bond vettore annullato |
-| 9 | `leg_checkin` (hub destinazione) | Hub destinazione | idem | idem (il netto del vettore = lordo − le due fee pagate sul posto) |
-| 10 | `leg_return` | Vettore + hub di partenza della tratta | entro `transit_deadline`; l'hub cedente è tenuto a riaccettare il pacco che ha certificato al check-out (ToS) | ↩ pagamento tratta e bond vettore annullati; la giacenza riparte |
-| 11 | `recipient_pickup` | Destinatario + hub | OTP + QR; l'ispezione precede l'OTP: digitarlo è l'**accettazione definitiva** (nessuna finestra di contestazione) | ↩ bond hub destinazione annullato; spedizione chiusa |
-| 12 | `handoff_reject` | Chi dovrebbe ricevere il pacco (hub, vettore o destinatario) | foto + motivo | nessuno: la custodia non passa e lo stato non cambia; evento in catena di custodia, notifica al mittente (che può `reroute`/`boost`) |
-| 13 | `storage_expiry` | Worker | giacenza scaduta | ↩ bond hub annullato; **pacco svincolato secondo ToS: il bene è la compensazione dell'hub** (nessun escrow prefinanziato — ADR-013) |
-| 14 | `transit_timeout` | Worker | deadline transito superata | 🔑⚔ preimage del bond vettore al mittente · ↩ pagamento tratta annullato (le fee già pagate sul posto restano pagate) |
-| 15 | `boost` | Mittente | stato con pacco fermo | nessun movimento: aumenta l'impegno di spesa per le tratte future (ECONOMICS §5) |
-| 16 | `reroute` | Mittente | stato `AT_HUB` o `AWAITING_PICKUP`, nessuna tratta prenotata | nessun movimento; nuovo hub destinazione e/o destinatario, `r` ricalcolata, OTP invalidato e riemesso |
-| 17 | `cancel` | Mittente | solo prima del primo `pickup_checkout` | 💸 compensazione hub origine `f_o × P` pagata direttamente (la restituzione del pacco si sblocca al pagamento) · ↩ bond hub annullato |
+| #   | Evento                           | Attore                                                       | Guardia                                                                                                                                                    | Effetti monetari (tutti P2P, journal entry ombra)                                                                                              |
+| --- | -------------------------------- | ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `create`                         | Mittente                                                     | dati completi, hub validi, **wallet mittente connesso** (NWC)                                                                                              | — (snapshot cambio EUR congelato)                                                                                                              |
+| 2   | `origin_hub_accept`              | Hub origine (auto se `auto_accept`)                          | dims/peso/undeclared ok, wallet hub connesso                                                                                                               | ⏳ bond hub: l'hub paga la hold invoice emessa dal mittente (hash del coordinatore)                                                            |
+| 3   | `origin_checkin`                 | Hub origine                                                  | scan QR, foto obbligatoria                                                                                                                                 | — (parte il timer di giacenza)                                                                                                                 |
+| 4   | `leg_accept`                     | Vettore                                                      | viaggio attivo, criteri match, wallet connesso; hub di arrivo accetta (auto)                                                                               | tratta in `pending_funding`; importi calcolati e congelati (ECONOMICS)                                                                         |
+| 5   | `leg_funded`                     | Wallet-event                                                 | entro 60 min da `leg_accept`: ⏳ pagamento tratta (mittente paga hold del vettore) · ⏳ bond vettore (vettore paga hold del mittente) · ⏳ bond hub arrivo | le tre hold risultano _held_ → `LEG_BOOKED`; finestra scaduta → tutto annullato, si torna in bacheca                                           |
+| 6   | `pickup_checkout`                | Hub cedente + vettore (doppia conferma QR)                   | entro `pickup_deadline`; certificazione sbloccata dal pagamento                                                                                            | 💸 fee di partenza (`f_dep` × lordo) vettore→hub, sul posto · ↩ bond hub cedente annullato                                                     |
+| 7   | `pickup_timeout`                 | Worker                                                       | deadline superata                                                                                                                                          | 🔑⚔ preimage del bond vettore al mittente (incassa dal vettore) · ↩ pagamento tratta e bond hub arrivo annullati; spedizione torna in bacheca  |
+| 8   | `leg_checkin` (hub intermedio)   | Hub ricevente                                                | scan QR, foto, **conferma integrità**; certificazione sbloccata dal pagamento della fee                                                                    | 💸 fee di arrivo (`f_arr` × lordo) vettore→hub · 🔑 preimage al vettore: incassa il lordo direttamente dal mittente · ↩ bond vettore annullato |
+| 9   | `leg_checkin` (hub destinazione) | Hub destinazione                                             | idem                                                                                                                                                       | idem (il netto del vettore = lordo − le due fee pagate sul posto)                                                                              |
+| 10  | `leg_return`                     | Vettore + hub di partenza della tratta                       | entro `transit_deadline`; l'hub cedente è tenuto a riaccettare il pacco che ha certificato al check-out (ToS)                                              | ↩ pagamento tratta e bond vettore annullati; la giacenza riparte                                                                               |
+| 11  | `recipient_pickup`               | Destinatario + hub                                           | OTP + QR; l'ispezione precede l'OTP: digitarlo è l'**accettazione definitiva** (nessuna finestra di contestazione)                                         | ↩ bond hub destinazione annullato; spedizione chiusa                                                                                           |
+| 12  | `handoff_reject`                 | Chi dovrebbe ricevere il pacco (hub, vettore o destinatario) | foto + motivo                                                                                                                                              | nessuno: la custodia non passa e lo stato non cambia; evento in catena di custodia, notifica al mittente (che può `reroute`/`boost`)           |
+| 13  | `storage_expiry`                 | Worker                                                       | giacenza scaduta                                                                                                                                           | ↩ bond hub annullato; **pacco svincolato secondo ToS: il bene è la compensazione dell'hub** (nessun escrow prefinanziato — ADR-013)            |
+| 14  | `transit_timeout`                | Worker                                                       | deadline transito superata                                                                                                                                 | 🔑⚔ preimage del bond vettore al mittente · ↩ pagamento tratta annullato (le fee già pagate sul posto restano pagate)                          |
+| 15  | `boost`                          | Mittente                                                     | stato con pacco fermo                                                                                                                                      | nessun movimento: aumenta l'impegno di spesa per le tratte future (ECONOMICS §5)                                                               |
+| 16  | `reroute`                        | Mittente                                                     | stato `AT_HUB` o `AWAITING_PICKUP`, nessuna tratta prenotata                                                                                               | nessun movimento; nuovo hub destinazione e/o destinatario, `r` ricalcolata, OTP invalidato e riemesso                                          |
+| 17  | `cancel`                         | Mittente                                                     | solo prima del primo `pickup_checkout`                                                                                                                     | 💸 compensazione hub origine `f_o × P` pagata direttamente (la restituzione del pacco si sblocca al pagamento) · ↩ bond hub annullato          |
 
 **Principio di responsabilità ("la responsabilità segue la custodia certificata")**: chi
 riceve il pacco (hub o vettore) ne certifica l'integrità al check-in/check-out con foto.
@@ -337,12 +339,12 @@ Da confermare in revisione.
 
 `infra/docker/docker-compose.yml` (dettagli in ADR-004):
 
-| Servizio | Ruolo |
-|---|---|
-| `postgres` | dati applicativi + ledger ombra + pg-boss |
-| `bitcoind` (regtest) | chain locale, mining on-demand |
+| Servizio                                                       | Ruolo                                                                               |
+| -------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `postgres`                                                     | dati applicativi + ledger ombra + pg-boss                                           |
+| `bitcoind` (regtest)                                           | chain locale, mining on-demand                                                      |
 | `lnd-alice` (mittente), `lnd-bob` (vettore), `lnd-carol` (hub) | i **wallet degli utenti** di test — la piattaforma non ha un nodo proprio (ADR-013) |
-| `mailpit` | SMTP di sviluppo con UI web |
+| `mailpit`                                                      | SMTP di sviluppo con UI web                                                         |
 
 Script di bootstrap: mina blocchi, finanzia i wallet, apre canali alice↔bob↔carol.
 In dev i wallet sono collegati con l'adapter `lnd_rest` (stessa interfaccia

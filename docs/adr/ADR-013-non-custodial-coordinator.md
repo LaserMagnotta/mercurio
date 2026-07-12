@@ -49,7 +49,7 @@ prefinanziato che copre l'intera spedizione; cadono se i flussi diventano per-tr
 - **Frizione dichiarata**: wallet hold-capable richiesti (LND/CLN/Alby Hub via NWC),
   mittente reattivo a ogni accettazione di tratta, liquidità in-flight per i bond.
   È il prezzo dello zero-custodia, accettato.
-- Il ledger (ADR-010) diventa un ledger *ombra* dei flussi esterni osservati;
+- Il ledger (ADR-010) diventa un ledger _ombra_ dei flussi esterni osservati;
   l'invariante di riconciliazione confronta scritture e stato reale delle invoice.
 - `storage_expiry` non gira più nessun residuo all'hub (non esiste pentola): la
   compensazione è il pacco svincolato secondo ToS.

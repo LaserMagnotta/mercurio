@@ -13,6 +13,7 @@ ma l'integrità non è verificabile oggettivamente da un software, e nessun esse
 umano deve doverla giudicare.
 
 **Soluzione — certificazione ai passaggi di mano + esiti solo deterministici**:
+
 - Il mittente sigilla il pacco; foto consigliate di contenuto e pacco sigillato alla
   creazione (sono la sua unica tutela documentale).
 - A ogni passaggio di mano chi riceve ha due sole mosse: **accettare** (foto +
@@ -28,14 +29,15 @@ umano deve doverla giudicare.
   all'hub. Mai per giudizio di un arbitro.
 
 **Come si risolvono i casi brutti, senza arbitro**:
-- *Vettore con pacco danneggiato in mano*: nessun hub glielo accetta → o lo riporta
+
+- _Vettore con pacco danneggiato in mano_: nessun hub glielo accetta → o lo riporta
   all'hub di partenza (`leg_return`: bond restituito, nessun payout — l'hub cedente è
   tenuto a riaccettare ciò che ha certificato al check-out) o scatta il
   `transit_timeout` e il suo bond va al mittente. Deterministico.
-- *Destinatario che rifiuta il ritiro*: il pacco resta all'hub; il mittente viene
+- _Destinatario che rifiuta il ritiro_: il pacco resta all'hub; il mittente viene
   notificato e può fare `reroute` (anche verso l'origine, con se stesso come
   destinatario = richiamo del pacco) e/o `boost`; altrimenti giacenza → svincolo.
-- *Rifiuto pretestuoso (griefing)*: il rifiuto non muove denaro, quindi non c'è nulla
+- _Rifiuto pretestuoso (griefing)_: il rifiuto non muove denaro, quindi non c'è nulla
   da guadagnare; i rifiuti sono registrati in catena di custodia e pesano sulla
   reputazione di chi li accumula.
 
@@ -47,7 +49,7 @@ niente collo di bottiglia umano, niente pressioni sull'arbitro con bond da 1.000
 Il gestore non ha alcun ruolo nei movimenti di denaro (nemmeno di controllo
 preventivo — §5): tutto è deciso dalle regole ed eseguito dal software.
 
-**Limite accettato**: contenuti difformi *dentro* un pacco mai aperto non sono
+**Limite accettato**: contenuti difformi _dentro_ un pacco mai aperto non sono
 verificabili; mitigazione: tetto di valore dichiarabile (§2), foto del contenuto
 come pratica consigliata, reputazione.
 
@@ -57,6 +59,7 @@ come pratica consigliata, reputazione.
 canale per merce illegale, con esposizione di hub e vettori.
 
 **Proposte**:
+
 - **Opt-in esplicito**: hub e vettori vedono il flag "contenuto non dichiarato" prima
   di accettare; gli hub lo configurano in registrazione (già in specifica). Chi non
   fa opt-in non riceve mai questi pacchi dal matching.
@@ -92,6 +95,7 @@ Stato: **proposte pronte; formulazioni ToS da legale**.
 **Problema**: solo email = account usa-e-getta facili (Sybil); KYC = uccide il progetto.
 
 **Proposta — economica, non anagrafica**:
+
 - **Email verificata obbligatoria per tutti** (magic link): serve comunque come canale
   operativo (notifiche a mittente/destinatario sono parte del flusso) e dà un costo
   minimo di frizione. **LNURL-auth opzionale** come secondo metodo di login,
@@ -113,6 +117,7 @@ Stato: **raccomandata email+LNURL-auth; da confermare in revisione**.
 custodia e restituzione — artt. 1766 ss. c.c.).
 
 **Proposta di riformulazione (già recepita nel CLAUDE.md come "svincolo")**:
+
 - Alla scadenza della giacenza scelta dal mittente il pacco diventa **svincolato
   secondo ToS**: il bene stesso è la compensazione dell'hub per lo stoccaggio
   (con l'architettura zero-custodia non esiste un escrow prefinanziato da girargli —
@@ -145,16 +150,16 @@ tracciabilità interna (ledger ombra + catena di custodia con identità email).
 ⚖️ Verifica legale residua (leggera, non bloccante per lo sviluppo): che
 l'orchestrazione dei pagamenti via NWC non qualifichi la piattaforma come servizio
 di disposizione di ordini di pagamento (PISP, PSD2) — difesa: ogni pagamento è
-approvato dall'utente nel *proprio* wallet; la piattaforma propone, non dispone.
+approvato dall'utente nel _proprio_ wallet; la piattaforma propone, non dispone.
 
 **Nuovi rischi introdotti dallo zero-custodia** (il prezzo della scelta, accettato):
 
-| Rischio | Gestione |
-|---|---|
-| Wallet capaci di hold invoice richiesti (LND/CLN/Alby Hub) = frizione di onboarding | Connessione via NWC + adapter diretti; guide; è la selezione naturale del pubblico early-adopter |
-| HTLC pendenti a lungo (bond hub = intera giacenza) = liquidità congelata, rischio force-close | **Giacenza massima 7 giorni nell'MVP**; rinnovo rolling dei bond come evoluzione |
-| Mittente non reattivo: ogni tratta parte solo dopo il suo pagamento (finestra 60 min) | Notifiche push/email; metrica di reattività visibile in bacheca; l'accettazione decade senza danni |
-| UX dei pagamenti pendenti su alcuni wallet | Lista di wallet testati/consigliati; documentazione |
+| Rischio                                                                                       | Gestione                                                                                           |
+| --------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| Wallet capaci di hold invoice richiesti (LND/CLN/Alby Hub) = frizione di onboarding           | Connessione via NWC + adapter diretti; guide; è la selezione naturale del pubblico early-adopter   |
+| HTLC pendenti a lungo (bond hub = intera giacenza) = liquidità congelata, rischio force-close | **Giacenza massima 7 giorni nell'MVP**; rinnovo rolling dei bond come evoluzione                   |
+| Mittente non reattivo: ogni tratta parte solo dopo il suo pagamento (finestra 60 min)         | Notifiche push/email; metrica di reattività visibile in bacheca; l'accettazione decade senza danni |
+| UX dei pagamenti pendenti su alcuni wallet                                                    | Lista di wallet testati/consigliati; documentazione                                                |
 
 Stato: **chiuso by design; resta solo la verifica PISP ⚖️**.
 
@@ -175,23 +180,24 @@ Stato: **da implementare by design; informative da legale**.
 
 ## 7. Altri rischi operativi (sintesi)
 
-| Rischio | Proposta | Stato |
-|---|---|---|
-| Collusione vettore+hub (finto check-in per liberare bond e payout) | La collusione paga solo se il pacco sparisce: il custode certificante resta responsabile verso valle; bond ≥ valore del pacco (il mittente dimensiona il bond, la UI lo suggerisce = valore + spedizione); reputazione | Mitigato by design |
-| QR clonato / pacco fotografato | Il QR da solo non autorizza nulla: serve sessione autenticata + OTP al ritiro (ARCHITECTURE §7) | Mitigato by design |
-| Vettore sparisce col pacco | `transit_timeout` → bond al mittente + rimborso residuo escrow; il bond dimensionato dal mittente è l'assicurazione | Mitigato (se bond ≥ valore) |
-| Hub chiude/sparisce con pacchi in giacenza | Bond hub attivo per ogni pacco in custodia; rating; verifica soft dell'attività | Parziale — accettato per MVP |
-| Volatilità EUR/sats durante la spedizione | Cambio congelato al funding; chi incassa sats accetta il rischio sats (esplicitato in UI) | Accettato, documentato |
-| Manipolazione della tariffa suggerita | Solo tratte completate nel campione, p25, minimo 30 osservazioni (MATCHING §4) | Mitigato |
-| Escrow/bond usati come canale di trasferimento di valore | Rischio accettato senza controlli preventivi (decisione 2026-07-12, §5): i beneficiari di ogni hold sono fissati dal protocollo, mai scelti dalle parti; tutto è tracciato in ledger e catena di custodia con identità email — un pessimo strumento per chi vuole nascondere qualcosa. ⚖️ Si riapre solo se il parere legale rileva obblighi | Accettato by design |
-| Bond alti (fino a 1.000 €) restringono la platea di vettori e hub disposti/capaci di bloccarli | Scelta consapevole del mittente: la UI mostra l'impatto stimato sul tempo di consegna ("con questo bond, X vettori compatibili in zona"); il mercato prezza | Accettato by design |
-| Casi non provabili: danno senza responsabile individuabile dalle regole meccaniche → nessun risarcimento | Costo dichiarato del modello senza arbitro (ADR-012): la certificazione ai passaggi riduce i casi al minimo, la reputazione punisce i recidivi, le foto del mittente restano la sua tutela documentale | Accettato by design |
-| Piattaforma compromessa (DB delle preimage) | Non c'è nulla da rubare: chi ottiene una preimage può solo far incassare in anticipo il **legittimo beneficiario** già fissato, o negare un esito (e allora i fondi tornano al pagatore alla scadenza). Preimage cifrate a riposo; default sicuro | Mitigato by design (ADR-013) |
-| Nessuna assicurazione sul trasporto | Fuori scope MVP: il bond È l'assicurazione peer-to-peer; comunicarlo chiaramente | Accettato, da esplicitare in ToS |
+| Rischio                                                                                                  | Proposta                                                                                                                                                                                                                                                                                                                                     | Stato                            |
+| -------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
+| Collusione vettore+hub (finto check-in per liberare bond e payout)                                       | La collusione paga solo se il pacco sparisce: il custode certificante resta responsabile verso valle; bond ≥ valore del pacco (il mittente dimensiona il bond, la UI lo suggerisce = valore + spedizione); reputazione                                                                                                                       | Mitigato by design               |
+| QR clonato / pacco fotografato                                                                           | Il QR da solo non autorizza nulla: serve sessione autenticata + OTP al ritiro (ARCHITECTURE §7)                                                                                                                                                                                                                                              | Mitigato by design               |
+| Vettore sparisce col pacco                                                                               | `transit_timeout` → bond al mittente + rimborso residuo escrow; il bond dimensionato dal mittente è l'assicurazione                                                                                                                                                                                                                          | Mitigato (se bond ≥ valore)      |
+| Hub chiude/sparisce con pacchi in giacenza                                                               | Bond hub attivo per ogni pacco in custodia; rating; verifica soft dell'attività                                                                                                                                                                                                                                                              | Parziale — accettato per MVP     |
+| Volatilità EUR/sats durante la spedizione                                                                | Cambio congelato al funding; chi incassa sats accetta il rischio sats (esplicitato in UI)                                                                                                                                                                                                                                                    | Accettato, documentato           |
+| Manipolazione della tariffa suggerita                                                                    | Solo tratte completate nel campione, p25, minimo 30 osservazioni (MATCHING §4)                                                                                                                                                                                                                                                               | Mitigato                         |
+| Escrow/bond usati come canale di trasferimento di valore                                                 | Rischio accettato senza controlli preventivi (decisione 2026-07-12, §5): i beneficiari di ogni hold sono fissati dal protocollo, mai scelti dalle parti; tutto è tracciato in ledger e catena di custodia con identità email — un pessimo strumento per chi vuole nascondere qualcosa. ⚖️ Si riapre solo se il parere legale rileva obblighi | Accettato by design              |
+| Bond alti (fino a 1.000 €) restringono la platea di vettori e hub disposti/capaci di bloccarli           | Scelta consapevole del mittente: la UI mostra l'impatto stimato sul tempo di consegna ("con questo bond, X vettori compatibili in zona"); il mercato prezza                                                                                                                                                                                  | Accettato by design              |
+| Casi non provabili: danno senza responsabile individuabile dalle regole meccaniche → nessun risarcimento | Costo dichiarato del modello senza arbitro (ADR-012): la certificazione ai passaggi riduce i casi al minimo, la reputazione punisce i recidivi, le foto del mittente restano la sua tutela documentale                                                                                                                                       | Accettato by design              |
+| Piattaforma compromessa (DB delle preimage)                                                              | Non c'è nulla da rubare: chi ottiene una preimage può solo far incassare in anticipo il **legittimo beneficiario** già fissato, o negare un esito (e allora i fondi tornano al pagatore alla scadenza). Preimage cifrate a riposo; default sicuro                                                                                            | Mitigato by design (ADR-013)     |
+| Nessuna assicurazione sul trasporto                                                                      | Fuori scope MVP: il bond È l'assicurazione peer-to-peer; comunicarlo chiaramente                                                                                                                                                                                                                                                             | Accettato, da esplicitare in ToS |
 
 ## 8. Decisioni prese e punti ancora aperti
 
 **Decise in revisione (2026-07-12)**:
+
 1. Bond di custodia unico per hub e vettori, fissato dal mittente (ARCHITECTURE §6). ✔
 2. Modello B con fee hub calcolate sul lordo della tratta; l'esempio canonico del
    CLAUDE.md va aggiornato (Luca: lordo 2,00 €, netto 1,60 €). ✔
@@ -212,6 +218,7 @@ Stato: **da implementare by design; informative da legale**.
     massima 7 giorni nell'MVP. ✔
 
 **Ancora aperti**:
+
 - Solo i punti ⚖️ (svincolo a fine giacenza, verifica leggera PISP, GDPR,
   formulazioni ToS): richiedono un legale prima del mainnet. Nessuno blocca lo
   sviluppo.

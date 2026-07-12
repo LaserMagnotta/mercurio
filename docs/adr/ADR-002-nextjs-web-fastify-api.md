@@ -26,7 +26,7 @@ l'API basti davvero per il futuro client mobile, perché è già l'unico client.
   diventerebbe un cittadino di seconda classe accoppiato al deploy del frontend;
   server actions non producono OpenAPI. Scartato per il requisito API-first.
 - **tRPC**: DX eccellente ma contratto non-standard verso terzi; il requisito è
-  un'API *pubblica documentata* → REST+OpenAPI.
+  un'API _pubblica documentata_ → REST+OpenAPI.
 - **NestJS**: più struttura di quella che serve; Fastify puro + Zod è più leggero e
   la logica sta comunque in `packages/core`.
 
