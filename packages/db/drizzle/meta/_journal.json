@@ -15,6 +15,13 @@
       "when": 1783864772179,
       "tag": "0001_ledger_invariants",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1783877324520,
+      "tag": "0002_blue_thaddeus_ross",
+      "breakpoints": true
     }
   ]
 }
