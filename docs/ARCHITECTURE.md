@@ -314,6 +314,57 @@ tratte già certificate integre sono chiuse e non soggette a clawback.
 7. **Default sicuro**: se il coordinatore si ferma, ogni hold scade e i fondi tornano
    ai pagatori: nessuno stato di errore lascia denaro in limbo permanente.
 
+### Precisazioni implementative (`packages/core/src/state-machine`)
+
+La macchina è implementata come funzione pura
+`transition(state, event, ctx) → { nextState, effects[] } | errore tipizzato`;
+gli effetti sono dati dichiarativi (mai I/O) che l'API esegue in un'unica
+transazione. Tipi condivisi in `@mercurio/shared` (`ShipmentEvent`,
+`ShipmentEffect`, `ShipmentContext`); helper della catena di custodia
+(`custodyEventHash`, `verifyCustodyChain`: sha256 di payload canonico +
+`prev_event_hash`) in `@mercurio/core`. Decisioni emerse implementando, tutte
+forzate dagli invarianti qui sopra (non scelte libere di protocollo):
+
+1. **`leg_funding_expired` è un evento esplicito** (il ramo "finestra scaduta"
+   della riga 5): annulla le tre hold, quindi deve passare dalla macchina. I
+   suoi annullamenti non generano journal entry: gli impegni entrano nel
+   ledger ombra solo a `leg_funded` — una hold annullata prima della
+   prenotazione non è mai diventata un impegno.
+2. **`leg_return` rimborsa anche il bond dell'hub di arrivo** (la sua giacenza
+   non si attiverà mai) e **l'hub cedente che riaccetta blocca un bond
+   nuovo**: il suo precedente era stato liberato al check-out e chi prende la
+   custodia impegna il bond (§6); senza, l'invariante 4 resterebbe scoperto.
+3. **`transit_timeout` rimborsa anche il bond dell'hub di arrivo** (omesso
+   nella riga 14, implicato dall'invariante 2: ogni hold o si regola o si
+   annulla).
+4. **Timer di giacenza**: armato a ogni check-in, disarmato a `leg_funded`
+   (col vettore impegnato la giacenza è sospesa) e riarmato con la scadenza
+   originale se `pickup_timeout` riporta il pacco in bacheca. Se la giacenza
+   scade con una tratta ancora in `pending_funding`, le hold pendenti vengono
+   annullate nella stessa transizione di `storage_expiry`. Gli eventi di
+   timeout consumano il proprio timer (nessun `cancel_timeout` su sé stessi).
+5. **`reroute` emette l'effetto dedicato `rotate_pickup_otp`** (l'API invalida
+   e riemette l'OTP eseguendolo). Caso particolare: cambiare **solo il
+   destinatario** con pacco già all'hub di destinazione mantiene
+   `AWAITING_PICKUP` (tornare in `AT_HUB` incaglierebbe il pacco: da lì non
+   esiste tratta a progresso positivo) e il nuovo destinatario riceve subito
+   l'email con il nuovo OTP.
+6. **`boost` è ammesso anche da `AWAITING_PICKUP`**: ECONOMICS §5 prevede che
+   il reroute dallo stato di consegna a pool esaurito richieda un boost.
+7. **Fee istantanee a importo zero** (hub configurato allo 0%): l'effetto di
+   pagamento e la sua journal entry vengono omessi del tutto.
+8. **Email**: solo quelle previste dai documenti (check-in intermedio →
+   mittente e destinatario; arrivo a destinazione → destinatario; ritiro →
+   mittente; `handoff_reject` → mittente). OTP, preavvisi di giacenza e
+   solleciti sono responsabilità del worker, non della macchina.
+9. **Niente PII nella catena di custodia**: i payload registrano che il
+   destinatario è cambiato, mai l'email — la catena è immutabile e la
+   cancellazione GDPR non deve romperla (RISKS §6).
+10. **Autorizzazione fuori dalla macchina**: sessioni, possesso del QR e
+    verifica dell'hash OTP sono dell'API; la macchina valida le guardie di
+    protocollo su fatti dichiarati dal chiamante (`otpVerified`, hash foto,
+    doppia conferma).
+
 ## 6. Bond di custodia unico (proposta)
 
 Il CLAUDE.md definisce il bond del vettore (scelto dal mittente, es. 15 €) ma non
