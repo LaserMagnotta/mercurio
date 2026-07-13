@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import { bigint, doublePrecision, integer, pgTable, timestamp, uuid } from 'drizzle-orm/pg-core';
 import { legStatusEnum } from './enums';
 import { hubs } from './hubs';
@@ -11,6 +12,9 @@ import { conditionalPayments } from './conditional-payments';
 // percentages of `grossMsat`, paid on the spot at the physical handoffs -
 // they are never held here, only the leg payment and the carrier bond are
 // (via `paymentConditionalPaymentId` / `bondConditionalPaymentId`).
+// `finalizationBonusMsat` is the carrier share of the ADR-014 bonus, frozen
+// only on the leg that delivers to the destination hub (0 elsewhere); the
+// leg-payment hold amount is grossMsat + finalizationBonusMsat.
 export const legs = pgTable('legs', {
   id: uuid('id').defaultRandom().primaryKey(),
   shipmentId: uuid('shipment_id')
@@ -41,6 +45,11 @@ export const legs = pgTable('legs', {
   depHubFeeMsat: bigint('dep_hub_fee_msat', { mode: 'bigint' }).notNull(),
   arrHubFeeMsat: bigint('arr_hub_fee_msat', { mode: 'bigint' }).notNull(),
   netMsat: bigint('net_msat', { mode: 'bigint' }).notNull(),
+  // sql`0` rather than 0n: drizzle-kit cannot serialize bigint literals into
+  // its snapshot (JSON.stringify), the SQL default is identical.
+  finalizationBonusMsat: bigint('finalization_bonus_msat', { mode: 'bigint' })
+    .notNull()
+    .default(sql`0`),
 
   paymentConditionalPaymentId: uuid('payment_cp_id').references(() => conditionalPayments.id),
   bondConditionalPaymentId: uuid('bond_cp_id').references(() => conditionalPayments.id),

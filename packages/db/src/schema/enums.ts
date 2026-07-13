@@ -73,9 +73,13 @@ export const walletStatusEnum = pgEnum('wallet_status', ['connected', 'disconnec
 
 // Conditional payments (hold invoices) are the only "hold" primitive in the
 // system (ADR-013): no platform-held escrow accounts exist.
+// 'finalization_bonus' is the hub share of the ADR-014 bonus (sender -> dest
+// hub, released at recipient_pickup); the carrier share needs no purpose of
+// its own because it rides inside the final 'leg_payment' hold.
 export const conditionalPaymentPurposeEnum = pgEnum('conditional_payment_purpose', [
   'leg_payment',
   'custody_bond',
+  'finalization_bonus',
 ]);
 export const conditionalPaymentStateEnum = pgEnum('conditional_payment_state', [
   'created',
