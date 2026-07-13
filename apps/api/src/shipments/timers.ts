@@ -23,6 +23,8 @@ function timerEvent(timer: TimerRow, nowIso: string): ShipmentEvent {
       return { type: 'transit_timeout', now: nowIso };
     case 'storage':
       return { type: 'storage_expiry', now: nowIso };
+    case 'claim_funding':
+      return { type: 'claim_funding_expired', now: nowIso };
   }
 }
 

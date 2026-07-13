@@ -10,6 +10,7 @@ import { emailOutbox, hubs } from '@mercurio/db';
 import type { SendMail } from '../lib/mailer';
 
 const LIFECYCLE_TEMPLATES = [
+  'parcel_tracking',
   'parcel_at_intermediate_hub',
   'parcel_arrived',
   'parcel_delivered',
@@ -45,6 +46,20 @@ async function render(
   payload: Record<string, unknown>,
 ): Promise<RenderedEmail | null> {
   switch (template) {
+    case 'parcel_tracking':
+      return {
+        subject: 'Mercurio — il tuo pacco è in viaggio: codice personale di tracking e ritiro',
+        text:
+          `Un pacco per te è stato consegnato a ${await hubLabel(db, payload.hubId)} ed è in viaggio.\n` +
+          `Riceverai una mail a ogni tappa.\n\n` +
+          `Questo è il tuo codice personale: ${String(payload.claimToken ?? '')}\n` +
+          `Con questo codice puoi RITIRARE IN ANTICIPO il pacco mentre è fermo in un hub\n` +
+          `qualsiasi del percorso, incassando tu il compenso residuo della spedizione\n` +
+          `(serve un account Mercurio con wallet Lightning collegato). Presentalo all'hub\n` +
+          `al momento del ritiro: accettare il pacco vale come accettazione definitiva.\n` +
+          `Non condividerlo: chiunque lo possieda può reclamare il pacco.\n\n` +
+          `Spedizione: ${String(payload.shipmentId ?? '')}`,
+      };
     case 'parcel_at_intermediate_hub':
       return {
         subject: 'Mercurio — il pacco è arrivato in un hub intermedio',

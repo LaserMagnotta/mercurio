@@ -9,7 +9,7 @@
 import { randomUUID } from 'node:crypto';
 import { eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
-import { hubs, legs, shipments } from '@mercurio/db';
+import { hubs, legs, shipmentClaims, shipments } from '@mercurio/db';
 import { splitCommitment } from '@mercurio/core';
 import {
   createShipmentBody,
@@ -101,6 +101,7 @@ export function registerShipmentRoutes(app: App) {
         currentHubStay: null,
         leg: null,
         finalizationBonusHold: null,
+        pendingClaim: null,
       };
 
       try {
@@ -188,10 +189,17 @@ export function registerShipmentRoutes(app: App) {
       const s = bundle.shipment;
       const hubOwners = [...bundle.hubById.values()].map((h) => h.userId);
       const legRowsAll = await app.db.select().from(legs).where(eq(legs.shipmentId, s.id));
+      const claimRowsAll = await app.db
+        .select({ claimantId: shipmentClaims.claimantId })
+        .from(shipmentClaims)
+        .where(eq(shipmentClaims.shipmentId, s.id));
       const isParticipant =
         s.senderId === userId ||
         hubOwners.includes(userId) ||
-        legRowsAll.some((l) => l.carrierId === userId);
+        legRowsAll.some((l) => l.carrierId === userId) ||
+        // A claimant is a party to the shipment (ADR-016): they need the
+        // status to know when the claim is funded and pickup can happen.
+        claimRowsAll.some((c) => c.claimantId === userId);
       if (!isParticipant) return reply.code(404).send({ error: 'not_found' });
 
       const currentHubId = bundle.currentStayRow?.hubId ?? null;

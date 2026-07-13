@@ -63,6 +63,7 @@ export interface LifecycleWorld {
   mario: Persona; // hub A (origin) owner
   carla: Persona; // hub C (intermediate) owner
   bruno: Persona; // hub B (destination) owner
+  rita: Persona; // recipient (account + wallet: she can claim, ADR-016)
   hubA: string;
   hubC: string;
   hubB: string;
@@ -117,6 +118,9 @@ export async function createLifecycleWorld(): Promise<LifecycleWorld> {
     'mario@test.local',
     'carla@test.local',
     'bruno@test.local',
+    // Rita's account email matches CANONICAL_CREATE_BODY.recipientEmail: she
+    // is the addressee of the tracking mail and the canonical claimant.
+    'destinataria@test.local',
   ];
   const userRows = await db
     .insert(users)
@@ -179,13 +183,14 @@ export async function createLifecycleWorld(): Promise<LifecycleWorld> {
       wallet: wallets.get(row.id)!,
     };
   };
-  const [marco, luca, anna, mario, carla, bruno] = await Promise.all([
+  const [marco, luca, anna, mario, carla, bruno, rita] = await Promise.all([
     persona(0),
     persona(1),
     persona(2),
     persona(3),
     persona(4),
     persona(5),
+    persona(6),
   ]);
   await db.insert(carrierProfiles).values([{ userId: luca!.id }, { userId: anna!.id }]);
   const hubRows = await db
@@ -223,6 +228,7 @@ export async function createLifecycleWorld(): Promise<LifecycleWorld> {
     mario: mario!,
     carla: carla!,
     bruno: bruno!,
+    rita: rita!,
     hubA: hubRows[0]!.id,
     hubC: hubRows[1]!.id,
     hubB: hubRows[2]!.id,

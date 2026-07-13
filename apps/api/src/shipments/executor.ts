@@ -52,6 +52,7 @@ import {
   legs,
   postJournalEntry,
   rateObservations,
+  shipmentClaims,
   shipments,
   shipmentTimers,
   users,
@@ -65,7 +66,7 @@ import {
   type ShipmentEvent,
   type ShipmentState,
 } from '@mercurio/shared';
-import { hashToken } from '../lib/tokens';
+import { generateToken, hashToken } from '../lib/tokens';
 import {
   loadShipmentBundle,
   stateToDbStatus,
@@ -228,9 +229,11 @@ export async function executeShipmentTransition(
       }
 
       // Effects, in machine order (parcel_arrived reuses the OTP a preceding
-      // rotate_pickup_otp minted; the ledger pairing walks adjacency).
+      // rotate_pickup_otp minted, parcel_tracking the claim token of its
+      // rotate_claim_token; the ledger pairing walks adjacency).
       let chainTailHash = bundle?.chain.at(-1)?.hash ?? null;
       let mintedOtp: string | null = null;
+      let mintedClaimToken: string | null = null;
       const recipientEmail =
         (args.shipmentPatch?.recipientEmail as string | undefined) ??
         bundle?.shipment.recipientEmail ??
@@ -338,12 +341,25 @@ export async function executeShipmentTransition(
               }
               payload = { ...payload, otp: mintedOtp };
             }
+            if (effect.template === 'parcel_tracking') {
+              // The claim token travels ONLY here (ADR-016): hash at rest,
+              // plaintext in the outbox row of the same transaction.
+              if (!mintedClaimToken) {
+                mintedClaimToken = await rotateClaimToken(tx, preCtx.shipmentId);
+              }
+              payload = { ...payload, claimToken: mintedClaimToken };
+            }
             await tx.insert(emailOutbox).values({ to, template: effect.template, payload });
             break;
           }
 
           case 'rotate_pickup_otp': {
             mintedOtp = await rotateOtp(tx, preCtx.shipmentId);
+            break;
+          }
+
+          case 'rotate_claim_token': {
+            mintedClaimToken = await rotateClaimToken(tx, preCtx.shipmentId);
             break;
           }
 
@@ -497,6 +513,18 @@ function deriveLedgerIdem(
         return `cp:${ctx.leg.arrivalHubBondId}:held`;
       case 'finalization_bonus_held':
         if (ctx.finalizationBonusHold) return `cp:${ctx.finalizationBonusHold.paymentId}:held`;
+    }
+  }
+  // claim_funded: held entries for payments created at recipient_claim
+  // (ADR-016 — the claim's mirror of the leg_funded resolution above).
+  if (kind === 'held' && ctx.pendingClaim) {
+    switch (entry.eventType) {
+      case 'claim_payment_held':
+        return `cp:${ctx.pendingClaim.claimPaymentId}:held`;
+      case 'finalization_bonus_held':
+        if (ctx.pendingClaim.hubBonusPaymentId) {
+          return `cp:${ctx.pendingClaim.hubBonusPaymentId}:held`;
+        }
     }
   }
   // Money must never be posted under a guessed key: fail the transition.
@@ -687,12 +715,68 @@ async function projectRows(tx: Db, deps: LifecycleDeps, input: ProjectionInput):
       return;
     }
 
+    case 'recipient_claim': {
+      await tx.insert(shipmentClaims).values({
+        id: event.claimId,
+        shipmentId: bundle!.shipment.id,
+        claimantId: event.claimantId,
+        hubStayId: bundle!.currentStayRow!.id,
+        claimPaymentMsat: event.claimPaymentMsat,
+        hubBonusMsat: event.hubBonusMsat,
+        paymentConditionalPaymentId: mustCreated(`claim_payment|claim|${event.claimId}`),
+        hubBonusConditionalPaymentId:
+          event.hubBonusMsat > 0n
+            ? mustCreated(`finalization_bonus|claim|${event.claimId}`)
+            : null,
+        status: 'pending_funding',
+        fundingDeadlineAt: new Date(event.fundingDeadlineAt),
+      });
+      return;
+    }
+
+    case 'claim_funded': {
+      const claim = bundle!.pendingClaimRow!;
+      await tx.update(shipmentClaims).set({ status: 'funded' }).where(eq(shipmentClaims.id, claim.id));
+      return;
+    }
+
+    case 'claim_funding_expired': {
+      const claim = bundle!.pendingClaimRow!;
+      await tx
+        .update(shipmentClaims)
+        .set({ status: 'expired', resolvedAt: now })
+        .where(eq(shipmentClaims.id, claim.id));
+      return;
+    }
+
+    case 'recipient_claimed_pickup': {
+      const claim = bundle!.pendingClaimRow!;
+      const stay = bundle!.currentStayRow!;
+      await tx
+        .update(shipmentClaims)
+        .set({ status: 'completed', resolvedAt: now })
+        .where(eq(shipmentClaims.id, claim.id));
+      await tx
+        .update(hubStays)
+        .set({ status: 'released', checkedOutAt: now })
+        .where(eq(hubStays.id, stay.id));
+      return;
+    }
+
     case 'storage_expiry': {
       const stay = bundle!.currentStayRow!;
       await tx.update(hubStays).set({ status: 'expired' }).where(eq(hubStays.id, stay.id));
       if (bundle!.activeLegRow) {
         // A leg still pending funding dies with the storage (§5 decision 4).
         await expireLegAndArrival(tx, bundle!, 'expired');
+      }
+      if (bundle!.pendingClaimRow) {
+        // A claim — pending funding or already CLAIMED — dies with the
+        // storage too: its holds were dissolved by the transition (ADR-016).
+        await tx
+          .update(shipmentClaims)
+          .set({ status: 'expired', resolvedAt: now })
+          .where(eq(shipmentClaims.id, bundle!.pendingClaimRow.id));
       }
       return;
     }
@@ -785,6 +869,18 @@ async function rotateOtp(tx: Db, shipmentId: string): Promise<string> {
     .set({ recipientPickupOtpHash: hashToken(otp) })
     .where(eq(shipments.id, shipmentId));
   return otp;
+}
+
+/** Recipient claim token (ADR-016): a full-strength bearer token — it is
+ *  scanned/pasted, never typed, and it can move money — stored as hash only,
+ *  exactly like the OTP and the session tokens. */
+async function rotateClaimToken(tx: Db, shipmentId: string): Promise<string> {
+  const { token, hash } = generateToken();
+  await tx
+    .update(shipments)
+    .set({ recipientClaimTokenHash: hash })
+    .where(eq(shipments.id, shipmentId));
+  return token;
 }
 
 function sleep(ms: number): Promise<void> {

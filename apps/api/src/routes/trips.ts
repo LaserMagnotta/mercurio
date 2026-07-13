@@ -12,6 +12,7 @@ import {
   hubStays,
   legs,
   rateObservations,
+  shipmentClaims,
   shipments,
   walletConnections,
 } from '@mercurio/db';
@@ -174,8 +175,9 @@ async function buildBoard(app: App, trip: typeof carrierTrips.$inferSelect, carr
     )
     .where(eq(shipments.status, 'at_hub'));
 
+  const atHubIds = atHub.map((r) => r.shipment.id);
   const busy = new Set(
-    atHub.length === 0
+    atHubIds.length === 0
       ? []
       : (
           await db
@@ -183,15 +185,26 @@ async function buildBoard(app: App, trip: typeof carrierTrips.$inferSelect, carr
             .from(legs)
             .where(
               and(
-                inArray(
-                  legs.shipmentId,
-                  atHub.map((r) => r.shipment.id),
-                ),
+                inArray(legs.shipmentId, atHubIds),
                 inArray(legs.status, ['pending_funding', 'booked', 'picked_up']),
               ),
             )
         ).map((r) => r.shipmentId),
   );
+  // A shipment with a live recipient claim leaves the board from the very
+  // request (ADR-016): a carrier accepting it would be rejected anyway.
+  if (atHubIds.length > 0) {
+    const claimed = await db
+      .select({ shipmentId: shipmentClaims.shipmentId })
+      .from(shipmentClaims)
+      .where(
+        and(
+          inArray(shipmentClaims.shipmentId, atHubIds),
+          inArray(shipmentClaims.status, ['pending_funding', 'funded']),
+        ),
+      );
+    for (const row of claimed) busy.add(row.shipmentId);
+  }
 
   const hubRows = await db.select().from(hubs).where(eq(hubs.active, true));
   const hubById = new Map(hubRows.map((h) => [h.id, h]));

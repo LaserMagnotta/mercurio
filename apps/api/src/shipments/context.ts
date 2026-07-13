@@ -24,6 +24,7 @@ import {
   hubs,
   hubStays,
   legs,
+  shipmentClaims,
   shipments,
   users,
   walletConnections,
@@ -33,6 +34,7 @@ import type {
   ActiveHubStay,
   ActiveLeg,
   Msat,
+  PendingClaim,
   PoolBoost,
   ShipmentContext,
   ShipmentState,
@@ -45,6 +47,7 @@ export type HubStayRow = typeof hubStays.$inferSelect;
 export type HubRow = typeof hubs.$inferSelect;
 export type CustodyEventRow = typeof custodyEvents.$inferSelect;
 export type ConditionalPaymentRow = typeof conditionalPayments.$inferSelect;
+export type ShipmentClaimRow = typeof shipmentClaims.$inferSelect;
 
 // ---------------------------------------------------------------------------
 // Status mapping: Postgres enum (lowercase) ↔ machine states (UPPER_CASE)
@@ -116,8 +119,12 @@ export interface ShipmentBundle {
   activeLegRow: LegRow | null;
   /** The reserved stay at the active leg's arrival hub, if any. */
   arrivalStayRow: HubStayRow | null;
-  /** The pending Π_h hold row (purpose finalization_bonus, created|held). */
+  /** The pending Π_h hold row of a final LEG (purpose finalization_bonus,
+   *  created|held, ref NOT 'claim' — a claim's bonus hold lives with the
+   *  claim, ADR-016). */
   bonusHoldRow: ConditionalPaymentRow | null;
+  /** The live recipient claim (status pending_funding|funded), if any. */
+  pendingClaimRow: ShipmentClaimRow | null;
   /** Every hub referenced by the shipment/stays/legs, by id. */
   hubById: Map<string, HubRow>;
   senderEmail: string;
@@ -164,25 +171,27 @@ export async function loadShipmentBundle(
   const [shipment] = opts.forUpdate ? await shipmentQuery.for('update') : await shipmentQuery;
   if (!shipment) return null;
 
-  const [stays, shipmentLegs, chainRows, bonusRows, senderRows, senderWallets] = await Promise.all([
-    db.select().from(hubStays).where(eq(hubStays.shipmentId, shipmentId)),
-    db.select().from(legs).where(eq(legs.shipmentId, shipmentId)),
-    db.select().from(custodyEvents).where(eq(custodyEvents.shipmentId, shipmentId)),
-    db
-      .select()
-      .from(conditionalPayments)
-      .where(eq(conditionalPayments.shipmentId, shipmentId)),
-    db.select({ email: users.email }).from(users).where(eq(users.id, shipment.senderId)),
-    db
-      .select({ id: walletConnections.id })
-      .from(walletConnections)
-      .where(
-        and(
-          eq(walletConnections.userId, shipment.senderId),
-          eq(walletConnections.status, 'connected'),
+  const [stays, shipmentLegs, chainRows, bonusRows, claimRows, senderRows, senderWallets] =
+    await Promise.all([
+      db.select().from(hubStays).where(eq(hubStays.shipmentId, shipmentId)),
+      db.select().from(legs).where(eq(legs.shipmentId, shipmentId)),
+      db.select().from(custodyEvents).where(eq(custodyEvents.shipmentId, shipmentId)),
+      db
+        .select()
+        .from(conditionalPayments)
+        .where(eq(conditionalPayments.shipmentId, shipmentId)),
+      db.select().from(shipmentClaims).where(eq(shipmentClaims.shipmentId, shipmentId)),
+      db.select({ email: users.email }).from(users).where(eq(users.id, shipment.senderId)),
+      db
+        .select({ id: walletConnections.id })
+        .from(walletConnections)
+        .where(
+          and(
+            eq(walletConnections.userId, shipment.senderId),
+            eq(walletConnections.status, 'connected'),
+          ),
         ),
-      ),
-  ]);
+    ]);
 
   const state = dbStatusToState(shipment.status);
   const chain = orderCustodyChain(chainRows);
@@ -224,6 +233,7 @@ export async function loadShipmentBundle(
     case 'AT_HUB':
     case 'LEG_BOOKED':
     case 'AWAITING_PICKUP':
+    case 'CLAIMED': // the claim never moves the parcel: same custodian hub
       currentStayRow = activeStay;
       break;
     default:
@@ -273,14 +283,33 @@ export async function loadShipmentBundle(
     };
   }
 
-  // --- pending Π_h hold (ADR-014: purpose finalization_bonus, created|held)
+  // --- pending Π_h hold (ADR-014: purpose finalization_bonus, created|held).
+  // Claim-referenced bonus holds are excluded: they belong to pendingClaim
+  // (ADR-016) and must never alias ctx.finalizationBonusHold.
   const bonusHoldRow =
     bonusRows.find(
       (p) =>
         p.purpose === 'finalization_bonus' &&
+        p.refType !== 'claim' &&
         (p.state === 'created' || p.state === 'held') &&
         !opts.ignorePaymentIds?.has(p.id),
     ) ?? null;
+
+  // --- live recipient claim (ADR-016): at most one by machine guard + index.
+  const pendingClaimRow =
+    claimRows.find((c) => c.status === 'pending_funding' || c.status === 'funded') ?? null;
+  const pendingClaim: PendingClaim | null = pendingClaimRow
+    ? {
+        claimId: pendingClaimRow.id,
+        claimantId: pendingClaimRow.claimantId,
+        hubStayId: pendingClaimRow.hubStayId,
+        claimPaymentMsat: pendingClaimRow.claimPaymentMsat,
+        hubBonusMsat: pendingClaimRow.hubBonusMsat,
+        claimPaymentId: mustClaimCpId(pendingClaimRow),
+        hubBonusPaymentId: pendingClaimRow.hubBonusConditionalPaymentId,
+        fundingDeadlineAt: pendingClaimRow.fundingDeadlineAt.toISOString(),
+      }
+    : null;
 
   // --- ADR-014 accumulators + current-segment boosts from the chain
   const offerSplit = splitCommitment(shipment.offerMsat);
@@ -323,6 +352,7 @@ export async function loadShipmentBundle(
     finalizationBonusHold: bonusHoldRow
       ? { paymentId: bonusHoldRow.id, amountMsat: bonusHoldRow.amountMsat }
       : null,
+    pendingClaim,
   };
 
   return {
@@ -333,6 +363,7 @@ export async function loadShipmentBundle(
     activeLegRow,
     arrivalStayRow,
     bonusHoldRow,
+    pendingClaimRow,
     hubById,
     senderEmail: senderRows[0]?.email ?? '',
     chain,
@@ -352,4 +383,11 @@ function mustBondId(stay: HubStayRow): string {
 function mustCpId(id: string | null, legId: string, which: string): string {
   if (!id) throw new Error(`leg ${legId} has no ${which} conditional payment`);
   return id;
+}
+
+function mustClaimCpId(claim: ShipmentClaimRow): string {
+  if (!claim.paymentConditionalPaymentId) {
+    throw new Error(`claim ${claim.id} has no claim-payment conditional payment`);
+  }
+  return claim.paymentConditionalPaymentId;
 }

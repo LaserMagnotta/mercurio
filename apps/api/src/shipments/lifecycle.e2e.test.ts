@@ -271,14 +271,19 @@ describe('canonical shipment lifecycle (A→C→B with finalization bonus)', () 
       expect(userIds.has(resolved)).toBe(true);
     }
 
-    // Notifications: intermediate stop (×2), arrival with OTP, delivered.
+    // Notifications: tracking with the claim token (ADR-016), intermediate
+    // stop (×2), arrival with OTP, delivered.
     const outbox = await db.select().from(emailOutbox);
     expect(outbox.map((r) => r.template).sort()).toEqual([
       'parcel_arrived',
       'parcel_at_intermediate_hub',
       'parcel_at_intermediate_hub',
       'parcel_delivered',
+      'parcel_tracking',
     ]);
+    const trackingMail = outbox.find((r) => r.template === 'parcel_tracking');
+    expect(trackingMail?.to).toBe('destinataria@test.local');
+    expect((trackingMail!.payload as { claimToken: string }).claimToken).toMatch(/./);
     const dispatched = await dispatchEmailOutbox({
       db,
       sendMail: async (mail) => {
@@ -286,7 +291,7 @@ describe('canonical shipment lifecycle (A→C→B with finalization bonus)', () 
       },
       now: () => new Date(clock.nowMs),
     });
-    expect(dispatched).toEqual({ sent: 4, failed: 0 });
+    expect(dispatched).toEqual({ sent: 5, failed: 0 });
     expect(world.sentEmails.find((m) => m.subject.includes('ritiralo'))?.text).toContain(otp);
 
     // Nightly reconciliation (invariant 6): nothing to report.

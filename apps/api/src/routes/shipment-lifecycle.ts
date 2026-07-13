@@ -17,11 +17,12 @@ import { and, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import type { FastifyReply } from 'fastify';
 import { carrierTrips, custodyEvents, hubs, legs, rejections } from '@mercurio/db';
-import { EconomicsError, applyReroute, floorToSat, priceLeg, splitCommitment } from '@mercurio/core';
+import { EconomicsError, applyReroute, floorToSat, priceClaim, priceLeg, splitCommitment } from '@mercurio/core';
 import {
   boostBody,
   checkoutConfirmBody,
   CHECKOUT_CONFIRMATION_WINDOW_MINUTES,
+  claimedPickupBody,
   handoffRejectBody,
   hubFeePercentToBp,
   legAcceptBody,
@@ -29,6 +30,7 @@ import {
   legReturnBody,
   LEG_FUNDING_WINDOW_MINUTES,
   originCheckinBody,
+  recipientClaimBody,
   recipientPickupBody,
   rerouteBody,
   TRANSIT_WINDOW_HOURS,
@@ -438,6 +440,126 @@ export function registerShipmentLifecycleRoutes(app: App) {
         await executeShipmentTransition(deps(), {
           shipmentId: bundle.shipment.id,
           event: { type: 'recipient_pickup', otpVerified },
+        });
+      } catch (err) {
+        if (await replyLifecycleError(reply, err)) return;
+        throw err;
+      }
+      return { status: 'DELIVERED' };
+    },
+  );
+
+  // ------------------------------------------------------------ row 18
+  // Recipient claim (ADR-016): the recipient — authenticated, wallet
+  // connected — claims the idle parcel with the bearer token from the
+  // tracking mail. The route verifies the token hash and hands the machine
+  // FACTS (precisazione 10); the amounts are frozen by the pure pricing
+  // engine, never decided here.
+  app.post(
+    '/shipments/:id/claim',
+    {
+      schema: { params, body: recipientClaimBody },
+      preHandler: requireAuth,
+      config: { rateLimit: { max: 10, timeWindow: '1 minute' } }, // token brute force
+    },
+    async (request, reply) => {
+      const bundle = await loadOr404(request.params.id, reply);
+      if (!bundle) return;
+      const claimantId = request.userId!;
+      const s = bundle.shipment;
+      const claimTokenVerified =
+        s.recipientClaimTokenHash !== null &&
+        hashToken(request.body.claimToken) === s.recipientClaimTokenHash;
+      if (!claimTokenVerified) return reply.code(422).send({ error: 'claim_token_invalid' });
+
+      const currentHub = currentHubOf(bundle);
+      if (!currentHub) return reply.code(409).send({ error: 'not_at_hub' });
+      // Disjoint roles before any wallet is asked (Lightning: payer ≠ payee).
+      if (claimantId === s.senderId || claimantId === currentHub.userId) {
+        return reply.code(422).send({ error: 'self_payment_impossible' });
+      }
+
+      const destHub = bundle.hubById.get(s.destHubId)!;
+      const remainingKm = deps().distance.distanceKm(
+        { lat: currentHub.lat, lng: currentHub.lng },
+        { lat: destHub.lat, lng: destHub.lng },
+      );
+      let pricing;
+      try {
+        pricing = priceClaim({
+          poolMsat: remainingWorkPool(bundle, remainingKm),
+          carrierBonusMsat: bundle.carrierBonusAvailableMsat,
+          hubBonusMsat: bundle.hubBonusAvailableMsat,
+        });
+      } catch (err) {
+        if (err instanceof EconomicsError) {
+          return reply.code(422).send({ error: err.code, message: err.message });
+        }
+        throw err;
+      }
+
+      const claimId = randomUUID();
+      const now = deps().now();
+      const fundingDeadlineAt = minutesFromNow(now, LEG_FUNDING_WINDOW_MINUTES);
+      try {
+        await executeShipmentTransition(deps(), {
+          shipmentId: s.id,
+          event: {
+            type: 'recipient_claim',
+            claimId,
+            claimantId,
+            claimantWalletConnected: await hasConnectedWallet(app.db, claimantId),
+            claimTokenVerified,
+            claimPaymentMsat: pricing.claimPaymentMsat,
+            hubBonusMsat: pricing.hubBonusMsat,
+            fundingDeadlineAt: fundingDeadlineAt.toISOString(),
+          },
+        });
+      } catch (err) {
+        if (await replyLifecycleError(reply, err)) return;
+        throw err;
+      }
+
+      return reply.code(201).send({
+        claimId,
+        status: 'pending_funding',
+        claimPaymentMsat: msat(pricing.claimPaymentMsat),
+        hubBonusMsat: msat(pricing.hubBonusMsat),
+        fundingDeadlineAt: fundingDeadlineAt.toISOString(),
+      });
+    },
+  );
+
+  // ------------------------------------------------------------ row 21
+  // Physical pickup of a claimed parcel (ADR-016): the custodian hub's
+  // session scans the parcel QR and the claimant's token; the machine
+  // settles the claim payment and Π_h and closes the shipment.
+  app.post(
+    '/shipments/:id/claimed-pickup',
+    {
+      schema: { params, body: claimedPickupBody },
+      preHandler: requireAuth,
+      config: { rateLimit: { max: 10, timeWindow: '1 minute' } }, // token brute force
+    },
+    async (request, reply) => {
+      const bundle = await loadOr404(request.params.id, reply);
+      if (!bundle) return;
+      if (!qrMatches(bundle, request.body.qrToken)) {
+        return reply.code(403).send({ error: 'qr_mismatch' });
+      }
+      const hub = currentHubOf(bundle);
+      if (!hub || hub.userId !== request.userId) {
+        return reply.code(403).send({ error: 'not_custodian_hub' });
+      }
+      const s = bundle.shipment;
+      const claimTokenVerified =
+        s.recipientClaimTokenHash !== null &&
+        hashToken(request.body.claimToken) === s.recipientClaimTokenHash;
+      if (!claimTokenVerified) return reply.code(422).send({ error: 'claim_token_invalid' });
+      try {
+        await executeShipmentTransition(deps(), {
+          shipmentId: s.id,
+          event: { type: 'recipient_claimed_pickup', claimTokenVerified },
         });
       } catch (err) {
         if (await replyLifecycleError(reply, err)) return;
