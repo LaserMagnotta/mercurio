@@ -9,6 +9,7 @@ import type {
   ActiveLeg,
   FinalizationBonusHold,
   LegPricing,
+  PendingClaim,
   ShipmentContext,
   ShipmentEvent,
   ShipmentState,
@@ -38,6 +39,10 @@ export const IDS = {
   arrivalHubBond: 'cp-arrival-hub-bond',
   originHubBond: 'cp-origin-hub-bond',
   finalizationBonus: 'cp-finalization-bonus',
+  claimant: 'user-claimant',
+  claim: 'claim-1',
+  claimPayment: 'cp-claim-payment',
+  claimHubBonus: 'cp-claim-hub-bonus',
 } as const;
 
 /** 5 € ≈ 8000 sats and 15 € ≈ 24000 sats at the frozen snapshot — the exact
@@ -94,6 +99,7 @@ export function baseCtx(): ShipmentContext {
     currentHubStay: null,
     leg: null,
     finalizationBonusHold: null,
+    pendingClaim: null,
   };
 }
 
@@ -139,6 +145,24 @@ export function bonusHold(): FinalizationBonusHold {
   return { paymentId: IDS.finalizationBonus, amountMsat: HUB_BONUS_MSAT };
 }
 
+/** A recipient claim at the ORIGIN stay (ADR-016): the full work pool is
+ *  still unspent, so the claim payment is pool + Π_v = 7 760 000 msat and the
+ *  pickup hub earns the accrued Π_h. */
+export const CLAIM_PAYMENT_MSAT = WORK_MSAT + CARRIER_BONUS_MSAT;
+
+export function pendingClaim(): PendingClaim {
+  return {
+    claimId: IDS.claim,
+    claimantId: IDS.claimant,
+    hubStayId: IDS.originStay,
+    claimPaymentMsat: CLAIM_PAYMENT_MSAT,
+    hubBonusMsat: HUB_BONUS_MSAT,
+    claimPaymentId: IDS.claimPayment,
+    hubBonusPaymentId: IDS.claimHubBonus,
+    fundingDeadlineAt: DEADLINES.funding,
+  };
+}
+
 /** Destination-bound variants of the leg builders (rows 9 and 11): final
  *  pricing with the carrier bonus inside the payment hold. Pair them with
  *  `finalizationBonusHold: bonusHold()` in the context. */
@@ -165,6 +189,7 @@ export function destStay(): ActiveHubStay {
  * the full state × event matrix. AT_HUB comes in two flavours because several
  * guards branch on whether a leg is pending. AWAITING_PICKUP carries the
  * pending Π_h hold: that is how a shipment normally reaches it (ADR-014).
+ * CLAIMED carries the funded claim: that is its only way to exist (ADR-016).
  */
 export function ctxForState(state: ShipmentState | null): ShipmentContext {
   const ctx = baseCtx();
@@ -182,6 +207,8 @@ export function ctxForState(state: ShipmentState | null): ShipmentContext {
       return { ...ctx, leg: pickedUpLeg() };
     case 'AWAITING_PICKUP':
       return { ...ctx, currentHubStay: destStay(), finalizationBonusHold: bonusHold() };
+    case 'CLAIMED':
+      return { ...ctx, currentHubStay: originStay(), pendingClaim: pendingClaim() };
     case 'DELIVERED':
     case 'CANCELLED':
     case 'FORFEITED':
@@ -251,6 +278,23 @@ export function validEvent(type: ShipmentEvent['type']): ShipmentEvent {
       };
     case 'recipient_pickup':
       return { type, otpVerified: true };
+    case 'recipient_claim':
+      return {
+        type,
+        claimId: IDS.claim,
+        claimantId: IDS.claimant,
+        claimantWalletConnected: true,
+        claimTokenVerified: true,
+        claimPaymentMsat: CLAIM_PAYMENT_MSAT,
+        hubBonusMsat: HUB_BONUS_MSAT,
+        fundingDeadlineAt: DEADLINES.funding,
+      };
+    case 'claim_funded':
+      return { type, now: at(30) };
+    case 'claim_funding_expired':
+      return { type, now: at(61) };
+    case 'recipient_claimed_pickup':
+      return { type, claimTokenVerified: true };
     case 'handoff_reject':
       return {
         type,

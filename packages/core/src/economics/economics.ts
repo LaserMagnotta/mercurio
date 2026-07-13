@@ -22,7 +22,7 @@
 // Truncation remainders stay with the sender as unspent commitment — there is
 // no common pot to redistribute them from (ADR-013).
 
-import type { LegPricing, Msat, PoolBoost, PoolSegment } from '@mercurio/shared';
+import type { ClaimPricing, LegPricing, Msat, PoolBoost, PoolSegment } from '@mercurio/shared';
 import {
   FINALIZATION_BONUS_BP,
   FINALIZATION_CARRIER_SHARE_BP,
@@ -226,6 +226,44 @@ export function priceLeg(input: PriceLegInput): LegPricing {
   // sub-sat remainder of the freeze stays with the sender (ADR-014 §7).
   const finalizationBonusMsat = reachesDestination ? floorToSat(input.carrierBonusMsat) : 0n;
   return { grossMsat, depHubFeeMsat, arrHubFeeMsat, netMsat, finalizationBonusMsat };
+}
+
+export interface PriceClaimInput {
+  /** Remaining WORK pool at the parcel's current position — remainingPool()
+   *  over the current segment (ADR-016 freezes it at the claim request). */
+  poolMsat: Msat;
+  /** Accrued unconsumed carrier quota Π_v (0n once consumed by an arrival at
+   *  the destination — ADR-014). The claim consumes it: the recipient does
+   *  the residual carriage themselves. */
+  carrierBonusMsat: Msat;
+  /** Accrued destination-hub quota Π_h, owed to the hub where the pickup
+   *  happens (which completes the delivery — ADR-014's rationale). */
+  hubBonusMsat: Msat;
+}
+
+/**
+ * Price a recipient claim (ADR-016, ECONOMICS.md §5-ter):
+ *
+ *   claim payment = floorToSat(pool) + floorToSat(Π_v)   (sender → recipient)
+ *   hub bonus     = floorToSat(Π_h)                      (sender → pickup hub)
+ *
+ * Each part is floored independently, exactly like leg pricing freezes gross
+ * and Π_v; sub-sat remainders stay with the sender. The claim pays NO hub
+ * fees: the pickup hub was already paid the arrival fee of its incoming leg
+ * on the spot, and the handover work is paid by Π_h — so a claim at the
+ * ORIGIN hub yields the hub only Π_h (documented consequence of ADR-016).
+ * Conservation is untouched: pool ≤ remaining work commitment and each bonus
+ * quota is consumed at most once, so the sender never pays more than
+ * P + Σ boosts.
+ */
+export function priceClaim(input: PriceClaimInput): ClaimPricing {
+  assertNonNegativeMsat(input.poolMsat, 'poolMsat');
+  assertNonNegativeMsat(input.carrierBonusMsat, 'carrierBonusMsat');
+  assertNonNegativeMsat(input.hubBonusMsat, 'hubBonusMsat');
+  return {
+    claimPaymentMsat: floorToSat(input.poolMsat) + floorToSat(input.carrierBonusMsat),
+    hubBonusMsat: floorToSat(input.hubBonusMsat),
+  };
 }
 
 /**

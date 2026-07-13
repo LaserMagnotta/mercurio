@@ -55,7 +55,7 @@ type PaymentState = 'created' | 'held' | 'settled' | 'cancelled';
 
 interface MockPayment {
   id: string;
-  purpose: 'leg_payment' | 'custody_bond' | 'finalization_bonus';
+  purpose: 'leg_payment' | 'custody_bond' | 'finalization_bonus' | 'claim_payment';
   payerId: string;
   payeeId: string;
   amountMsat: bigint;
@@ -143,9 +143,11 @@ class World {
             const purpose =
               effect.eventType === 'leg_payment_held'
                 ? 'leg_payment'
-                : effect.eventType === 'finalization_bonus_held'
-                  ? 'finalization_bonus'
-                  : 'custody_bond';
+                : effect.eventType === 'claim_payment_held'
+                  ? 'claim_payment'
+                  : effect.eventType === 'finalization_bonus_held'
+                    ? 'finalization_bonus'
+                    : 'custody_bond';
             const match = [...this.payments.values()].find(
               (p) =>
                 p.state === 'created' &&
@@ -188,6 +190,7 @@ class World {
           break;
         }
         case 'rotate_pickup_otp':
+        case 'rotate_claim_token':
           break;
       }
     }
@@ -293,8 +296,18 @@ function feasibleEvents(walker: Walker): [string, number][] {
           ['storage_expiry', 1],
         ];
       }
+      if (ctx.pendingClaim !== null) {
+        // Boost/reroute/cancel/leg_accept are all rejected here (ADR-016):
+        // only the claim's own outcomes and the storage clock remain valid.
+        return [
+          ['claim_funded', 6],
+          ['claim_funding_expired', 1],
+          ['storage_expiry', 1],
+        ];
+      }
       const events: [string, number][] = [
         ['leg_accept', 8],
+        ['recipient_claim', 2],
         ['boost', 1],
         ['reroute', 1],
         ['storage_expiry', 1],
@@ -320,6 +333,12 @@ function feasibleEvents(walker: Walker): [string, number][] {
         ['recipient_pickup', 6],
         ['reroute', 1],
         ['boost', 1],
+        ['storage_expiry', 1],
+        ['handoff_reject', 1],
+      ];
+    case 'CLAIMED':
+      return [
+        ['recipient_claimed_pickup', 6],
         ['storage_expiry', 1],
         ['handoff_reject', 1],
       ];
@@ -403,6 +422,26 @@ function buildEvent(walker: Walker, rand: () => number, type: string): ShipmentE
       };
     case 'recipient_pickup':
       return { type, otpVerified: true };
+    case 'recipient_claim':
+      return {
+        type,
+        claimId: mint('claim'),
+        claimantId: 'user-recipient',
+        claimantWalletConnected: true,
+        claimTokenVerified: true,
+        claimPaymentMsat: BigInt(randInt(rand, 1, 4000)) * 1000n,
+        // Zero sometimes: the accrued Π_h may floor to nothing (then no hold).
+        hubBonusMsat: rand() < 0.8 ? BigInt(randInt(rand, 1, 300)) * 1000n : 0n,
+        fundingDeadlineAt: iso(walker.clock + 60),
+      };
+    case 'claim_funded':
+      return { type, now: iso(walker.clock) };
+    case 'claim_funding_expired': {
+      walker.clock = (Date.parse(ctx.pendingClaim!.fundingDeadlineAt) - T0) / 60_000 + 1;
+      return { type, now: iso(walker.clock) };
+    }
+    case 'recipient_claimed_pickup':
+      return { type, claimTokenVerified: true };
     case 'handoff_reject': {
       const stage =
         walker.state === 'LEG_BOOKED' ? 'pickup_checkout' : walker.state === 'IN_TRANSIT' ? 'hub_checkin' : 'recipient_pickup';
@@ -449,6 +488,7 @@ function apply(walker: Walker, type: string, event: ShipmentEvent, nextState: Sh
   if (type === 'pickup_timeout') world.fire('pickup', ctx.leg!.legId);
   if (type === 'transit_timeout') world.fire('transit', ctx.leg!.legId);
   if (type === 'storage_expiry') world.fire('storage', ctx.currentHubStay!.hubStayId);
+  if (type === 'claim_funding_expired') world.fire('claim_funding', ctx.pendingClaim!.claimId);
   world.execute(ctx.shipmentId, effects);
 
   switch (type) {
@@ -534,6 +574,29 @@ function apply(walker: Walker, type: string, event: ShipmentEvent, nextState: Sh
     case 'transit_timeout':
       ctx.finalizationBonusHold = null;
       break;
+    case 'recipient_claim': {
+      const e = event as Extract<ShipmentEvent, { type: 'recipient_claim' }>;
+      ctx.pendingClaim = {
+        claimId: e.claimId,
+        claimantId: e.claimantId,
+        hubStayId: ctx.currentHubStay!.hubStayId,
+        claimPaymentMsat: e.claimPaymentMsat,
+        hubBonusMsat: e.hubBonusMsat,
+        claimPaymentId: world.paymentByRef('claim_payment', 'claim', e.claimId).id,
+        hubBonusPaymentId:
+          e.hubBonusMsat > 0n
+            ? world.paymentByRef('finalization_bonus', 'claim', e.claimId).id
+            : null,
+        fundingDeadlineAt: e.fundingDeadlineAt,
+      };
+      break;
+    }
+    case 'claim_funding_expired':
+      ctx.pendingClaim = null;
+      break;
+    case 'recipient_claimed_pickup':
+      ctx.pendingClaim = null;
+      break;
     case 'reroute': {
       const e = event as Extract<ShipmentEvent, { type: 'reroute' }>;
       if (e.newDestHubId !== null) {
@@ -557,6 +620,7 @@ function custodianBondId(walker: Walker): string | null {
     case 'AT_HUB':
     case 'LEG_BOOKED':
     case 'AWAITING_PICKUP':
+    case 'CLAIMED':
       return walker.ctx.currentHubStay!.bondPaymentId;
     case 'IN_TRANSIT':
       return walker.ctx.leg!.carrierBondId;
@@ -576,6 +640,8 @@ function expectedHeldBonds(walker: Walker): number | null {
       return 2; // carrier + arrival hub
     case 'AWAITING_PICKUP':
       return 1; // destination hub
+    case 'CLAIMED':
+      return 1; // the hub the parcel already sits at (custody never moved)
     default:
       return null;
   }
@@ -593,6 +659,10 @@ const ALL_EVENT_TYPES = [
   'leg_checkin',
   'leg_return',
   'recipient_pickup',
+  'recipient_claim',
+  'claim_funded',
+  'claim_funding_expired',
+  'recipient_claimed_pickup',
   'handoff_reject',
   'storage_expiry',
   'transit_timeout',

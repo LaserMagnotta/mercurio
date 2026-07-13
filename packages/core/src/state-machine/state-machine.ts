@@ -41,6 +41,19 @@
 // storage expiry, reroute away from the destination — cancels the Π_h hold
 // together with the others; a zero share simply creates no hold, mirroring
 // the zero-fee rule.
+//
+// Recipient claim (ADR-016): while the parcel is idle AT_HUB the recipient
+// may claim it with the bearer token from the tracking mail, collecting the
+// remaining work pool plus the unconsumed Π_v (they finish the carriage
+// themselves); the pickup hub collects the accrued Π_h. The cycle mirrors a
+// leg's funding: recipient_claim opens the hold(s) and arms a funding window
+// (the shipment leaves the board and leg_accept is barred), claim_funded
+// books the pickup (CLAIMED), claim_funding_expired dissolves it back onto
+// the board, recipient_claimed_pickup settles everything and closes the
+// shipment. Storage does NOT pause during a claim: storage_expiry while a
+// claim is pending or CLAIMED forfeits the parcel and dissolves the claim
+// holds, mirroring the pending-leg rule. Boost, reroute and cancel are
+// rejected while a claim is in flight.
 
 import type {
   ActiveLeg,
@@ -49,6 +62,7 @@ import type {
   LedgerRef,
   Msat,
   PaymentRef,
+  PendingClaim,
   ShipmentContext,
   ShipmentEffect,
   ShipmentEvent,
@@ -227,6 +241,10 @@ function stayRef(hubStayId: string): PaymentRef {
   return { type: 'hub_stay', id: hubStayId };
 }
 
+function claimRef(claim: PendingClaim): PaymentRef {
+  return { type: 'claim', id: claim.claimId };
+}
+
 /** Cancel the per-leg holds of a leg that never got booked — the three of
  *  ESCROW.md §3 plus, on a final leg, the hub-bonus hold (ADR-014). No
  *  journal entries: commitments enter the shadow ledger only at leg_funded. */
@@ -259,6 +277,37 @@ function refundFinalizationBonus(
       bonusHold.amountMsat,
     ),
   ];
+}
+
+/** Cancel the claim hold(s) of a claim that never got funded (ADR-016). No
+ *  journal entries: commitments enter the shadow ledger only at claim_funded
+ *  — same rule as a leg's funding window. */
+function refundPendingClaimHolds(claim: PendingClaim): ShipmentEffect[] {
+  const effects: ShipmentEffect[] = [
+    { kind: 'refund_conditional_payment', paymentId: claim.claimPaymentId },
+  ];
+  if (claim.hubBonusPaymentId) {
+    effects.push({ kind: 'refund_conditional_payment', paymentId: claim.hubBonusPaymentId });
+  }
+  return effects;
+}
+
+/** Cancel the HELD claim hold(s) of a booked claim (CLAIMED) and give the
+ *  commitments back to the sender — storage_expiry's mirror of the
+ *  pending-leg rule (ADR-016). */
+function refundHeldClaimHolds(ctx: ShipmentContext, claim: PendingClaim): ShipmentEffect[] {
+  const ref = claimRef(claim);
+  const effects: ShipmentEffect[] = [
+    { kind: 'refund_conditional_payment', paymentId: claim.claimPaymentId },
+    refundedEntry('claim_payment_refunded', ref, ctx.senderId, ctx.shipmentId, claim.claimPaymentMsat),
+  ];
+  if (claim.hubBonusPaymentId) {
+    effects.push(
+      { kind: 'refund_conditional_payment', paymentId: claim.hubBonusPaymentId },
+      refundedEntry('finalization_bonus_refunded', ref, ctx.senderId, ctx.shipmentId, claim.hubBonusMsat),
+    );
+  }
+  return effects;
 }
 
 // ---------------------------------------------------------------------------
@@ -357,6 +406,11 @@ export function transition(
           hubStayId: stay.hubStayId,
           payload: { photoSha256: event.photoSha256 },
         },
+        // The journey has begun: the recipient gets the tracking mail with
+        // their personal claim token (ADR-016) — the bearer credential that
+        // lets them claim the parcel early at whichever hub it rests at.
+        { kind: 'rotate_claim_token' },
+        { kind: 'queue_email', to: 'recipient', template: 'parcel_tracking', payload: { hubId: stay.hubId } },
       ]);
     }
 
@@ -367,6 +421,11 @@ export function transition(
       if (!stay) return guardFailed(state, event.type, 'no active hub stay in context');
       if (ctx.leg !== null) {
         return guardFailed(state, event.type, 'another leg is already pending or active');
+      }
+      if (ctx.pendingClaim !== null) {
+        // From the claim request on, the parcel is the claimant's to lose:
+        // it left the board and no carrier can book it (ADR-016).
+        return guardFailed(state, event.type, 'a recipient claim is pending on this shipment');
       }
       if (!event.carrierTripActive) {
         return guardFailed(state, event.type, 'carrier must have an active declared trip (MATCHING.md)');
@@ -833,20 +892,238 @@ export function transition(
       return ok('DELIVERED', effects);
     }
 
+    // ----------------------------------------------------------------- #18
+    case 'recipient_claim': {
+      // ADR-016: legal ONLY while the parcel idles AT_HUB. Not from
+      // AWAITING_PICKUP — there the OTP pickup already exists and nothing is
+      // left to claim (pool 0, Π_v consumed).
+      if (state !== 'AT_HUB') {
+        return illegal(state, event.type, 'recipient_claim is legal only while the parcel idles AT_HUB');
+      }
+      const stay = ctx.currentHubStay;
+      if (!stay) return guardFailed(state, event.type, 'no active hub stay in context');
+      if (ctx.leg !== null) {
+        return guardFailed(state, event.type, 'a leg is pending or booked: nothing can be claimed');
+      }
+      if (ctx.pendingClaim !== null) {
+        return guardFailed(state, event.type, 'a claim is already pending on this shipment');
+      }
+      if (ctx.finalizationBonusHold !== null) {
+        // Same defense as leg_accept: a leg's Π_h hold surviving here means
+        // the API failed to clear a cancelled one — refuse to stack a second
+        // hub-bonus hold on top of it.
+        return guardFailed(state, event.type, 'a finalization-bonus hold is already pending');
+      }
+      if (!event.claimTokenVerified) {
+        return guardFailed(state, event.type, 'the claim token must be verified (bearer credential)');
+      }
+      if (!event.claimantWalletConnected) {
+        return guardFailed(state, event.type, 'claimant wallet must be connected: the claim collects money');
+      }
+      // Disjoint roles (ADR-013: on Lightning payer ≠ payee): the sender pays
+      // the claimant, and the pickup handoff must not be a self-dealing.
+      if (event.claimantId === ctx.senderId) {
+        return guardFailed(state, event.type, 'claimant must differ from the sender');
+      }
+      if (event.claimantId === stay.hubUserId) {
+        return guardFailed(state, event.type, 'claimant must differ from the pickup hub owner');
+      }
+      if (event.claimPaymentMsat <= 0n) {
+        // Zero-amount holds do not exist on Lightning: with the pool exhausted
+        // and Π_v consumed there is nothing to collect — the sender must boost
+        // first, exactly as for any carrier (ADR-016).
+        return guardFailed(state, event.type, 'claim payment must be > 0 msat (nothing left to claim)');
+      }
+      if (event.hubBonusMsat < 0n) {
+        return guardFailed(state, event.type, 'hub bonus must be >= 0 msat');
+      }
+      const ref: PaymentRef = { type: 'claim', id: event.claimId };
+      const effects: ShipmentEffect[] = [
+        // The claim payment: remaining pool + unconsumed Π_v, sender →
+        // recipient (ESCROW.md §3-bis). The recipient never collects before
+        // the physical pickup certifies the handoff.
+        {
+          kind: 'create_conditional_payment',
+          purpose: 'claim_payment',
+          payerId: ctx.senderId,
+          payeeId: event.claimantId,
+          amountMsat: event.claimPaymentMsat,
+          ref,
+        },
+      ];
+      if (event.hubBonusMsat > 0n) {
+        // Π_h to the hub that completes the delivery (ADR-014's rationale,
+        // applied to the claim): a zero share creates no hold.
+        effects.push({
+          kind: 'create_conditional_payment',
+          purpose: 'finalization_bonus',
+          payerId: ctx.senderId,
+          payeeId: stay.hubUserId,
+          amountMsat: event.hubBonusMsat,
+          ref,
+        });
+      }
+      effects.push(
+        {
+          kind: 'schedule_timeout',
+          timeout: 'claim_funding',
+          refId: event.claimId,
+          at: event.fundingDeadlineAt,
+        },
+        {
+          kind: 'append_custody_event',
+          type: 'claim_requested',
+          actorUserId: event.claimantId,
+          legId: null,
+          hubStayId: stay.hubStayId,
+          payload: {
+            claimId: event.claimId,
+            claimPaymentMsat: event.claimPaymentMsat,
+            hubBonusMsat: event.hubBonusMsat,
+          },
+        },
+      );
+      // Still AT_HUB, like an accepted-but-unfunded leg: CLAIMED only when
+      // every hold is observed held. The pendingClaim in context is what
+      // hides the shipment from the board meanwhile.
+      return ok('AT_HUB', effects);
+    }
+
+    // ----------------------------------------------------------------- #19
+    case 'claim_funded': {
+      if (state !== 'AT_HUB') return illegal(state, event.type, 'claim_funded is legal only in AT_HUB');
+      const stay = ctx.currentHubStay;
+      const claim = ctx.pendingClaim;
+      if (!stay) return guardFailed(state, event.type, 'no active hub stay in context');
+      if (!claim) return guardFailed(state, event.type, 'no pending claim to fund');
+      if (!withinDeadline(event.now, claim.fundingDeadlineAt)) {
+        return guardFailed(state, event.type, 'claim funding window expired (60 min, ADR-016)');
+      }
+      const ref = claimRef(claim);
+      const effects: ShipmentEffect[] = [
+        // Every claim hold is now held: recognize the commitments (ADR-010).
+        heldEntry('claim_payment_held', ref, ctx.senderId, ctx.shipmentId, claim.claimPaymentMsat),
+      ];
+      if (claim.hubBonusPaymentId) {
+        effects.push(heldEntry('finalization_bonus_held', ref, ctx.senderId, ctx.shipmentId, claim.hubBonusMsat));
+      }
+      effects.push(
+        { kind: 'cancel_timeout', timeout: 'claim_funding', refId: claim.claimId },
+        // Storage does NOT pause (ADR-016): unlike a booked leg, the claim
+        // keeps the parcel exactly where it is — the hub's shelf stays
+        // occupied and the sender's chosen window keeps running.
+        {
+          kind: 'append_custody_event',
+          type: 'funded',
+          actorUserId: null, // wallet-observed event, no human actor
+          legId: null,
+          hubStayId: stay.hubStayId,
+          payload: {
+            claimId: claim.claimId,
+            claimPaymentMsat: claim.claimPaymentMsat,
+            hubBonusMsat: claim.hubBonusMsat,
+          },
+        },
+      );
+      return ok('CLAIMED', effects);
+    }
+
+    // ------------------------------------------------------ #19 (expiry arm)
+    case 'claim_funding_expired': {
+      if (state !== 'AT_HUB') {
+        return illegal(state, event.type, 'claim_funding_expired is legal only in AT_HUB');
+      }
+      const claim = ctx.pendingClaim;
+      if (!claim) return guardFailed(state, event.type, 'no pending claim to expire');
+      if (!deadlinePassed(event.now, claim.fundingDeadlineAt)) {
+        return guardFailed(state, event.type, 'claim funding window has not expired yet');
+      }
+      return ok('AT_HUB', [
+        ...refundPendingClaimHolds(claim),
+        {
+          kind: 'append_custody_event',
+          type: 'expired',
+          actorUserId: null,
+          legId: null,
+          hubStayId: ctx.currentHubStay?.hubStayId ?? null,
+          payload: { reason: 'claim_funding', claimId: claim.claimId },
+        },
+      ]);
+    }
+
+    // ----------------------------------------------------------------- #20
+    case 'recipient_claimed_pickup': {
+      if (state !== 'CLAIMED') {
+        return illegal(state, event.type, 'recipient_claimed_pickup is legal only in CLAIMED');
+      }
+      const stay = ctx.currentHubStay;
+      const claim = ctx.pendingClaim;
+      if (!stay) return guardFailed(state, event.type, 'no active hub stay in context');
+      if (!claim) return guardFailed(state, event.type, 'no funded claim in context');
+      if (claim.hubStayId !== stay.hubStayId) {
+        // The parcel cannot move while a claim is in flight (leg_accept is
+        // barred): a mismatch means the context is incoherent, not a race.
+        return guardFailed(state, event.type, 'claim was frozen against a different hub stay');
+      }
+      if (!event.claimTokenVerified) {
+        return guardFailed(state, event.type, 'the claim token must be verified at the physical pickup');
+      }
+      const ref = claimRef(claim);
+      const effects: ShipmentEffect[] = [
+        // The hub certifies the handoff and the coordinator reveals the
+        // preimages: the recipient collects pool + Π_v directly from the
+        // sender; accepting the parcel is definitive (ADR-012, like the OTP).
+        { kind: 'release_conditional_payment', paymentId: claim.claimPaymentId },
+        settledEntry('claim_payment_released', ref, claim.claimantId, ctx.shipmentId, claim.claimPaymentMsat),
+      ];
+      if (claim.hubBonusPaymentId) {
+        effects.push(
+          { kind: 'release_conditional_payment', paymentId: claim.hubBonusPaymentId },
+          settledEntry('finalization_bonus_released', ref, stay.hubUserId, ctx.shipmentId, claim.hubBonusMsat),
+        );
+      }
+      effects.push(
+        // The hub's custody ends with the handoff: its bond dissolves.
+        { kind: 'refund_conditional_payment', paymentId: stay.bondPaymentId },
+        refundedEntry(
+          'hub_bond_refunded',
+          stayRef(stay.hubStayId),
+          stay.hubUserId,
+          ctx.shipmentId,
+          ctx.custodyBondMsat,
+        ),
+        { kind: 'cancel_timeout', timeout: 'storage', refId: stay.hubStayId },
+        {
+          kind: 'append_custody_event',
+          type: 'recipient_claimed',
+          actorUserId: stay.hubUserId,
+          legId: null,
+          hubStayId: stay.hubStayId,
+          payload: { claimId: claim.claimId, claimTokenVerified: true },
+        },
+        // The sender learns the journey ended early — the claim's mirror of
+        // the recipient_pickup confirmation (flow step 7).
+        { kind: 'queue_email', to: 'sender', template: 'parcel_delivered', payload: {} },
+      );
+      return ok('DELIVERED', effects);
+    }
+
     // ----------------------------------------------------------------- #12
     case 'handoff_reject': {
       // Documentary only (ADR-012): custody does NOT pass, the state does not
       // change, no money moves. The rejection is evidence plus a notification
-      // to the sender, who can react with reroute/boost.
-      const legalStage: Record<typeof event.stage, ShipmentState> = {
-        pickup_checkout: 'LEG_BOOKED',
-        hub_checkin: 'IN_TRANSIT',
-        recipient_pickup: 'AWAITING_PICKUP',
+      // to the sender, who can react with reroute/boost. The recipient_pickup
+      // stage covers the claimed pickup too (ADR-016): same physical act, the
+      // recipient collecting at the hub.
+      const legalStage: Record<typeof event.stage, ShipmentState[]> = {
+        pickup_checkout: ['LEG_BOOKED'],
+        hub_checkin: ['IN_TRANSIT'],
+        recipient_pickup: ['AWAITING_PICKUP', 'CLAIMED'],
       };
-      if (state !== 'LEG_BOOKED' && state !== 'IN_TRANSIT' && state !== 'AWAITING_PICKUP') {
+      if (state !== 'LEG_BOOKED' && state !== 'IN_TRANSIT' && state !== 'AWAITING_PICKUP' && state !== 'CLAIMED') {
         return illegal(state, event.type, 'handoff_reject is legal only at a physical handoff');
       }
-      if (legalStage[event.stage] !== state) {
+      if (!legalStage[event.stage].includes(state)) {
         return guardFailed(state, event.type, `stage ${event.stage} does not match state ${state}`);
       }
       if (event.photoSha256.length === 0 || event.reason.trim() === '') {
@@ -872,11 +1149,14 @@ export function transition(
 
     // ----------------------------------------------------------------- #13
     case 'storage_expiry': {
-      if (state !== 'AT_HUB' && state !== 'AWAITING_PICKUP') {
-        return illegal(state, event.type, 'storage_expiry is legal only in AT_HUB or AWAITING_PICKUP');
+      if (state !== 'AT_HUB' && state !== 'AWAITING_PICKUP' && state !== 'CLAIMED') {
+        return illegal(state, event.type, 'storage_expiry is legal only in AT_HUB, AWAITING_PICKUP or CLAIMED');
       }
       const stay = ctx.currentHubStay;
       if (!stay) return guardFailed(state, event.type, 'no active hub stay in context');
+      if (state === 'CLAIMED' && ctx.pendingClaim === null) {
+        return guardFailed(state, event.type, 'CLAIMED requires the funded claim in context');
+      }
       if (!deadlinePassed(event.now, stay.storageDeadlineAt)) {
         return guardFailed(state, event.type, 'storage deadline has not passed yet');
       }
@@ -890,6 +1170,20 @@ export function transition(
           timeout: 'leg_funding',
           refId: ctx.leg.legId,
         });
+      } else if (state === 'AT_HUB' && ctx.pendingClaim !== null) {
+        // A claim still pending funding dies exactly like a pending leg
+        // (ADR-016: storage never pauses for a claim): dissolve its holds —
+        // never commitments yet — and disarm its window.
+        effects.push(...refundPendingClaimHolds(ctx.pendingClaim), {
+          kind: 'cancel_timeout',
+          timeout: 'claim_funding',
+          refId: ctx.pendingClaim.claimId,
+        });
+      } else if (state === 'CLAIMED' && ctx.pendingClaim !== null) {
+        // A funded claim the claimant never collected: the held commitments
+        // return to the sender; the forfeited parcel compensates the hub, as
+        // in every storage expiry (ADR-013, ADR-016).
+        effects.push(...refundHeldClaimHolds(ctx, ctx.pendingClaim));
       } else if (state === 'AWAITING_PICKUP' && ctx.finalizationBonusHold) {
         // Expired at the destination: the hub is compensated by the forfeited
         // parcel, never by the bonus — the held Π_h returns to the sender
@@ -969,6 +1263,11 @@ export function transition(
       if (state !== 'AT_HUB' && state !== 'AWAITING_PICKUP') {
         return illegal(state, event.type, 'boost is legal only while the parcel is idle at a hub');
       }
+      if (ctx.pendingClaim !== null) {
+        // The claim froze its amounts; a boost would change the pool under it
+        // (ADR-016). The sender can boost again once the claim resolves.
+        return guardFailed(state, event.type, 'boost is rejected while a recipient claim is pending');
+      }
       if (event.amountMsat <= 0n) {
         return guardFailed(state, event.type, 'boost amount must be > 0 msat');
       }
@@ -999,6 +1298,11 @@ export function transition(
       if (!stay) return guardFailed(state, event.type, 'no active hub stay in context');
       if (ctx.leg !== null) {
         return guardFailed(state, event.type, 'reroute requires no pending or booked leg (table row 16)');
+      }
+      if (ctx.pendingClaim !== null) {
+        // A reroute would re-freeze the pool and rotate the recipient's
+        // credentials under a claim that already froze both (ADR-016).
+        return guardFailed(state, event.type, 'reroute is rejected while a recipient claim is pending');
       }
       if (event.newDestHubId === null && event.newRecipientEmail === null) {
         return guardFailed(state, event.type, 'reroute must change the destination hub and/or the recipient');
@@ -1040,6 +1344,17 @@ export function transition(
         },
         { kind: 'rotate_pickup_otp' },
       );
+      if (event.newRecipientEmail !== null) {
+        // The claim token is the OLD recipient's credential: rotate it and
+        // hand the new recipient a fresh tracking mail (ADR-016) — the old
+        // token can no longer claim anything.
+        effects.push({ kind: 'rotate_claim_token' }, {
+          kind: 'queue_email',
+          to: 'recipient',
+          template: 'parcel_tracking',
+          payload: { hubId: stay.hubId },
+        });
+      }
       if (staysAtDestination) {
         effects.push({ kind: 'queue_email', to: 'recipient', template: 'parcel_arrived', payload: { hubId: stay.hubId } });
         return ok('AWAITING_PICKUP', effects);
@@ -1088,6 +1403,9 @@ export function transition(
         if (!stay) return guardFailed(state, event.type, 'no active hub stay in context');
         if (ctx.leg !== null) {
           return guardFailed(state, event.type, 'cancel requires no pending or booked leg');
+        }
+        if (ctx.pendingClaim !== null) {
+          return guardFailed(state, event.type, 'cancel is rejected while a recipient claim is pending');
         }
         if (stay.hubId !== ctx.originHubId) {
           // Only before the first pickup_checkout, i.e. while still at the

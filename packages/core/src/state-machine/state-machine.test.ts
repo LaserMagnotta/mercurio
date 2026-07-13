@@ -11,6 +11,7 @@ import { transition } from './state-machine';
 import {
   BOND_MSAT,
   CARRIER_BONUS_MSAT,
+  CLAIM_PAYMENT_MSAT,
   DEADLINES,
   FINAL_PRICING,
   HUB_BONUS_MSAT,
@@ -24,6 +25,7 @@ import {
   ctxForState,
   finalLeg,
   originStay,
+  pendingClaim,
   pendingFinalLeg,
   pendingLeg,
   validEvent,
@@ -150,7 +152,7 @@ describe('origin_hub_accept', () => {
 describe('origin_checkin', () => {
   const ctx = ctxForState('AWAITING_DROPOFF');
 
-  it('starts the storage clock and certifies the check-in', () => {
+  it('starts the storage clock, certifies the check-in and mails the tracking token', () => {
     const result = transition('AWAITING_DROPOFF', validEvent('origin_checkin'), ctx);
     expectOk(result);
     expect(result.nextState).toBe('AT_HUB');
@@ -164,6 +166,10 @@ describe('origin_checkin', () => {
         hubStayId: IDS.originStay,
         payload: { photoSha256: ['photo-a'] },
       },
+      // ADR-016: the recipient's claim token is minted with the journey and
+      // travels only in the tracking email (hash-at-rest, like the OTP).
+      { kind: 'rotate_claim_token' },
+      { kind: 'queue_email', to: 'recipient', template: 'parcel_tracking', payload: { hubId: IDS.originHub } },
     ]);
   });
 
@@ -1275,6 +1281,9 @@ describe('reroute', () => {
         payload: { newDestHubId: IDS.originHub, recipientChanged: true, newRemainingKm: 100 },
       },
       { kind: 'rotate_pickup_otp' },
+      // The recipient changed: their claim token rotates with them (ADR-016).
+      { kind: 'rotate_claim_token' },
+      { kind: 'queue_email', to: 'recipient', template: 'parcel_tracking', payload: { hubId: IDS.destHub } },
     ]);
   });
 
@@ -1313,6 +1322,8 @@ describe('reroute', () => {
         payload: { newDestHubId: null, recipientChanged: true, newRemainingKm: 1 },
       },
       { kind: 'rotate_pickup_otp' },
+      { kind: 'rotate_claim_token' },
+      { kind: 'queue_email', to: 'recipient', template: 'parcel_tracking', payload: { hubId: IDS.destHub } },
       { kind: 'queue_email', to: 'recipient', template: 'parcel_arrived', payload: { hubId: IDS.destHub } },
     ]);
   });
@@ -1443,6 +1454,376 @@ describe('cancel', () => {
 });
 
 // ---------------------------------------------------------------------------
+// #18–21 recipient claim (ADR-016)
+
+describe('recipient_claim', () => {
+  const ctx = ctxForState('AT_HUB');
+
+  it('opens the claim payment and Π_h holds, arms the funding window, stays AT_HUB', () => {
+    const result = transition('AT_HUB', validEvent('recipient_claim'), ctx);
+    expectOk(result);
+    expect(result.nextState).toBe('AT_HUB'); // CLAIMED only when funded
+    expect(result.effects).toEqual([
+      {
+        kind: 'create_conditional_payment',
+        purpose: 'claim_payment',
+        payerId: IDS.sender,
+        payeeId: IDS.claimant,
+        amountMsat: CLAIM_PAYMENT_MSAT,
+        ref: { type: 'claim', id: IDS.claim },
+      },
+      {
+        kind: 'create_conditional_payment',
+        purpose: 'finalization_bonus',
+        payerId: IDS.sender,
+        payeeId: IDS.originHubUser,
+        amountMsat: HUB_BONUS_MSAT,
+        ref: { type: 'claim', id: IDS.claim },
+      },
+      { kind: 'schedule_timeout', timeout: 'claim_funding', refId: IDS.claim, at: DEADLINES.funding },
+      {
+        kind: 'append_custody_event',
+        type: 'claim_requested',
+        actorUserId: IDS.claimant,
+        legId: null,
+        hubStayId: IDS.originStay,
+        payload: {
+          claimId: IDS.claim,
+          claimPaymentMsat: CLAIM_PAYMENT_MSAT,
+          hubBonusMsat: HUB_BONUS_MSAT,
+        },
+      },
+    ]);
+  });
+
+  it('a zero Π_h creates no second hold (mirrors zero fees)', () => {
+    const event = { ...validEvent('recipient_claim'), hubBonusMsat: 0n } as ShipmentEvent;
+    const result = transition('AT_HUB', event, ctx);
+    expectOk(result);
+    expect(result.effects.filter((e) => e.kind === 'create_conditional_payment')).toEqual([
+      {
+        kind: 'create_conditional_payment',
+        purpose: 'claim_payment',
+        payerId: IDS.sender,
+        payeeId: IDS.claimant,
+        amountMsat: CLAIM_PAYMENT_MSAT,
+        ref: { type: 'claim', id: IDS.claim },
+      },
+    ]);
+  });
+
+  it.each([
+    ['unverified claim token', { claimTokenVerified: false }],
+    ['claimant wallet disconnected', { claimantWalletConnected: false }],
+    ['claimant is the sender', { claimantId: IDS.sender }],
+    ['claimant owns the pickup hub', { claimantId: IDS.originHubUser }],
+    // Zero-amount holds do not exist on Lightning: nothing left to collect
+    // means no claim — the sender must boost first (ADR-016).
+    ['nothing to collect', { claimPaymentMsat: 0n }],
+    ['negative hub bonus', { hubBonusMsat: -1n }],
+  ])('guard: %s', (_name, patch) => {
+    expectRejected(
+      transition('AT_HUB', { ...validEvent('recipient_claim'), ...patch } as ShipmentEvent, ctx),
+      'guard_failed',
+    );
+  });
+
+  it('guard: rejected while a leg is pending', () => {
+    expectRejected(
+      transition('AT_HUB', validEvent('recipient_claim'), { ...ctx, leg: pendingLeg() }),
+      'guard_failed',
+    );
+  });
+
+  it('guard: rejected while another claim is pending', () => {
+    expectRejected(
+      transition('AT_HUB', validEvent('recipient_claim'), { ...ctx, pendingClaim: pendingClaim() }),
+      'guard_failed',
+    );
+  });
+
+  it('guard: a stale finalization-bonus hold blocks the claim (as it blocks leg_accept)', () => {
+    expectRejected(
+      transition('AT_HUB', validEvent('recipient_claim'), { ...ctx, finalizationBonusHold: bonusHold() }),
+      'guard_failed',
+    );
+  });
+
+  it('NOT legal from AWAITING_PICKUP: the OTP pickup already exists there', () => {
+    expectRejected(
+      transition('AWAITING_PICKUP', validEvent('recipient_claim'), ctxForState('AWAITING_PICKUP')),
+      'illegal_event',
+    );
+  });
+});
+
+describe('claim_funded', () => {
+  const ctx = { ...ctxForState('AT_HUB'), pendingClaim: pendingClaim() };
+
+  it('books the pickup: both commitments enter the ledger, storage keeps running', () => {
+    const result = transition('AT_HUB', validEvent('claim_funded'), ctx);
+    expectOk(result);
+    expect(result.nextState).toBe('CLAIMED');
+    expect(result.effects).toEqual([
+      {
+        kind: 'post_ledger_entry',
+        eventType: 'claim_payment_held',
+        ref: { type: 'claim', id: IDS.claim },
+        postings: [
+          { ownerType: 'user', ownerId: IDS.sender, accountKind: 'external_wallet', amountMsat: -CLAIM_PAYMENT_MSAT },
+          { ownerType: 'shipment', ownerId: IDS.shipment, accountKind: 'commitment', amountMsat: CLAIM_PAYMENT_MSAT },
+        ],
+      },
+      {
+        kind: 'post_ledger_entry',
+        eventType: 'finalization_bonus_held',
+        ref: { type: 'claim', id: IDS.claim },
+        postings: [
+          { ownerType: 'user', ownerId: IDS.sender, accountKind: 'external_wallet', amountMsat: -HUB_BONUS_MSAT },
+          { ownerType: 'shipment', ownerId: IDS.shipment, accountKind: 'commitment', amountMsat: HUB_BONUS_MSAT },
+        ],
+      },
+      { kind: 'cancel_timeout', timeout: 'claim_funding', refId: IDS.claim },
+      // No storage cancel_timeout: the stay keeps its deadline (ADR-016).
+      {
+        kind: 'append_custody_event',
+        type: 'funded',
+        actorUserId: null,
+        legId: null,
+        hubStayId: IDS.originStay,
+        payload: {
+          claimId: IDS.claim,
+          claimPaymentMsat: CLAIM_PAYMENT_MSAT,
+          hubBonusMsat: HUB_BONUS_MSAT,
+        },
+      },
+    ]);
+  });
+
+  it('with no Π_h hold: only the claim payment enters the ledger', () => {
+    const claim = { ...pendingClaim(), hubBonusMsat: 0n, hubBonusPaymentId: null };
+    const result = transition('AT_HUB', validEvent('claim_funded'), { ...ctx, pendingClaim: claim });
+    expectOk(result);
+    const entries = result.effects.filter((e) => e.kind === 'post_ledger_entry');
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({ eventType: 'claim_payment_held' });
+  });
+
+  it('guard: no pending claim to fund', () => {
+    expectRejected(transition('AT_HUB', validEvent('claim_funded'), ctxForState('AT_HUB')), 'guard_failed');
+  });
+
+  it('guard: funding window expired', () => {
+    expectRejected(transition('AT_HUB', { type: 'claim_funded', now: at(61) }, ctx), 'guard_failed');
+  });
+});
+
+describe('claim_funding_expired', () => {
+  const ctx = { ...ctxForState('AT_HUB'), pendingClaim: pendingClaim() };
+
+  it('dissolves both holds with NO journal entries and returns the parcel to the board', () => {
+    const result = transition('AT_HUB', validEvent('claim_funding_expired'), ctx);
+    expectOk(result);
+    expect(result.nextState).toBe('AT_HUB');
+    expect(result.effects).toEqual([
+      { kind: 'refund_conditional_payment', paymentId: IDS.claimPayment },
+      { kind: 'refund_conditional_payment', paymentId: IDS.claimHubBonus },
+      {
+        kind: 'append_custody_event',
+        type: 'expired',
+        actorUserId: null,
+        legId: null,
+        hubStayId: IDS.originStay,
+        payload: { reason: 'claim_funding', claimId: IDS.claim },
+      },
+    ]);
+  });
+
+  it('guard: window not expired yet', () => {
+    expectRejected(transition('AT_HUB', { type: 'claim_funding_expired', now: at(59) }, ctx), 'guard_failed');
+  });
+
+  it('guard: no pending claim', () => {
+    expectRejected(
+      transition('AT_HUB', validEvent('claim_funding_expired'), ctxForState('AT_HUB')),
+      'guard_failed',
+    );
+  });
+});
+
+describe('recipient_claimed_pickup', () => {
+  const ctx = ctxForState('CLAIMED');
+
+  it('settles the claim: recipient collects pool + Π_v, hub collects Π_h, bond back, DELIVERED', () => {
+    const result = transition('CLAIMED', validEvent('recipient_claimed_pickup'), ctx);
+    expectOk(result);
+    expect(result.nextState).toBe('DELIVERED');
+    expect(result.effects).toEqual([
+      { kind: 'release_conditional_payment', paymentId: IDS.claimPayment },
+      {
+        kind: 'post_ledger_entry',
+        eventType: 'claim_payment_released',
+        ref: { type: 'claim', id: IDS.claim },
+        postings: [
+          { ownerType: 'shipment', ownerId: IDS.shipment, accountKind: 'commitment', amountMsat: -CLAIM_PAYMENT_MSAT },
+          { ownerType: 'user', ownerId: IDS.claimant, accountKind: 'external_wallet', amountMsat: CLAIM_PAYMENT_MSAT },
+        ],
+      },
+      { kind: 'release_conditional_payment', paymentId: IDS.claimHubBonus },
+      {
+        kind: 'post_ledger_entry',
+        eventType: 'finalization_bonus_released',
+        ref: { type: 'claim', id: IDS.claim },
+        postings: [
+          { ownerType: 'shipment', ownerId: IDS.shipment, accountKind: 'commitment', amountMsat: -HUB_BONUS_MSAT },
+          { ownerType: 'user', ownerId: IDS.originHubUser, accountKind: 'external_wallet', amountMsat: HUB_BONUS_MSAT },
+        ],
+      },
+      { kind: 'refund_conditional_payment', paymentId: IDS.originHubBond },
+      {
+        kind: 'post_ledger_entry',
+        eventType: 'hub_bond_refunded',
+        ref: { type: 'hub_stay', id: IDS.originStay },
+        postings: [
+          { ownerType: 'shipment', ownerId: IDS.shipment, accountKind: 'commitment', amountMsat: -BOND_MSAT },
+          { ownerType: 'user', ownerId: IDS.originHubUser, accountKind: 'external_wallet', amountMsat: BOND_MSAT },
+        ],
+      },
+      { kind: 'cancel_timeout', timeout: 'storage', refId: IDS.originStay },
+      {
+        kind: 'append_custody_event',
+        type: 'recipient_claimed',
+        actorUserId: IDS.originHubUser,
+        legId: null,
+        hubStayId: IDS.originStay,
+        payload: { claimId: IDS.claim, claimTokenVerified: true },
+      },
+      { kind: 'queue_email', to: 'sender', template: 'parcel_delivered', payload: {} },
+    ]);
+  });
+
+  it('guard: the claim token must be verified at the counter', () => {
+    expectRejected(
+      transition('CLAIMED', { type: 'recipient_claimed_pickup', claimTokenVerified: false }, ctx),
+      'guard_failed',
+    );
+  });
+
+  it('guard: the claim must reference the current hub stay', () => {
+    const claim = { ...pendingClaim(), hubStayId: IDS.arrivalStay };
+    expectRejected(
+      transition('CLAIMED', validEvent('recipient_claimed_pickup'), { ...ctx, pendingClaim: claim }),
+      'guard_failed',
+    );
+  });
+});
+
+describe('claim interactions with the rest of the protocol (ADR-016)', () => {
+  const pendingClaimCtx = { ...ctxForState('AT_HUB'), pendingClaim: pendingClaim() };
+
+  it('leg_accept is rejected while a claim is pending: the parcel left the board', () => {
+    expectRejected(transition('AT_HUB', validEvent('leg_accept'), pendingClaimCtx), 'guard_failed');
+  });
+
+  it('boost, reroute and cancel are rejected while a claim is pending', () => {
+    expectRejected(transition('AT_HUB', validEvent('boost'), pendingClaimCtx), 'guard_failed');
+    expectRejected(transition('AT_HUB', validEvent('reroute'), pendingClaimCtx), 'guard_failed');
+    expectRejected(transition('AT_HUB', { type: 'cancel' }, pendingClaimCtx), 'guard_failed');
+  });
+
+  it('boost, reroute and cancel are illegal in CLAIMED', () => {
+    const ctx = ctxForState('CLAIMED');
+    expectRejected(transition('CLAIMED', validEvent('boost'), ctx), 'illegal_event');
+    expectRejected(transition('CLAIMED', validEvent('reroute'), ctx), 'illegal_event');
+    expectRejected(transition('CLAIMED', { type: 'cancel' }, ctx), 'illegal_event');
+  });
+
+  it('handoff_reject at the claimed pickup: documentary, nothing moves', () => {
+    const ctx = ctxForState('CLAIMED');
+    const event = { ...validEvent('handoff_reject'), stage: 'recipient_pickup' } as ShipmentEvent;
+    const result = transition('CLAIMED', event, ctx);
+    expectOk(result);
+    expect(result.nextState).toBe('CLAIMED');
+    expect(result.effects.filter((e) => e.kind !== 'append_custody_event' && e.kind !== 'queue_email')).toEqual([]);
+  });
+
+  it('storage_expiry with a claim pending funding: holds dissolve without entries, window disarmed', () => {
+    const result = transition('AT_HUB', validEvent('storage_expiry'), pendingClaimCtx);
+    expectOk(result);
+    expect(result.nextState).toBe('FORFEITED');
+    expect(result.effects).toEqual([
+      { kind: 'refund_conditional_payment', paymentId: IDS.claimPayment },
+      { kind: 'refund_conditional_payment', paymentId: IDS.claimHubBonus },
+      { kind: 'cancel_timeout', timeout: 'claim_funding', refId: IDS.claim },
+      { kind: 'refund_conditional_payment', paymentId: IDS.originHubBond },
+      {
+        kind: 'post_ledger_entry',
+        eventType: 'hub_bond_refunded',
+        ref: { type: 'hub_stay', id: IDS.originStay },
+        postings: [
+          { ownerType: 'shipment', ownerId: IDS.shipment, accountKind: 'commitment', amountMsat: -BOND_MSAT },
+          { ownerType: 'user', ownerId: IDS.originHubUser, accountKind: 'external_wallet', amountMsat: BOND_MSAT },
+        ],
+      },
+      {
+        kind: 'append_custody_event',
+        type: 'expired',
+        actorUserId: null,
+        legId: null,
+        hubStayId: IDS.originStay,
+        payload: { reason: 'storage' },
+      },
+    ]);
+  });
+
+  it('storage_expiry from CLAIMED: the held claim commitments return to the sender', () => {
+    const result = transition('CLAIMED', validEvent('storage_expiry'), ctxForState('CLAIMED'));
+    expectOk(result);
+    expect(result.nextState).toBe('FORFEITED');
+    expect(result.effects).toEqual([
+      { kind: 'refund_conditional_payment', paymentId: IDS.claimPayment },
+      {
+        kind: 'post_ledger_entry',
+        eventType: 'claim_payment_refunded',
+        ref: { type: 'claim', id: IDS.claim },
+        postings: [
+          { ownerType: 'shipment', ownerId: IDS.shipment, accountKind: 'commitment', amountMsat: -CLAIM_PAYMENT_MSAT },
+          { ownerType: 'user', ownerId: IDS.sender, accountKind: 'external_wallet', amountMsat: CLAIM_PAYMENT_MSAT },
+        ],
+      },
+      { kind: 'refund_conditional_payment', paymentId: IDS.claimHubBonus },
+      {
+        kind: 'post_ledger_entry',
+        eventType: 'finalization_bonus_refunded',
+        ref: { type: 'claim', id: IDS.claim },
+        postings: [
+          { ownerType: 'shipment', ownerId: IDS.shipment, accountKind: 'commitment', amountMsat: -HUB_BONUS_MSAT },
+          { ownerType: 'user', ownerId: IDS.sender, accountKind: 'external_wallet', amountMsat: HUB_BONUS_MSAT },
+        ],
+      },
+      { kind: 'refund_conditional_payment', paymentId: IDS.originHubBond },
+      {
+        kind: 'post_ledger_entry',
+        eventType: 'hub_bond_refunded',
+        ref: { type: 'hub_stay', id: IDS.originStay },
+        postings: [
+          { ownerType: 'shipment', ownerId: IDS.shipment, accountKind: 'commitment', amountMsat: -BOND_MSAT },
+          { ownerType: 'user', ownerId: IDS.originHubUser, accountKind: 'external_wallet', amountMsat: BOND_MSAT },
+        ],
+      },
+      {
+        kind: 'append_custody_event',
+        type: 'expired',
+        actorUserId: null,
+        legId: null,
+        hubStayId: IDS.originStay,
+        payload: { reason: 'storage' },
+      },
+    ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // The full state × event matrix: everything not explicitly legal is rejected.
 
 const LEGAL: Record<string, ShipmentEventType[]> = {
@@ -1450,11 +1831,24 @@ const LEGAL: Record<string, ShipmentEventType[]> = {
   DRAFT: ['origin_hub_accept', 'cancel'],
   AWAITING_DROPOFF: ['origin_checkin', 'cancel'],
   // leg_funded / leg_funding_expired are state-legal in AT_HUB but need a
-  // pending leg: with the bare AT_HUB fixture they fail on the guard instead.
-  AT_HUB: ['leg_accept', 'leg_funded', 'leg_funding_expired', 'boost', 'reroute', 'cancel', 'storage_expiry'],
+  // pending leg (claim_funded / claim_funding_expired a pending claim): with
+  // the bare AT_HUB fixture they fail on the guard instead.
+  AT_HUB: [
+    'leg_accept',
+    'leg_funded',
+    'leg_funding_expired',
+    'recipient_claim',
+    'claim_funded',
+    'claim_funding_expired',
+    'boost',
+    'reroute',
+    'cancel',
+    'storage_expiry',
+  ],
   LEG_BOOKED: ['pickup_checkout', 'pickup_timeout', 'handoff_reject'],
   IN_TRANSIT: ['leg_checkin', 'leg_return', 'transit_timeout', 'handoff_reject'],
   AWAITING_PICKUP: ['recipient_pickup', 'reroute', 'boost', 'storage_expiry', 'handoff_reject'],
+  CLAIMED: ['recipient_claimed_pickup', 'storage_expiry', 'handoff_reject'],
   DELIVERED: [],
   CANCELLED: [],
   FORFEITED: [],
@@ -1473,6 +1867,10 @@ const ALL_EVENT_TYPES: ShipmentEventType[] = [
   'leg_checkin',
   'leg_return',
   'recipient_pickup',
+  'recipient_claim',
+  'claim_funded',
+  'claim_funding_expired',
+  'recipient_claimed_pickup',
   'handoff_reject',
   'storage_expiry',
   'transit_timeout',
@@ -1513,6 +1911,9 @@ describe('state × event matrix', () => {
         if (state === 'AT_HUB' && (eventType === 'leg_funded' || eventType === 'leg_funding_expired')) {
           ctx = { ...ctx, leg: pendingLeg() };
         }
+        if (state === 'AT_HUB' && (eventType === 'claim_funded' || eventType === 'claim_funding_expired')) {
+          ctx = { ...ctx, pendingClaim: pendingClaim() };
+        }
         cases.push([state, eventType, ctx]);
       }
     }
@@ -1520,6 +1921,7 @@ describe('state × event matrix', () => {
       LEG_BOOKED: 'pickup_checkout',
       IN_TRANSIT: 'hub_checkin',
       AWAITING_PICKUP: 'recipient_pickup',
+      CLAIMED: 'recipient_pickup',
     };
     for (const [state, eventType, ctx] of cases) {
       let event = validEvent(eventType);
@@ -1552,6 +1954,9 @@ describe('ledger discipline across all legal transitions', () => {
       transition('AWAITING_PICKUP', validEvent('recipient_pickup'), ctxForState('AWAITING_PICKUP')),
       transition('AT_HUB', validEvent('storage_expiry'), ctxForState('AT_HUB')),
       transition('AT_HUB', { type: 'cancel' }, ctxForState('AT_HUB')),
+      transition('AT_HUB', validEvent('claim_funded'), { ...ctxForState('AT_HUB'), pendingClaim: pendingClaim() }),
+      transition('CLAIMED', validEvent('recipient_claimed_pickup'), ctxForState('CLAIMED')),
+      transition('CLAIMED', validEvent('storage_expiry'), ctxForState('CLAIMED')),
     ];
     for (const result of samples) {
       expectOk(result);

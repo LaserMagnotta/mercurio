@@ -17,6 +17,7 @@ import {
   cancellationCompensation,
   floorToSat,
   minLegProgressKm,
+  priceClaim,
   priceLeg,
   remainingPool,
   splitCommitment,
@@ -305,6 +306,41 @@ describe('ECONOMICS.md §4 — case 3: three legs 30+40+30 km, hubs origin/dest 
       leg3.arrHubFeeMsat;
     expect(hubTotal).toBe(1_350_000n);
     expect(leg1.netMsat + leg2.netMsat + leg3.netMsat).toBe(3_650_000n);
+  });
+});
+
+describe('ECONOMICS.md §5-ter / ADR-016 — recipient claim pricing', () => {
+  it('canonical claim at hub C (40 km done): pool residuo + Π_v, hub gets Π_h', () => {
+    // Work pool 4.50 €, parcel 60 km from B: remaining pool 2.70 €; the full
+    // quotas are unconsumed. Claim payment 2.70 + 0.35 = 3.05 €, Π_h 0.15 €.
+    const pool = remainingPool(WORK, D, 60);
+    expect(pool).toBe(2_700_000n);
+    expect(priceClaim({ poolMsat: pool, carrierBonusMsat: CARRIER_QUOTA, hubBonusMsat: HUB_QUOTA })).toEqual({
+      claimPaymentMsat: 3_050_000n,
+      hubBonusMsat: HUB_QUOTA,
+    });
+  });
+
+  it('claim at the ORIGIN hub: the full work pool plus Π_v (no fee — ADR-016)', () => {
+    expect(
+      priceClaim({ poolMsat: remainingPool(WORK, D, D), carrierBonusMsat: CARRIER_QUOTA, hubBonusMsat: HUB_QUOTA }),
+    ).toEqual({ claimPaymentMsat: WORK + CARRIER_QUOTA, hubBonusMsat: HUB_QUOTA });
+  });
+
+  it('consumed Π_v contributes nothing; each part floors to a whole sat', () => {
+    expect(
+      priceClaim({ poolMsat: 1_234_567n, carrierBonusMsat: 0n, hubBonusMsat: 999n }),
+    ).toEqual({ claimPaymentMsat: 1_234_000n, hubBonusMsat: 0n });
+    // Floors are independent (like leg pricing), never on the sum.
+    expect(
+      priceClaim({ poolMsat: 1_500n, carrierBonusMsat: 1_500n, hubBonusMsat: 1_999n }),
+    ).toEqual({ claimPaymentMsat: 2_000n, hubBonusMsat: 1_000n });
+  });
+
+  it('rejects negative inputs', () => {
+    expect(() => priceClaim({ poolMsat: -1n, carrierBonusMsat: 0n, hubBonusMsat: 0n })).toThrow(EconomicsError);
+    expect(() => priceClaim({ poolMsat: 0n, carrierBonusMsat: -1n, hubBonusMsat: 0n })).toThrow(EconomicsError);
+    expect(() => priceClaim({ poolMsat: 0n, carrierBonusMsat: 0n, hubBonusMsat: -1n })).toThrow(EconomicsError);
   });
 });
 
