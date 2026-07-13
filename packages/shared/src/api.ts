@@ -105,6 +105,20 @@ export const recipientPickupBody = z.object({
   otp: z.string().min(4).max(16),
 });
 
+/** ADR-016: the recipient claims the idle parcel with the bearer token from
+ *  the tracking email. No QR needed — the parcel is not in their hands yet. */
+export const recipientClaimBody = z.object({
+  claimToken: z.string().min(1),
+});
+
+/** ADR-016: the physical pickup of a claimed parcel. The HUB drives this
+ *  (its session), scanning the parcel QR and the claimant's token; accepting
+ *  the handoff is definitive, exactly like the OTP pickup. */
+export const claimedPickupBody = z.object({
+  qrToken: z.string().min(1),
+  claimToken: z.string().min(1),
+});
+
 export const boostBody = z.object({
   amountMsat: msatString,
   /** Client-generated key: a boost moves the sender's commitment, so a
@@ -212,6 +226,16 @@ export const shipmentDetailDto = z.object({
   createdAt: z.string(),
   legs: z.array(legDto),
   custodyChain: z.array(custodyEventDto),
+});
+
+/** Response of POST /shipments/:id/claim (ADR-016): the frozen claim amounts
+ *  and the funding window the sender's wallet must honor. */
+export const claimCreatedDto = z.object({
+  claimId: uuidString,
+  status: z.literal('pending_funding'),
+  claimPaymentMsat: msatString,
+  hubBonusMsat: msatString,
+  fundingDeadlineAt: z.string(),
 });
 
 export const shipmentCreatedDto = z.object({

@@ -27,6 +27,22 @@ export interface LegPricing {
 }
 
 /**
+ * The two amounts frozen on a recipient claim at request time (ADR-016,
+ * ECONOMICS.md §5-ter). The claim payment is the remaining work pool plus the
+ * accrued unconsumed carrier bonus share Π_v (the recipient does the residual
+ * carriage themselves); the hub bonus is the accrued Π_h for the hub where
+ * the pickup happens. Each part is floored to a whole sat independently, like
+ * leg pricing; the claim pays no hub fees (the pickup hub was already paid
+ * the arrival fee of its incoming leg, and the delivery work is paid by Π_h).
+ */
+export interface ClaimPricing {
+  /** Hold sender → recipient: floorToSat(pool) + floorToSat(Π_v). */
+  claimPaymentMsat: Msat;
+  /** Hold sender → pickup-hub owner: floorToSat(Π_h); 0 ⇒ no hold at all. */
+  hubBonusMsat: Msat;
+}
+
+/**
  * A sender top-up while the parcel is idle (ECONOMICS.md §5).
  * `amountMsat` is the boost's WORK-pool share — splitCommitment(ΔP).workMsat,
  * the 90% left after the finalization-bonus carve-out (ADR-014); the bonus

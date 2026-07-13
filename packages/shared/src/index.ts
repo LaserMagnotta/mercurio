@@ -9,7 +9,9 @@ export * from './matching';
 export * from './state-machine';
 export * from './api';
 
-/** Shipment lifecycle states (ARCHITECTURE.md §5). */
+/** Shipment lifecycle states (ARCHITECTURE.md §5). CLAIMED is the recipient
+ *  claim's mirror of LEG_BOOKED (ADR-016): claim holds funded, parcel waiting
+ *  for the claimant's physical pickup at the hub it already sits at. */
 export const SHIPMENT_STATES = [
   'DRAFT',
   'AWAITING_DROPOFF',
@@ -17,6 +19,7 @@ export const SHIPMENT_STATES = [
   'LEG_BOOKED',
   'IN_TRANSIT',
   'AWAITING_PICKUP',
+  'CLAIMED',
   'DELIVERED',
   'CANCELLED',
   'FORFEITED',

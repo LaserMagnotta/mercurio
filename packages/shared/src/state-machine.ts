@@ -39,6 +39,8 @@ export const CUSTODY_EVENT_TYPES = [
   'leg_returned',
   'arrived_destination',
   'recipient_pickup',
+  'claim_requested',
+  'recipient_claimed',
   'handoff_rejected',
   'rerouted',
   'boosted',
@@ -48,12 +50,14 @@ export const CUSTODY_EVENT_TYPES = [
 export type CustodyEventType = (typeof CUSTODY_EVENT_TYPES)[number];
 
 /** Timer families the worker schedules on behalf of the state machine. */
-export const TIMEOUT_KINDS = ['leg_funding', 'pickup', 'transit', 'storage'] as const;
+export const TIMEOUT_KINDS = ['leg_funding', 'pickup', 'transit', 'storage', 'claim_funding'] as const;
 export type TimeoutKind = (typeof TIMEOUT_KINDS)[number];
 
-/** Notifications the docs prescribe (flow steps 6–7, table row 12). OTP and
- *  storage-deadline reminders are the worker's business, not transitions. */
+/** Notifications the docs prescribe (flow steps 6–7, table row 12; tracking
+ *  mail with the claim token — ADR-016). OTP and storage-deadline reminders
+ *  are the worker's business, not transitions. */
 export type EmailTemplate =
+  | 'parcel_tracking'
   | 'parcel_at_intermediate_hub'
   | 'parcel_arrived'
   | 'parcel_delivered'
@@ -63,11 +67,14 @@ export type EmailTemplate =
  *  The recipient may not even have an account (identified by email only). */
 export type EmailRecipientRole = 'sender' | 'recipient';
 
-export type PaymentPurpose = 'leg_payment' | 'custody_bond' | 'finalization_bonus';
+export type PaymentPurpose = 'leg_payment' | 'custody_bond' | 'finalization_bonus' | 'claim_payment';
 
-/** What a conditional payment (or fee) is attached to. */
+/** What a conditional payment (or fee) is attached to. 'claim' points at a
+ *  shipment_claims row (ADR-016): both claim holds reference the claim, so
+ *  their idempotency keys can never collide with the hub-stay-referenced
+ *  Π_h hold of an earlier final leg. */
 export interface PaymentRef {
-  type: 'leg' | 'hub_stay';
+  type: 'leg' | 'hub_stay' | 'claim';
   id: string;
 }
 
@@ -140,7 +147,12 @@ export type ShipmentEffect =
   | { kind: 'schedule_timeout'; timeout: TimeoutKind; refId: string; at: string }
   | { kind: 'cancel_timeout'; timeout: TimeoutKind; refId: string }
   /** Invalidate and reissue the recipient pickup OTP (ARCHITECTURE.md row 16). */
-  | { kind: 'rotate_pickup_otp' };
+  | { kind: 'rotate_pickup_otp' }
+  /** Invalidate and reissue the recipient claim token (ADR-016): minted at
+   *  origin_checkin, rotated by a recipient-changing reroute. Only the hash
+   *  touches the DB; the plaintext rides in the tracking email queued by the
+   *  same transition (same pattern as the pickup OTP). */
+  | { kind: 'rotate_claim_token' };
 
 /**
  * The hub stay whose custody bond currently backs the parcel. Non-null from
@@ -204,6 +216,31 @@ export interface FinalizationBonusHold {
   amountMsat: Msat;
 }
 
+/**
+ * The recipient claim in flight (ADR-016) — the claim's mirror of ActiveLeg.
+ * Non-null from recipient_claim (holds created, funding window armed) until
+ * the claim is settled (recipient_claimed_pickup), expired
+ * (claim_funding_expired) or dissolved by storage_expiry. While set, the
+ * shipment is off the board and every leg_accept is rejected.
+ */
+export interface PendingClaim {
+  claimId: string;
+  /** The recipient's user account — the claim payment's payee (ADR-013:
+   *  payments are always between users, so claiming requires an account). */
+  claimantId: string;
+  /** The stay the pickup will happen at (custody does not move on a claim). */
+  hubStayId: string;
+  /** Frozen at the claim (ECONOMICS.md §5-ter): floorToSat(remaining work
+   *  pool) + floorToSat(accrued unconsumed Π_v). */
+  claimPaymentMsat: Msat;
+  /** Frozen accrued Π_h for the pickup hub; 0 when it floored to nothing
+   *  (then no hold exists and hubBonusPaymentId is null). */
+  hubBonusMsat: Msat;
+  claimPaymentId: string;
+  hubBonusPaymentId: string | null;
+  fundingDeadlineAt: string;
+}
+
 export interface ShipmentContext {
   shipmentId: string;
   senderId: string;
@@ -225,14 +262,19 @@ export interface ShipmentContext {
   originHubFeeBp: number;
   currentHubStay: ActiveHubStay | null;
   leg: ActiveLeg | null;
+  /** The pending Π_h hold of a final LEG (ADR-014). A claim's hub-bonus hold
+   *  lives in pendingClaim instead — the two never alias (ADR-016). */
   finalizationBonusHold: FinalizationBonusHold | null;
+  pendingClaim: PendingClaim | null;
 }
 
 /**
  * The 17 protocol events of ARCHITECTURE.md §5 (leg_checkin covers both table
  * rows 8 and 9 — the guard on the check-in hub decides intermediate vs
  * destination) plus the explicit leg_funding_expired (the "finestra scaduta"
- * arm of row 5: money moves, so it must be a transition).
+ * arm of row 5: money moves, so it must be a transition) plus the four
+ * recipient-claim events of ADR-016 (rows 18–21), which mirror the leg
+ * funding cycle: request → funded/expired → physical pickup.
  * Ids for entities born in a transition (legs, hub stays) are minted by the
  * caller and passed in, keeping the function pure and the effects replayable.
  * Timestamps are ISO 8601 UTC strings; `now` is injected, never read from a
@@ -288,6 +330,25 @@ export type ShipmentEvent =
       storageDeadlineAt: string;
     }
   | { type: 'recipient_pickup'; otpVerified: boolean }
+  | {
+      /** ADR-016 row 18: the recipient claims the idle parcel. Amounts are
+       *  frozen by the caller with the pure pricing engine (priceClaim), like
+       *  leg_accept freezes its LegPricing; the machine validates the guards
+       *  and owns every resulting movement. */
+      type: 'recipient_claim';
+      claimId: string;
+      claimantId: string;
+      claimantWalletConnected: boolean;
+      /** The API verified the bearer claim-token hash (precisazione 10:
+       *  authorization outside the machine, facts inside). */
+      claimTokenVerified: boolean;
+      claimPaymentMsat: Msat;
+      hubBonusMsat: Msat;
+      fundingDeadlineAt: string;
+    }
+  | { type: 'claim_funded'; now: string }
+  | { type: 'claim_funding_expired'; now: string }
+  | { type: 'recipient_claimed_pickup'; claimTokenVerified: boolean }
   | {
       type: 'handoff_reject';
       stage: 'pickup_checkout' | 'hub_checkin' | 'recipient_pickup';
