@@ -76,6 +76,14 @@ net(H)     = gross(H) × (1 − f_S − f_H)      // f_S = fee dell'hub corrente
 surplus(H) = net(H) − rate_min × detour(H)   // guadagno oltre la soglia del vettore
 ```
 
+**Premio di finalizzazione (ADR-014 — da implementare)**: `pool` è il pool di
+lavoro (90% dell'impegno, ECONOMICS §5-bis) e per il candidato `H = T` il
+netto include la quota vettore del premio:
+`net(T) = gross(T) × (1 − f_S − f_T) + Π_v`. La consegna diretta a
+destinazione diventa sistematicamente più attraente nel ranking — è
+l'incentivo voluto, e la bacheca lo mostra come voce separata ("premio
+consegna").
+
 **Criterio di match** (come da specifica): esiste `H` con
 
 ```
@@ -238,6 +246,31 @@ export function suggestSenderOfferEur(
 
 Funzione pura: testabile con scenari geometrici sintetici (come l'esempio §2) e
 proprietà (mai suggerire hub con progresso ≤ soglia; surplus coerente con ECONOMICS).
+
+## 8. Mappa del viaggio e export Google Maps (ADR-015 — da implementare)
+
+La vista viaggio del vettore mostra una **mappa** (Leaflet + tile OSM, niente
+API key) con partenza `O`, destinazione `Dc`, gli hub di ritiro/consegna delle
+tratte accettate (e in anteprima quelli della tratta selezionata in bacheca) e
+la polilinea dell'itinerario nell'**ordine di visita più breve** che rispetta
+il vincolo ritiro-prima-di-consegna per ogni spedizione:
+
+```ts
+/** Shortest open path O → … → Dc visiting all stops, pickup before drop
+ *  per shipment. Exact search — MAX_ROUTE_WAYPOINTS = 9 (Google URL limit). */
+export function orderRouteWaypoints(
+  origin: GeoPoint,
+  destination: GeoPoint,
+  stops: RouteStop[], // { hubId, point, kind: 'pickup' | 'drop', shipmentId }
+  distance: DistanceProvider,
+): RouteStop[];
+```
+
+Il bottone **"Apri in Google Maps"** genera l'URL
+`https://www.google.com/maps/dir/?api=1&origin=…&destination=…&waypoints=lat,lng|…&travelmode=driving`
+con le tappe in quell'ordine: il routing stradale vero lo fa Google al click
+(nessun dato inviato prima dell'azione esplicita dell'utente). Dettagli e
+alternative scartate in [ADR-015](adr/ADR-015-carrier-route-map.md).
 
 ## 7. Precisazioni implementative (rev. 2 — `packages/core/src/matching`)
 

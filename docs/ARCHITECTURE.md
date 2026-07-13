@@ -294,6 +294,27 @@ e timeout — mai da un giudizio umano. Il ritiro del destinatario (OTP dopo isp
 | 16  | `reroute`                        | Mittente                                                     | stato `AT_HUB` o `AWAITING_PICKUP`, nessuna tratta prenotata                                                                                               | nessun movimento; nuovo hub destinazione e/o destinatario, `r` ricalcolata, OTP invalidato e riemesso                                          |
 | 17  | `cancel`                         | Mittente                                                     | solo prima del primo `pickup_checkout`                                                                                                                     | 💸 compensazione hub origine `f_o × P` pagata direttamente (la restituzione del pacco si sblocca al pagamento) · ↩ bond hub annullato          |
 
+### Premio di finalizzazione (ADR-014 — **da implementare**)
+
+Modifiche pendenti alla tabella qui sopra, decise il 2026-07-13 (dettagli e
+razionale in [ADR-014](adr/ADR-014-finalization-bonus.md)):
+
+- **Riga 4/5 (tratta finale, `to_hub = hub destinazione`)**: la hold del
+  pagamento tratta vale `lordo + Π_v` (quota vettore del premio) e si aggiunge
+  una **quarta hold** ⏳ premio hub (`purpose: finalization_bonus`,
+  mittente→hub destinazione); `LEG_BOOKED` richiede tutte e quattro _held_.
+- **Riga 9 (check-in a destinazione)**: il vettore incassa lordo + `Π_v`
+  (stessa preimage, stessa hold); le fee restano calcolate sul solo lordo.
+- **Riga 11 (`recipient_pickup`)**: 🔑 preimage del premio hub all'hub di
+  destinazione — l'hub è premiato per la consegna completata, non per l'arrivo.
+- **Righe 13 e 16 (`storage_expiry` in consegna, `reroute` da
+  `AWAITING_PICKUP`)**: ↩ la hold del premio hub viene annullata (nel reroute,
+  la nuova tratta finale ne creerà una nuova verso il nuovo hub).
+- I fallimenti della tratta finale (righe 7, 10, 14 e la finestra di funding)
+  annullano anche la hold del premio hub, come le altre.
+- Schema: `legs.finalization_bonus_msat` (0 per le tratte non finali),
+  valore `finalization_bonus` nell'enum `conditional_payment_purpose`.
+
 **Principio di responsabilità ("la responsabilità segue la custodia certificata")**: chi
 riceve il pacco (hub o vettore) ne certifica l'integrità al check-in/check-out con foto.
 Da quel momento il danno scoperto dopo è attribuito al custode corrente, il cui bond è

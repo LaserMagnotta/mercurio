@@ -35,15 +35,20 @@ bond che viene liberato quando fa la sua parte. Tutto open source.
 5. Luca non arriva fino a B: lascia il pacco in un hub della città C (a 60 km
    da B) che aveva accettato quando il pacco è partito dal primo hub. Se il
    pacco è integro e consegnato, il bond di Luca si sblocca e lui incassa il
-   lordo della sua tratta, proporzionale ai km di avvicinamento: 5 € × 40/100
-   = 2 €; da quel lordo l'hub di partenza (Mario) e l'hub di arrivo trattengono
-   la propria percentuale (10% ciascuno ⇒ 0,20 € + 0,20 €), a Luca restano
-   1,60 €. Le percentuali degli hub sono configurabili da ciascun hub e si
-   applicano al lordo di ogni tratta (dettagli in /docs/ECONOMICS.md).
+   lordo della sua tratta, proporzionale ai km di avvicinamento sul **pool di
+   lavoro** (il 90% dell'offerta — il 10% è il premio di finalizzazione del
+   punto 7): 4,50 € × 40/100 = 1,80 €; da quel lordo l'hub di partenza (Mario)
+   e l'hub di arrivo trattengono la propria percentuale (10% ciascuno ⇒
+   0,18 € + 0,18 €), a Luca restano 1,44 €. Le percentuali degli hub sono
+   configurabili da ciascun hub e si applicano al lordo di ogni tratta
+   (dettagli in /docs/ECONOMICS.md).
 6. Marco e il destinatario ricevono una mail: il pacco è in C. Si attende un
    nuovo vettore per la tratta successiva, finché il pacco arriva a destinazione.
 7. A destinazione il destinatario riceve una mail e ritira gratis all'hub;
-   al ritiro il mittente riceve la conferma.
+   al ritiro il mittente riceve la conferma. Chi conclude il percorso incassa
+   il **premio di finalizzazione** (10% dell'offerta, ADR-014): 70% al vettore
+   che consegna all'hub di destinazione, 30% all'hub di destinazione al
+   momento del ritiro.
 
 ## Hub — dettagli
 

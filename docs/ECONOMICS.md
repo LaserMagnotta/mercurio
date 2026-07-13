@@ -3,7 +3,11 @@
 > Stato: **implementato** — 2026-07-12 (rev. 2: le percentuali degli hub si
 > applicano al lordo della tratta del vettore, non all'offerta totale — decisione utente;
 > rev. 3: precisazioni implementative in §6, emerse durante l'implementazione in
-> `packages/core`). Decisione formalizzata in [ADR-006](adr/ADR-006-progress-based-economics.md).
+> `packages/core`; rev. 4 del 2026-07-13: **premio di finalizzazione** in §5-bis,
+> [ADR-014](adr/ADR-014-finalization-bonus.md) — decisione utente, **da implementare**:
+> i numeri di §3–§4 descrivono il riparto del pool di lavoro, che con l'ADR-014
+> diventa il 90% dell'impegno del mittente).
+> Decisione formalizzata in [ADR-006](adr/ADR-006-progress-based-economics.md).
 
 ## 1. Il problema
 
@@ -200,6 +204,36 @@ rurale) — è mitigato da tre meccanismi:
 3. **Il matching protegge il vettore**: nessuno è mai indotto ad accettare in perdita,
    perché la bacheca mostra il **netto** e il criterio di match esige
    `netto ≥ tariffa_minima × km di deviazione` (MATCHING.md).
+
+## 5-bis. Premio di finalizzazione (ADR-014 — da implementare)
+
+Decisione utente (2026-07-13): il modello B paga il progresso ma non premia la
+**conclusione**. Correttivo: il **10% di tutto ciò che il mittente si impegna a
+pagare** (offerta `P` + ogni boost) è scorporato come premio `Π`, ripartito
+**70% al vettore che consegna** (check-in all'hub di destinazione) e **30%
+all'hub di destinazione** (rilasciato al ritiro del destinatario). Tutte le
+formule di questo documento operano sul **pool di lavoro** = 90% dell'impegno:
+lordi, fee hub e compensazione di annullamento **escludono il premio**, in
+entrambe le direzioni (il premio non paga fee).
+
+Esempio canonico aggiornato (P = 5,00 €, D = 100 km, hub al 10%,
+`Π = 0,50 €` → vettore 0,35 / hub 0,15; pool di lavoro 4,50 €):
+
+| Voce                          | Calcolo                        | Importo    |
+| ----------------------------- | ------------------------------ | ---------- |
+| Luca (40 km): netto           | 4,50 × 0,40 × 0,8              | **1,44**   |
+| Vettore finale (60 km): netto | 4,50 × 0,60 × 0,8 **+ 0,35**   | **2,51**   |
+| Hub C (0,18 + 0,27)           | fee sulle due tratte adiacenti | 0,45       |
+| Hub origine                   | 10% × 1,80                     | 0,18       |
+| Hub destinazione              | 10% × 2,70 **+ 0,15**          | **0,42**   |
+| **Totale**                    | 4,50 + 0,50                    | **5,00** ✓ |
+
+Meccanica, momenti di pagamento, edge case (reroute dopo l'arrivo, scadenza
+giacenza, boost) e costanti (`FINALIZATION_BONUS_BP = 1000`, quote 70/30) in
+[ADR-014](adr/ADR-014-finalization-bonus.md). La conservazione resta:
+`Σ lordi ≤ 90% × (P + Σ boost)`, `Σ premi ≤ 10% × (P + Σ boost)`, e ogni quota
+del premio o si regola verso il beneficiario fissato ex-ante o torna al
+mittente.
 
 Il **Modello C resta la roadmap** (v2) come _overlay_: il prezzo progress-based diventa
 il prezzo esposto "accetta subito", con possibilità di controfferte. L'interfaccia dati

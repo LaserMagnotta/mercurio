@@ -3,7 +3,10 @@
 > Regola dal CLAUDE.md: leggere `/docs` prima di ogni task; se manca una decisione,
 > proporla e aggiornare `/docs`.
 
-Stato attuale: **architettura in revisione, nessun codice ancora scritto** (2026-07-12).
+Stato attuale (2026-07-13): architettura approvata; implementati db+ledger,
+auth/API di base, motore economico, matching, macchina a stati e coordinatore
+escrow non custodiale. **Da implementare**: premio di finalizzazione
+(ADR-014), mappa del vettore (ADR-015), API spedizioni/tratte, web UI.
 
 ## Documenti
 
@@ -32,6 +35,8 @@ Stato attuale: **architettura in revisione, nessun codice ancora scritto** (2026
 | [ADR-011](adr/ADR-011-pg-boss-jobs.md)              | Timeout e code su pg-boss (Postgres)                                                  |
 | [ADR-012](adr/ADR-012-no-arbiter.md)                | Nessun arbitro: certificazioni + esiti deterministici, rifiuto al posto della disputa |
 | [ADR-013](adr/ADR-013-non-custodial-coordinator.md) | Zero custodia: coordinatore per preimage, pagamenti diretti P2P                       |
+| [ADR-014](adr/ADR-014-finalization-bonus.md)        | Premio di finalizzazione: 10% dell'impegno → 70% vettore finale, 30% hub finale       |
+| [ADR-015](adr/ADR-015-carrier-route-map.md)         | Mappa del viaggio del vettore (Leaflet/OSM) + export percorso su Google Maps          |
 
 ## Stato delle decisioni
 
