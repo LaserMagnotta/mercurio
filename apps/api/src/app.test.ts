@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { createTestDb } from '@mercurio/db/test-helpers';
 import { emailOutbox } from '@mercurio/db';
@@ -8,7 +9,7 @@ const CONSENT = { tosVersion: '2026-01-01', privacyVersion: '2026-01-01' };
 
 async function buildTestApp() {
   const db = await createTestDb();
-  const app = buildApp({ db, sendMail: async () => {} });
+  const app = buildApp({ db, sendMail: async () => {}, coordinatorKey: randomBytes(32) });
   await app.ready();
   return { app, db };
 }

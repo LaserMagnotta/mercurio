@@ -12,6 +12,8 @@
   "dependencies": {
     "@fastify/cookie": "^11.0.2",
     "@fastify/rate-limit": "^10.2.2",
+    "@fastify/swagger": "^9.8.0",
+    "@fastify/swagger-ui": "^6.1.0",
     "@mercurio/core": "workspace:*",
     "@mercurio/db": "workspace:*",
     "@mercurio/escrow": "workspace:*",
