@@ -19,7 +19,10 @@ export interface WalletConnection {
     expirySeconds: number,
     memo: string,
   ): Promise<{ bolt11: string }>;
-  makeInvoice(amountMsat: bigint, memo: string): Promise<{ bolt11: string }>;
+  /** Instant (non-hold) invoice for hub fees and compensations (ESCROW.md §3).
+   *  Returns the payment hash too: the caller polls lookupInvoice(hash) to
+   *  verify settlement before unlocking the certification it gates. */
+  makeInvoice(amountMsat: bigint, memo: string): Promise<{ bolt11: string; paymentHash: Hex }>;
   /** May stay pending forever (hold invoices): resolves once the payment is
    *  DISPATCHED (in flight), throws only on immediate failure (no route,
    *  insufficient balance, expired invoice). */

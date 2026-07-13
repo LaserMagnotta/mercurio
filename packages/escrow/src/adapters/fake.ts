@@ -161,10 +161,10 @@ export class FakeWalletConnection implements WalletConnection {
     });
   }
 
-  async makeInvoice(amountMsat: bigint, _memo: string): Promise<{ bolt11: string }> {
+  async makeInvoice(amountMsat: bigint, _memo: string): Promise<{ bolt11: string; paymentHash: Hex }> {
     const preimage = randomBytes(32);
     const hashHex = createHash('sha256').update(preimage).digest('hex');
-    return this.network.addInvoice({
+    const { bolt11 } = this.network.addInvoice({
       payeeId: this.walletId,
       amountMsat,
       hashHex,
@@ -172,6 +172,7 @@ export class FakeWalletConnection implements WalletConnection {
       expirySeconds: 3600,
       internalPreimageHex: preimage.toString('hex'),
     });
+    return { bolt11, paymentHash: hashHex };
   }
 
   async payInvoice(bolt11: string, _maxFeeMsat: bigint): Promise<{ paymentHash: Hex }> {

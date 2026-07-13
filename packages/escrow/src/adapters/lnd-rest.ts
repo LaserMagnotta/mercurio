@@ -68,13 +68,14 @@ export class LndRestWallet implements WalletConnection {
     return { bolt11: res.payment_request };
   }
 
-  async makeInvoice(amountMsat: bigint, memo: string): Promise<{ bolt11: string }> {
+  async makeInvoice(amountMsat: bigint, memo: string): Promise<{ bolt11: string; paymentHash: Hex }> {
     const res = (await this.json('POST', '/v1/invoices', {
       value_msat: amountMsat.toString(),
       memo,
-    })) as { payment_request?: string };
+    })) as { payment_request?: string; r_hash?: string };
     if (!res.payment_request) throw new LndRestError('invoice: no payment_request in reply');
-    return { bolt11: res.payment_request };
+    if (!res.r_hash) throw new LndRestError('invoice: no r_hash in reply');
+    return { bolt11: res.payment_request, paymentHash: base64ToHex(res.r_hash) };
   }
 
   /**
@@ -233,6 +234,10 @@ export class LndRestWallet implements WalletConnection {
 
 function hexToBase64(hex: string): string {
   return Buffer.from(hex, 'hex').toString('base64');
+}
+
+function base64ToHex(b64: string): string {
+  return Buffer.from(b64, 'base64').toString('hex');
 }
 
 function tryParse(text: string): unknown {

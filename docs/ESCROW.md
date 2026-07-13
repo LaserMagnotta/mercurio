@@ -126,7 +126,7 @@ export interface WalletConnection {
     expirySeconds: number,
     memo: string,
   ): Promise<{ bolt11: string }>;
-  makeInvoice(amountMsat: bigint, memo: string): Promise<{ bolt11: string }>; // instant (hub fees)
+  makeInvoice(amountMsat: bigint, memo: string): Promise<{ bolt11: string; paymentHash: Hex }>; // instant (hub fees); l'hash serve a verificare il settlement che sblocca la certificazione
   payInvoice(bolt11: string, maxFeeMsat: bigint): Promise<{ paymentHash: Hex }>; // resolves at dispatch (hold payments stay in flight)
   settleHoldInvoice(preimage: Hex): Promise<void>;
   cancelHoldInvoice(hash: Hex): Promise<void>;
