@@ -5,8 +5,11 @@
 
 Stato attuale (2026-07-13): architettura approvata; implementati db+ledger,
 auth/API di base, motore economico, matching, macchina a stati, coordinatore
-escrow non custodiale e premio di finalizzazione (ADR-014). **Da
-implementare**: mappa del vettore (ADR-015), API spedizioni/tratte, web UI.
+escrow non custodiale, premio di finalizzazione (ADR-014) e **API del ciclo
+di vita delle spedizioni** (executor degli effetti, bacheca del viaggio,
+wallet-event pump, timer e worker pg-boss; OpenAPI servita su `/docs`
+dell'API — precisazioni in ARCHITECTURE §5). **Da implementare**: mappa del
+vettore (ADR-015), web UI.
 
 ## Documenti
 

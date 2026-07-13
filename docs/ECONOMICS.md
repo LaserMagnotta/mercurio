@@ -7,7 +7,9 @@
 > [ADR-014](adr/ADR-014-finalization-bonus.md) — decisione utente; rev. 5, stesso
 > giorno: ADR-014 **implementato** in `packages/core` — i numeri di §3–§4
 > descrivono il riparto del **pool di lavoro**, cioè il 90% dell'impegno del
-> mittente; lo scorporo è documentato in §5-bis e ADR-014).
+> mittente; lo scorporo è documentato in §5-bis e ADR-014; rev. 6, stesso
+> giorno: precisazione §6.2 sul reroute dallo stato di consegna, emersa
+> implementando l'API del ciclo di vita).
 > Decisione formalizzata in [ADR-006](adr/ADR-006-progress-based-economics.md).
 
 ## 1. Il problema
@@ -308,7 +310,15 @@ forzate dalle proprietà stesse (non sono scelte libere):
 2. **Il reroute apre un segmento.** Il pool corrente (boost inclusi) è congelato come
    impegno del nuovo segmento (`P* = pool`, `D* = r'`); i boost successivi sono
    relativi al segmento corrente. Le tratte già pagate non si toccano per costruzione:
-   erano prezzate sul pool com'era allora.
+   erano prezzate sul pool com'era allora. **Caso limite — reroute dallo stato di
+   consegna** (rev. 6, 2026-07-13, emerso implementando l'API): a destinazione la
+   distanza residua è 0, quindi il pool decaduto congela a 0 per costruzione; i boost
+   fatti col pacco fermo a destinazione però non hanno mai "viaggiato" e la loro parte
+   work passa al nuovo segmento **senza decadimento** (`P* = Σ work dei boost
+   post-arrivo`). È l'unica lettura che rende vero "il reroute dallo stato di
+   consegna a pool esaurito richiede un boost" (§5) senza perdere l'impegno del
+   mittente; la conservazione regge perché ogni parte work entra nel pool una volta
+   sola.
 3. **Scala degli arrotondamenti** (tutti per difetto, mai a favore di chi incassa):
    le distanze sono quantizzate al **metro intero** all'ingresso (così ogni divisione
    è aritmetica bigint esatta e due macchine congelano gli stessi msat); il pool

@@ -114,3 +114,30 @@ implementando (nessuna cambia il protocollo dei pagamenti):
    (`pnpm test:integration`, richiede `docker compose up` + `bootstrap.sh`):
    hold pagata → held, release → il payee incassa davvero (saldo canale),
    refund → il payer rientra, scadenza → expired.
+
+## Dettagli implementativi lato API (2026-07-13, `apps/api`)
+
+Come l'executor degli effetti consuma questo contratto (il razionale esteso è
+in ARCHITECTURE §5, "Precisazioni implementative apps/api"):
+
+1. **Ordine delle fasi**: `createConditionalPayment` e le fee istantanee
+   girano PRIMA della transazione di dominio (idem deterministici, quindi
+   ritentabili); `release`/`refund` girano DOPO il commit, con una riga
+   `escrow_intents` scritta nella transazione — i verbi sono idempotenti per
+   stato, quindi l'esecuzione at-least-once del worker converge. Nel mezzo,
+   il fallimento lascia sempre il default sicuro: hold non riferite da
+   nessuna transizione muoiono con la loro finestra e i pagatori rientrano.
+2. **Collasso delle scritture** (§3 qui sopra) verificato dai test: dopo un
+   `leg_funded` esistono ESATTAMENTE una entry `cp:<id>:held` per hold,
+   qualunque combinazione di pollOnce del coordinatore e transizione della
+   macchina le abbia postate.
+3. **Fee istantanee**: `WalletConnection.makeInvoice` ora restituisce anche
+   il `paymentHash`, così l'API verifica il settlement al wallet del payee
+   prima di sbloccare la certificazione (tabella `instant_payments`, chiave
+   idempotente per (rif, causale): un retry non paga due volte).
+4. **Riconciliazione (invariante 6)**: oltre al confronto riga↔wallet del
+   coordinatore, il job notturno verifica che le entry di ogni pagamento
+   corrispondano al suo stato e che il saldo del conto commitment di ogni
+   spedizione sia esattamente la somma delle hold _held_ non risolte
+   (zero a spedizione chiusa), e segnala `escrow_intents` fermi da oltre
+   un'ora.

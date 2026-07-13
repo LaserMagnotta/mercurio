@@ -414,6 +414,82 @@ forzate dagli invarianti qui sopra (non scelte libere di protocollo):
     dichiara `finalizationHubBonusMsat`; guardie: quote > 0 solo su tratte
     finali, mai un nuovo `leg_accept` con una hold premio non riassorbita.
 
+### Precisazioni implementative (`apps/api` — executor, rotte, worker)
+
+Decisioni emerse cablando la macchina nell'API (2026-07-13); nessuna cambia
+il protocollo dei pagamenti — sono scelte di esecuzione forzate dagli
+invarianti o "la soluzione più semplice coerente coi documenti", qui
+registrate:
+
+1. **Executor in tre fasi.** Gli effetti di una transizione si eseguono:
+   (1) creazioni di pagamenti condizionali e fee istantanee — wallet I/O —
+   PRIMA della transazione (idem deterministici `cpc:<refType>:<refId>:<purpose>`
+   e `fee:<refType>:<refId>:<reason>`); (2) UNA transazione DB con lock sulla
+   riga della spedizione, **ricalcolo in-transazione della transizione**
+   (contesto fresco; i pagamenti creati in fase 1 dalla stessa invocazione
+   sono esclusi dal contesto — un `leg_accept` finale inciamperebbe nella
+   propria hold `Π_h` appena creata) e confronto canonico degli effetti:
+   righe, evento di custodia con hash concatenato, journal entry, outbox,
+   timer — o tutto o niente; (3) `release`/`refund` DOPO il commit, con una
+   riga `escrow_intents` scritta nella transazione: i verbi sono idempotenti
+   e un worker riprova i resti (at-least-once) — se il processo muore, lo
+   stato committato è già giusto e il denaro segue, mai il contrario.
+2. **Sync-held dove la macchina riconosce l'impegno subito**: quando un
+   `create_conditional_payment` è accoppiato a una entry `*_held` nella
+   stessa transizione (bond hub a `origin_hub_accept` e `leg_return`),
+   l'executor attende che la hold risulti _held_ prima di committare — quelle
+   transizioni certificano un custode con bond, non una promessa. I quattro
+   pagamenti della finestra di funding restano invece asincroni (wallet-event
+   pump). Una fase fallita compensa con refund best-effort i pagamenti appena
+   creati (referenziano id coniati per quella sola invocazione, quindi mai di
+   un vincitore concorrente); comunque morirebbero con la finestra della hold.
+3. **Chiavi ledger collassanti** (ADR-013 §3): le entry accoppiate ai
+   pagamenti derivano la chiave per adiacenza nell'elenco effetti (l'entry
+   segue il suo effetto di pagamento) o, per `leg_funded`, dagli id nel
+   contesto; chi non è derivabile fa fallire la transizione — mai postare
+   denaro sotto una chiave indovinata.
+4. **Timer come fatti, pg-boss come motore** (ADR-011): `schedule_timeout`
+   scrive una riga in `shipment_timers` nella stessa transazione della
+   transizione ("o entrambi o nessuno"); un job pg-boss al minuto fa lo
+   sweep delle righe scadute e reimmette gli eventi di timeout, che la
+   macchina riverifica da sé (un timer stantio viene consumato senza
+   effetti). Stessa cadenza per wallet-event pump, dispatch outbox e retry
+   degli `escrow_intents`; riconciliazione alle 03:00 (invariante 6).
+5. **Fee istantanee ritentabili**: tabella `instant_payments` con chiave
+   idempotente deterministica — riga creata prima del dispatch, invoice del
+   payee (che ora restituisce anche il payment hash), pagamento del payer,
+   e la certificazione si sblocca solo a settlement osservato al wallet del
+   payee. Un retry trova la riga regolata e non paga due volte.
+6. **Scadenze MVP congelate come costanti di protocollo**
+   (`@mercurio/shared`): ritiro 24 h dal funding, transito 48 h dal
+   check-out, doppia conferma di check-out entro 15 minuti, finestra hold =
+   finestra di funding (60 min).
+7. **OTP di ritiro**: coniato (6 cifre) quando parte l'email di arrivo — solo
+   l'hash tocca il database, il plaintext viaggia nella riga di outbox della
+   stessa transazione; `rotate_pickup_otp` lo rigenera al reroute. L'API
+   verifica l'hash e dichiara `otpVerified` alla macchina (precisazione 10).
+8. **Ruoli disgiunti per spedizione**: su Lightning payer ≠ payee, quindi
+   mittente, vettore della tratta e proprietari degli hub coinvolti devono
+   essere utenti diversi — rifiuto esplicito (`self_payment_impossible`)
+   prima di toccare i wallet; la bacheca esclude gli hub del vettore.
+9. **Vincolo di giacenza dell'hub d'arrivo**: `hub.max_storage_hours ≥`
+   giacenza scelta dal mittente, validato ad accept/leg_accept/reroute — un
+   tetto più corto svincolerebbe il pacco prima di quanto il mittente ha
+   accettato (mai restringere in silenzio la sua finestra).
+10. **Doppia conferma di check-out** come metadato sulla riga della tratta
+    (timestamp per parte + foto lato hub): la transizione parte con la
+    seconda conferma nella finestra; la custodia cambia solo nella macchina.
+11. **Boost idempotente**: la rotta esige una `idempotencyKey` del client,
+    registrata nel payload dell'evento di custodia come metadato di
+    trasporto (mai PII) — un retry di rete non raddoppia l'impegno.
+12. **Foto come hash dichiarati**: l'MVP dell'API accetta sha256 calcolati
+    dal client (niente blob storage); l'hash entra nella catena di custodia
+    come certificazione. Lo storage arriverà con la web UI.
+13. **Auto-accettazione dell'hub di origine**: se `auto_accept` e vincoli
+    rispettati, `origin_hub_accept` parte nella stessa richiesta di
+    `POST /shipments` (transazione separata: un fallimento lascia DRAFT e
+    l'endpoint manuale disponibile).
+
 ## 6. Bond di custodia unico (proposta)
 
 Il CLAUDE.md definisce il bond del vettore (scelto dal mittente, es. 15 €) ma non

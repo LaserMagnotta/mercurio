@@ -1,6 +1,6 @@
 # ADR-011 — Job, timeout e code su pg-boss (Postgres), niente Redis
 
-- Stato: proposto (in revisione) — 2026-07-12
+- Stato: accettato — 2026-07-12; **implementato** il 2026-07-13 (dettagli in fondo)
 
 ## Contesto
 
@@ -37,3 +37,26 @@ la verità è nella macchina a stati.
   nostro caso; la firma dei job è banale da portare su BullMQ se mai servisse).
 - I worker sono separabili dal processo API senza cambi di codice quando servirà
   scalare.
+
+## Dettagli implementativi (2026-07-13, `apps/api`)
+
+L'atomicità job+transizione — l'argomento decisivo di questo ADR — è
+realizzata con una piccola variante: le scadenze sono **fatti in tabella**
+(`shipment_timers`, riga scritta dall'effetto `schedule_timeout` nella stessa
+transazione della transizione, cancellata da `cancel_timeout`), non un job
+pg-boss per scadenza. pg-boss resta il motore di esecuzione: un job cron al
+minuto (`fireDueTimers`) trasforma le righe scadute negli eventi di timeout
+della macchina, che riverifica stato e scadenza da sé — il timer è il
+promemoria, la macchina è la verità, esattamente come sopra. Un timer reso
+stantio da una transizione già avvenuta viene consumato senza effetti.
+
+Ragioni della variante: (a) l'atomicità è garantita dalla transazione
+dell'executor senza dipendere dalle API transazionali di pg-boss; (b) i
+timeout sono testabili deterministicamente su pglite con orologio iniettato
+(`fireDueTimers(deps, now)`), dove pg-boss non gira; (c) la granularità al
+minuto basta con la finestra più corta a 60 minuti.
+
+Gli altri worker sono cron pg-boss nello stesso processo (MVP): wallet-event
+pump e dispatch dell'email outbox al minuto, retry degli `escrow_intents`
+(release/refund post-commit non ancora riusciti, ADR-013) ogni 5, e la
+riconciliazione notturna dell'invariante 6 alle 03:00.

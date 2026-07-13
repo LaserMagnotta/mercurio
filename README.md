@@ -106,6 +106,21 @@ privacyVersion }` is required only the first time an email logs in
   custody chain are append-only and keep referencing the user by id only,
   never by email, so anonymizing this one row severs the personal data.
 
+### Shipment lifecycle API
+
+The full shipment lifecycle (ARCHITECTURE.md §5) is served by the API and
+documented as **OpenAPI at `/docs`** (generated from the shared Zod schemas,
+`packages/shared/src/api.ts`). In short: `POST /me/wallet` connects the
+caller's own Lightning wallet (a prerequisite for every money-bearing role,
+ADR-013); `POST /shipments` freezes the EUR rate and route distance and
+returns the parcel's QR token; hubs accept/check-in, carriers declare a trip
+(`POST /trips`) and consult the ranked board (`GET /trips/:id/board`), then
+accept legs, hand off with double confirmation, and the recipient collects
+with an emailed OTP. Money moves only through the state machine's effects:
+hold invoices between the parties' own wallets plus on-the-spot instant fees
+— every movement mirrored in the shadow ledger and covered by the end-to-end
+suite in `apps/api/src/shipments/`.
+
 ## Ground rules
 
 - No money logic without tests; every movement goes through the double-entry
