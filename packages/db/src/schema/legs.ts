@@ -1,5 +1,13 @@
 import { sql } from 'drizzle-orm';
-import { bigint, doublePrecision, integer, pgTable, timestamp, uuid } from 'drizzle-orm/pg-core';
+import {
+  bigint,
+  doublePrecision,
+  integer,
+  jsonb,
+  pgTable,
+  timestamp,
+  uuid,
+} from 'drizzle-orm/pg-core';
 import { legStatusEnum } from './enums';
 import { hubs } from './hubs';
 import { shipments } from './shipments';
@@ -53,4 +61,13 @@ export const legs = pgTable('legs', {
 
   paymentConditionalPaymentId: uuid('payment_cp_id').references(() => conditionalPayments.id),
   bondConditionalPaymentId: uuid('bond_cp_id').references(() => conditionalPayments.id),
+
+  // Double-confirmation handoff at pickup (ARCHITECTURE.md sec.7): hub and
+  // carrier each confirm from their own session within a short window; the
+  // pickup_checkout transition runs only when both are present. The photo
+  // hashes come with the hub-side confirmation (the hub certifies what it
+  // hands over).
+  checkoutHubConfirmedAt: timestamp('checkout_hub_confirmed_at', { withTimezone: true }),
+  checkoutCarrierConfirmedAt: timestamp('checkout_carrier_confirmed_at', { withTimezone: true }),
+  checkoutPhotoSha256: jsonb('checkout_photo_sha256'),
 });

@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import {
   bigint,
   boolean,
@@ -40,6 +41,15 @@ export const shipments = pgTable('shipments', {
   undeclared: boolean('undeclared').notNull().default(false),
 
   offerMsat: bigint('offer_msat', { mode: 'bigint' }).notNull(),
+  // The CURRENT price segment's work-pool commitment (ECONOMICS.md sec.5-6,
+  // ADR-014): splitCommitment(offerMsat).workMsat at creation, then the
+  // frozen remaining pool after each reroute ("il reroute apre un segmento").
+  // Together with `distanceKm` (the segment's D) and the `boosted` custody
+  // events since the last reroute, anyone can recompute the remaining pool.
+  // sql`0` instead of 0n: drizzle-kit cannot serialize bigint literals.
+  segmentWorkMsat: bigint('segment_work_msat', { mode: 'bigint' })
+    .notNull()
+    .default(sql`0`),
   custodyBondMsat: bigint('custody_bond_msat', { mode: 'bigint' }).notNull(),
   maxStorageHours: integer('max_storage_hours').notNull(), // <= 168h in MVP (ESCROW.md sec.4, CLTV budget)
 

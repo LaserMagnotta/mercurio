@@ -98,6 +98,32 @@ export const conditionalPaymentRefTypeEnum = pgEnum('conditional_payment_ref_typ
 export const accountOwnerTypeEnum = pgEnum('account_owner_type', ['user', 'shipment']);
 export const accountKindEnum = pgEnum('account_kind', ['external_wallet', 'commitment']);
 
+// Timer facts for the state machine's deadlines (ADR-011). Rows are written
+// in the SAME transaction as the transition that opens the deadline; a
+// pg-boss sweep fires the due ones. Values mirror TIMEOUT_KINDS in
+// @mercurio/shared.
+export const shipmentTimerKindEnum = pgEnum('shipment_timer_kind', [
+  'leg_funding',
+  'pickup',
+  'transit',
+  'storage',
+]);
+
+// On-the-spot instant payments (hub fees, cancellation compensation —
+// ESCROW.md sec.3): normal invoices payee-issued and payer-paid at the
+// physical handoff. Tracked so a retried transition never pays twice.
+export const instantPaymentReasonEnum = pgEnum('instant_payment_reason', [
+  'dep_hub_fee',
+  'arr_hub_fee',
+  'cancellation_compensation',
+]);
+export const instantPaymentStateEnum = pgEnum('instant_payment_state', ['created', 'settled']);
+
+// Pending coordinator verbs (release/refund) queued by the effect executor:
+// executed right after the transition commits and retried by a worker until
+// they stick — both verbs are idempotent (ADR-013).
+export const escrowIntentVerbEnum = pgEnum('escrow_intent_verb', ['release', 'refund']);
+
 export const reviewRoleEnum = pgEnum('review_role', ['sender', 'carrier', 'hub']);
 
 export const emailStatusEnum = pgEnum('email_status', ['pending', 'sent', 'failed']);
