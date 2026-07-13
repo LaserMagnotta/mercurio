@@ -8,7 +8,7 @@
 import { buildApp } from './app';
 import { startWorkers } from './worker';
 
-const app = buildApp();
+const app = await buildApp();
 const port = Number(process.env.PORT ?? 3001);
 
 app

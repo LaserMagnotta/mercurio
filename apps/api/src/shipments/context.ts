@@ -144,10 +144,19 @@ export function remainingWorkPool(bundle: ShipmentBundle, remainingKm: number): 
 
 const EPOCH_ISO = new Date(0).toISOString();
 
+export interface LoadBundleOptions {
+  forUpdate?: boolean;
+  /** Conditional payments minted by the very transition being executed:
+   *  the executor's in-transaction recompute must see the world as it was
+   *  BEFORE them (a final leg_accept would otherwise trip over its own
+   *  freshly-created Π_h hold). */
+  ignorePaymentIds?: ReadonlySet<string>;
+}
+
 export async function loadShipmentBundle(
   db: Db,
   shipmentId: string,
-  opts: { forUpdate?: boolean } = {},
+  opts: LoadBundleOptions = {},
 ): Promise<ShipmentBundle | null> {
   // The row lock serializes transitions per shipment: everything after this
   // read (chain tail, seq counters, status flip) is race-free by construction.
@@ -267,7 +276,10 @@ export async function loadShipmentBundle(
   // --- pending Π_h hold (ADR-014: purpose finalization_bonus, created|held)
   const bonusHoldRow =
     bonusRows.find(
-      (p) => p.purpose === 'finalization_bonus' && (p.state === 'created' || p.state === 'held'),
+      (p) =>
+        p.purpose === 'finalization_bonus' &&
+        (p.state === 'created' || p.state === 'held') &&
+        !opts.ignorePaymentIds?.has(p.id),
     ) ?? null;
 
   // --- ADR-014 accumulators + current-segment boosts from the chain

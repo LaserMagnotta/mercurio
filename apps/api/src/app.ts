@@ -65,7 +65,7 @@ export interface BuildAppOptions {
   waitDelayMs?: number;
 }
 
-export function buildApp(options: BuildAppOptions = {}) {
+export async function buildApp(options: BuildAppOptions = {}) {
   const app = Fastify({
     logger: process.env.NODE_ENV !== 'test',
   }).withTypeProvider<ZodTypeProvider>();
@@ -110,8 +110,10 @@ export function buildApp(options: BuildAppOptions = {}) {
   app.decorate('eurRate', options.eurRate ?? createEnvEurRateProvider());
 
   // Public API contract (ADR-002): OpenAPI generated from the same Zod
-  // schemas the routes validate with, served at /docs.
-  void app.register(swagger, {
+  // schemas the routes validate with, served at /docs. Awaited on purpose:
+  // @fastify/swagger collects routes through an onRoute hook, which must be
+  // attached BEFORE the route functions below run.
+  await app.register(swagger, {
     openapi: {
       info: {
         title: 'Mercurio API',
@@ -123,7 +125,7 @@ export function buildApp(options: BuildAppOptions = {}) {
     },
     transform: jsonSchemaTransform,
   });
-  void app.register(swaggerUi, { routePrefix: '/docs' });
+  await app.register(swaggerUi, { routePrefix: '/docs' });
 
   void app.register(cookie);
   // Global default; individual routes (magic-link request/verify, OTP pickup)
@@ -146,4 +148,4 @@ export function buildApp(options: BuildAppOptions = {}) {
 /** The app type, with the Zod type provider and our decorations - route
  *  files import this instead of the bare `FastifyInstance` so that Zod
  *  schemas passed to `{ schema: { body } }` are actually inferred. */
-export type App = ReturnType<typeof buildApp>;
+export type App = Awaited<ReturnType<typeof buildApp>>;

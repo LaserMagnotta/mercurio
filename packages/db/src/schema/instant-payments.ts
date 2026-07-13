@@ -1,9 +1,5 @@
 import { bigint, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
-import {
-  conditionalPaymentRefTypeEnum,
-  instantPaymentReasonEnum,
-  instantPaymentStateEnum,
-} from './enums';
+import { instantPaymentReasonEnum, instantPaymentStateEnum } from './enums';
 import { shipments } from './shipments';
 import { users } from './users';
 

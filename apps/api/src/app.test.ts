@@ -9,7 +9,7 @@ const CONSENT = { tosVersion: '2026-01-01', privacyVersion: '2026-01-01' };
 
 async function buildTestApp() {
   const db = await createTestDb();
-  const app = buildApp({ db, sendMail: async () => {}, coordinatorKey: randomBytes(32) });
+  const app = await buildApp({ db, sendMail: async () => {}, coordinatorKey: randomBytes(32) });
   await app.ready();
   return { app, db };
 }
@@ -164,6 +164,16 @@ describe('auth + account HTTP flow', () => {
       },
     });
     expect(res.statusCode).toBe(400);
+  });
+
+  it('serves the OpenAPI document on /docs (ADR-002: public, documented API)', async () => {
+    const { app } = await buildTestApp();
+    const res = await app.inject({ method: 'GET', url: '/docs/json' });
+    expect(res.statusCode).toBe(200);
+    const spec = res.json() as { paths: Record<string, unknown> };
+    expect(Object.keys(spec.paths)).toEqual(
+      expect.arrayContaining(['/shipments', '/shipments/{id}/legs', '/trips/{id}/board']),
+    );
   });
 
   it('DELETE /me anonymizes the account and revokes the session', async () => {

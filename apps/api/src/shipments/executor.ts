@@ -177,8 +177,13 @@ export async function executeShipmentTransition(
       if (!args.createCtx) {
         // Lock + recompute: the pre-transaction snapshot may be stale under
         // concurrency. Identical effects ⇒ identical money: comparing the
-        // canonical form is the strongest cheap equality we have.
-        bundle = await loadShipmentBundle(tx, args.shipmentId, { forUpdate: true });
+        // canonical form is the strongest cheap equality we have. Payments
+        // minted by phase 1 of THIS invocation are not "the world moving on":
+        // the recompute ignores them.
+        bundle = await loadShipmentBundle(tx, args.shipmentId, {
+          forUpdate: true,
+          ignorePaymentIds: new Set(createdIds.values()),
+        });
         if (!bundle) throw new ConflictError(`shipment ${args.shipmentId} disappeared`);
         const fresh = transition(bundle.state, args.event, bundle.ctx);
         if (!fresh.ok) {
