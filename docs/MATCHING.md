@@ -17,10 +17,13 @@
 
 **Ogni spedizione in bacheca** (stato `AT_HUB`) porta: hub corrente `S` (con la sua
 percentuale `f_S`), hub di destinazione `T`, distanza residua `r_S = d(S, T)`,
-distanza totale `D`, pool residuo contabile `pool = remainingPool(P, D, r_S, boosts)`
-(= `P × r_S / D` più i boost, che decadono proporzionalmente; reroute = nuovo
-segmento — ECONOMICS §5–6), bond
-di custodia richiesto, vincoli fisici (dimensioni, peso, contenuto non dichiarato sì/no).
+distanza totale `D`, pool **di lavoro** residuo contabile
+`pool = remainingPool(W, D, r_S, boosts)` (`W` = parte work dell'impegno del
+segmento, il 90% dell'ADR-014; i boost entrano con la loro parte work e
+decadono proporzionalmente; reroute = nuovo segmento — ECONOMICS §5–6 e
+§5-bis), la quota vettore maturata del premio di finalizzazione `Π_v`
+(0 se già consumata), bond di custodia richiesto, vincoli fisici (dimensioni,
+peso, contenuto non dichiarato sì/no).
 
 ## 2. Distanza e deviazione
 
@@ -76,13 +79,13 @@ net(H)     = gross(H) × (1 − f_S − f_H)      // f_S = fee dell'hub corrente
 surplus(H) = net(H) − rate_min × detour(H)   // guadagno oltre la soglia del vettore
 ```
 
-**Premio di finalizzazione (ADR-014 — da implementare)**: `pool` è il pool di
+**Premio di finalizzazione (ADR-014 — implementato)**: `pool` è il pool di
 lavoro (90% dell'impegno, ECONOMICS §5-bis) e per il candidato `H = T` il
 netto include la quota vettore del premio:
 `net(T) = gross(T) × (1 − f_S − f_T) + Π_v`. La consegna diretta a
 destinazione diventa sistematicamente più attraente nel ranking — è
-l'incentivo voluto, e la bacheca lo mostra come voce separata ("premio
-consegna").
+l'incentivo voluto, e la bacheca lo mostra come voce separata
+(`DropHubOption.finalizationBonusMsat`, "premio consegna").
 
 **Criterio di match** (come da specifica): esiste `H` con
 
@@ -99,18 +102,20 @@ può preferire un hub diverso (orari, conoscenza del posto) e la scelta resta su
 
 Geometria su piano per leggibilità (in produzione: haversine × 1.3), coordinate in km.
 Vettore: `O=(0,0)`, `Dc=(100,0)`, viaggio diretto 100 km, `dev_max = 15 km`,
-`rate_min = 0,20 €/km`. Spedizione: `P = 5,00 €`, hub corrente `S=(30,10)` con
-`f_S = 10%`, destinazione `T=(90,10)` con `f_T = 10%`, `r_S = 60 km`, `D = 80 km`,
-pool residuo `5,00 × 60/80 = 3,75 €`.
+`rate_min = 0,20 €/km`. Spedizione: pool di lavoro del segmento 5,00 €
+(`D = 80 km`), hub corrente `S=(30,10)` con `f_S = 10%`, destinazione
+`T=(90,10)` con `f_T = 10%`, `r_S = 60 km`, pool residuo `5,00 × 60/80 =
+3,75 €`, quota vettore del premio `Π_v = 0,35 €`.
 
-| Candidato                     | `f_H` | progresso | detour  | gross | net (`×(1−f_S−f_H)`) | soglia (`rate_min×detour`) | surplus   | esito                       |
-| ----------------------------- | ----- | --------- | ------- | ----- | -------------------- | -------------------------- | --------- | --------------------------- |
-| `H1=(60,5)`                   | 10%   | 29,6 km   | 2,3 km  | 1,85  | 1,48                 | 0,46                       | **+1,02** | match                       |
-| `T=(90,10)` (consegna finale) | 10%   | 60 km     | 5,7 km  | 3,75  | 3,00                 | 1,14                       | **+1,86** | match, `H*`                 |
-| `H3=(50,40)`                  | 5%    | 10 km     | 31,7 km | —     | —                    | —                          | —         | escluso: `detour > dev_max` |
+| Candidato                     | `f_H` | progresso | detour  | gross | net (`×(1−f_S−f_H)`, `+Π_v` se `H=T`) | soglia (`rate_min×detour`) | surplus   | esito                       |
+| ----------------------------- | ----- | --------- | ------- | ----- | ------------------------------------- | -------------------------- | --------- | --------------------------- |
+| `H1=(60,5)`                   | 10%   | 29,6 km   | 2,3 km  | 1,85  | 1,48                                   | 0,46                       | **+1,02** | match                       |
+| `T=(90,10)` (consegna finale) | 10%   | 60 km     | 5,7 km  | 3,75  | 3,00 **+ 0,35** = 3,35                 | 1,15                       | **+2,20** | match, `H*`                 |
+| `H3=(50,40)`                  | 5%    | 10 km     | 31,7 km | —     | —                                      | —                          | —         | escluso: `detour > dev_max` |
 
-La consegna diretta a destinazione vince (surplus massimo): è l'esito desiderato quando
-la destinazione è quasi sulla rotta del vettore. `H1` resta visibile come alternativa.
+La consegna diretta a destinazione vince (surplus massimo, allargato dal
+premio): è l'esito desiderato quando la destinazione è quasi sulla rotta del
+vettore. `H1` resta visibile come alternativa.
 
 ## 3. Bacheca: ordinamento
 
@@ -211,7 +216,8 @@ export function createHaversineDistanceProvider(circuityFactor = 1.3): DistanceP
 export interface DropHubOption {
   hubId: string;
   detourKm: number; // quantizzata al metro
-  netMsat: bigint;
+  netMsat: bigint; // include il premio consegna quando H = T (ADR-014)
+  finalizationBonusMsat: bigint; // la voce "premio consegna" per la UI; 0 se H ≠ T
   surplusMsat: bigint;
 }
 
@@ -307,3 +313,9 @@ soluzione più semplice coerente con questo documento:
    ogni osservazione è convertita al **proprio** cambio congelato. Percentile
    con interpolazione lineare (convenzione numpy). Nel rate del mittente
    (`P/D`) i boost sono esclusi: la formula del §5 usa l'offerta `P`.
+7. **Premio di finalizzazione (ADR-014)**: `ShipmentAtHub.carrierBonusMsat` è
+   la quota vettore maturata (l'API passa 0 quando è stata consumata da un
+   arrivo precedente); `priceLeg` la congela solo per `H = T`, il netto
+   mostrato e il surplus la includono, e `finalizationBonusMsat` resta
+   esposta come voce separata sulla card. Una riga con quota negativa è
+   malformata e viene scartata come le altre (precisazione 2).

@@ -1,8 +1,10 @@
 # ADR-014 — Premio di finalizzazione: 10% dell'impegno del mittente al vettore che consegna (70%) e all'hub finale (30%)
 
-- Stato: accettato (decisione utente) — 2026-07-13
-- Modifica: [ECONOMICS.md](../ECONOMICS.md) §Premio, [ADR-006](ADR-006-progress-based-economics.md) (resta valido sul 90%)
-- Implementazione: **da fare** (vedi ECONOMICS §7 per l'impatto sul codice)
+- Stato: accettato (decisione utente) — 2026-07-13; **implementato** lo stesso giorno
+- Modifica: [ECONOMICS.md](../ECONOMICS.md) §5-bis, [ADR-006](ADR-006-progress-based-economics.md) (resta valido sul 90%)
+- Implementazione: `@mercurio/shared` (costanti e tipi), `@mercurio/core`
+  (economics, matching, state machine), `@mercurio/db` (migrazione 0003) —
+  precisazioni in fondo a questo documento
 
 ## Contesto
 
@@ -111,3 +113,64 @@ la pendenza è l'incentivo voluto. Con tratta unica il vettore netta
 - **Pagare `Π_h` al check-in finale** (insieme al vettore): premierebbe
   l'arrivo, non la consegna; l'hub non avrebbe alcun incentivo economico a
   completare il ritiro del destinatario. Scelto `recipient_pickup`.
+
+## Precisazioni implementative (2026-07-13)
+
+Decisioni emerse implementando, nessuna cambia il protocollo dei pagamenti:
+
+1. **Lo scorporo avviene una volta sola, all'ingresso dell'impegno.**
+   `splitCommitment(c)` (`@mercurio/core/economics`) divide ogni impegno del
+   mittente (offerta alla creazione, ogni boost) in `workMsat` (90%),
+   `carrierBonusMsat` (70% del 10%) e `hubBonusMsat` (30% del 10%), ciascuno
+   troncato **indipendentemente** al msat: nessuna parte può mai eccedere la
+   propria quota esatta e il resto (< 4 msat per impegno) resta al mittente.
+   Tutta la matematica del pool (`remainingPool`, `priceLeg`, `applyReroute`,
+   `cancellationCompensation`) opera **esclusivamente su importi work**: il
+   reroute congela un pool già scorporato e NON deve ripassare dallo split
+   (nessun secondo scorporo — le quote del premio seguono la spedizione,
+   non il segmento).
+2. **Le quote del premio sono accumulatori a livello di spedizione**, non di
+   segmento: `Σ carrierBonusMsat` e `Σ hubBonusMsat` sugli impegni. La quota
+   vettore smette di accumulare quando è consumata (primo arrivo a
+   destinazione): i contributi successivi della sua parte restano al
+   mittente ("ripartito … sulle quote non ancora consumate", punto 6).
+3. **`priceLeg` riceve `carrierBonusMsat` esplicitamente** (0 se consumata) e
+   congela `LegPricing.finalizationBonusMsat = floorToSat(quota)` **solo**
+   quando `Δr = r`; l'identità `gross = fee_dep + fee_arr + net` non cambia
+   (le fee si calcolano sul solo lordo, punto 4) e l'importo della hold di
+   pagamento è `gross + Π_v`. Campo obbligatorio, non opzionale:
+   dimenticarlo su una tratta finale toglierebbe silenziosamente l'incentivo.
+4. **La quarta hold referenzia l'`hub_stay` di destinazione** (la giacenza
+   durante la quale avviene il ritiro), `purpose: finalization_bonus`; la
+   quota vettore non ha un purpose proprio perché viaggia dentro la hold
+   `leg_payment`. Una quota `Π_h` che floora a 0 sat **non crea la hold**
+   (speculare alle fee istantanee a importo zero); `LEG_BOOKED` esige tutte
+   le hold effettivamente create _held_ (4 con premio, 3 senza).
+5. **Guardie della macchina a stati**: una tratta non finale con quote > 0 è
+   respinta (`guard_failed`); una hold premio pendente non riassorbita
+   blocca nuovi `leg_accept` (difesa contro contesti incoerenti);
+   `ShipmentContext` porta `finalizationBonusHold { paymentId, amountMsat }`
+   dal `leg_accept` finale fino a regolamento/annullamento, e
+   `workCommitmentMsat` (impegno work del segmento corrente) per la
+   compensazione di annullamento `f_o × work` — a `create` la macchina
+   verifica che sia esattamente `splitCommitment(offerta).workMsat`.
+6. **Reroute da `AWAITING_PICKUP`**: la hold `Π_h` è annullata **solo se
+   cambia l'hub di destinazione**; il cambio del solo destinatario la
+   mantiene — quell'hub completerà comunque la consegna (il punto 5 della
+   decisione parla del pacco che riparte, non del destinatario che cambia).
+7. **Journal entry** (ADR-010/ADR-013): `finalization_bonus_held/released/
+   refunded` per la hold `Π_h`; le entry della hold di pagamento
+   (`leg_payment_held/released/refunded`) portano l'importo pieno
+   `gross + Π_v` — le chiavi di idempotenza `cp:<id>:<transizione>`
+   e il collasso con le scritture del coordinatore restano identici.
+8. **Schema** (`@mercurio/db`, migrazione 0003): `legs.finalization_bonus_msat`
+   (`bigint NOT NULL DEFAULT 0`, CHECK `>= 0` come le altre colonne
+   monetarie) e valore `finalization_bonus` nell'enum
+   `conditional_payment_purpose`. Gli accumulatori delle quote non hanno
+   colonne: si ricostruiscono da offerta + eventi `boosted` della catena di
+   custodia più il fatto che la spedizione sia già arrivata a destinazione.
+9. **Bacheca** (`@mercurio/core/matching`): `ShipmentAtHub.carrierBonusMsat`
+   in ingresso (0 = quota consumata); `DropHubOption.netMsat` include il
+   premio per `H = T` e `DropHubOption.finalizationBonusMsat` lo espone come
+   voce separata per la UI ("premio consegna"); il surplus del ranking usa il
+   netto comprensivo, come voluto dalle Conseguenze.

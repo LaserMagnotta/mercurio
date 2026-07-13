@@ -4,9 +4,10 @@
 > applicano al lordo della tratta del vettore, non all'offerta totale — decisione utente;
 > rev. 3: precisazioni implementative in §6, emerse durante l'implementazione in
 > `packages/core`; rev. 4 del 2026-07-13: **premio di finalizzazione** in §5-bis,
-> [ADR-014](adr/ADR-014-finalization-bonus.md) — decisione utente, **da implementare**:
-> i numeri di §3–§4 descrivono il riparto del pool di lavoro, che con l'ADR-014
-> diventa il 90% dell'impegno del mittente).
+> [ADR-014](adr/ADR-014-finalization-bonus.md) — decisione utente; rev. 5, stesso
+> giorno: ADR-014 **implementato** in `packages/core` — i numeri di §3–§4
+> descrivono il riparto del **pool di lavoro**, cioè il 90% dell'impegno del
+> mittente; lo scorporo è documentato in §5-bis e ADR-014).
 > Decisione formalizzata in [ADR-006](adr/ADR-006-progress-based-economics.md).
 
 ## 1. Il problema
@@ -205,7 +206,7 @@ rurale) — è mitigato da tre meccanismi:
    perché la bacheca mostra il **netto** e il criterio di match esige
    `netto ≥ tariffa_minima × km di deviazione` (MATCHING.md).
 
-## 5-bis. Premio di finalizzazione (ADR-014 — da implementare)
+## 5-bis. Premio di finalizzazione (ADR-014 — implementato)
 
 Decisione utente (2026-07-13): il modello B paga il progresso ma non premia la
 **conclusione**. Correttivo: il **10% di tutto ciò che il mittente si impegna a
@@ -215,6 +216,13 @@ all'hub di destinazione** (rilasciato al ritiro del destinatario). Tutte le
 formule di questo documento operano sul **pool di lavoro** = 90% dell'impegno:
 lordi, fee hub e compensazione di annullamento **escludono il premio**, in
 entrambe le direzioni (il premio non paga fee).
+
+Nel codice: `splitCommitment` (`@mercurio/core/economics`) scorpora ogni
+impegno all'ingresso in parte work e quote del premio; `priceLeg` congela la
+quota vettore (`LegPricing.finalizationBonusMsat`) sulla sola tratta con
+`Δr = r`; la macchina a stati apre la quarta hold `Π_h` e la rilascia al
+ritiro (ARCHITECTURE §5). Dettagli e arrotondamenti in ADR-014,
+"Precisazioni implementative".
 
 Esempio canonico aggiornato (P = 5,00 €, D = 100 km, hub al 10%,
 `Π = 0,50 €` → vettore 0,35 / hub 0,15; pool di lavoro 4,50 €):
@@ -260,10 +268,12 @@ all'accettazione) è già compatibile.
   point interi** (1 bp = 0,01%), rappresentazione senza perdita della colonna
   `hubs.fee_percent numeric(5,2)`.
 - **Compensazione di annullamento**: se il mittente annulla dopo il check-in
-  all'hub di origine (nessuna tratta partita), paga `f_o × P` direttamente all'hub —
-  quanto avrebbe guadagnato da una tratta unica; la restituzione del pacco si
-  sblocca al pagamento. Alla scadenza di giacenza, invece, il pacco svincolato
-  secondo ToS è la compensazione dell'hub (non esiste un escrow prefinanziato —
+  all'hub di origine (nessuna tratta partita), paga `f_o × pool di lavoro del
+  segmento` (cioè `f_o × 90% × P` sul primo segmento — ADR-014: il premio è
+  escluso anche da questa formula) direttamente all'hub — quanto avrebbe
+  guadagnato da una tratta unica; la restituzione del pacco si sblocca al
+  pagamento. Alla scadenza di giacenza, invece, il pacco svincolato secondo
+  ToS è la compensazione dell'hub (non esiste un escrow prefinanziato —
   ADR-013).
 - **Arrotondamenti**: ogni importo (lordi, fee) è arrotondato per difetto al sat al
   momento del congelamento della tratta; non esistono resti da redistribuire perché
@@ -278,10 +288,14 @@ all'accettazione) è già compatibile.
 ## 6. Precisazioni implementative (rev. 3 — `packages/core/src/economics`)
 
 Il motore è implementato come funzioni pure in `@mercurio/core` (`priceLeg`,
-`remainingPool`, `applyReroute`, `cancellationCompensation`, `minLegProgressKm`);
-i tipi condivisi con l'API (`LegPricing`, `PoolBoost`, `PoolSegment`) e le costanti
-sono in `@mercurio/shared`. Tre precisazioni sono emerse implementando le proprietà
-di conservazione, e sono forzate dalle proprietà stesse (non sono scelte libere):
+`remainingPool`, `applyReroute`, `cancellationCompensation`, `minLegProgressKm`,
+e dall'ADR-014 `splitCommitment`); i tipi condivisi con l'API (`LegPricing`,
+`PoolBoost`, `PoolSegment`) e le costanti sono in `@mercurio/shared`. Con
+l'ADR-014 tutte le funzioni del pool operano su importi **work** (il 90%
+scorporato da `splitCommitment` all'ingresso di ogni impegno): nelle formule
+qui sotto `P` e `ΔP` vanno letti come le rispettive parti work. Tre
+precisazioni sono emerse implementando le proprietà di conservazione, e sono
+forzate dalle proprietà stesse (non sono scelte libere):
 
 1. **Il boost decade proporzionalmente.** `pool = P × r/D + ΔP` vale nel momento del
    boost (`r = r_b`); da lì in poi il contributo del boost è `ΔP × r/r_b`. Se restasse
@@ -301,12 +315,14 @@ di conservazione, e sono forzate dalle proprietà stesse (non sono scelte libere
    nozionale è troncato al **msat**; gli importi congelati (lordo, fee) al **sat**
    (ADR-008). I resti di troncamento restano al mittente come impegno non speso.
 
-Proprietà verificate dai test (fixture esatte al msat sulle simulazioni di §4 +
-proprietà su input casuali con PRNG deterministico):
-`Σ lordi ≤ P + Σ boost` sempre; nessun importo negativo; `netto + fee = lordo`
-esatto; spezzare una tratta in due non aumenta mai il totale lordo dei vettori;
-a parità di `f` gli hub incassano `2f × P` (esatto a meno dei floor al sat,
-con bound documentati nei test).
+Proprietà verificate dai test (fixture esatte al msat sulle simulazioni di §4
+e sull'esempio di §5-bis + proprietà su input casuali con PRNG deterministico):
+`Σ lordi ≤ 90% × (P + Σ boost)` e `Σ premi pagati ≤ 10% × (P + Σ boost)`
+sempre — quindi il mittente non deve mai più di `P + Σ boost`; nessun importo
+negativo; `netto + fee = lordo` esatto (il premio resta fuori dall'identità e
+non paga fee); spezzare una tratta in due non aumenta mai il totale lordo dei
+vettori; a parità di `f` gli hub incassano `2f × W` sul pool di lavoro `W`
+(esatto a meno dei floor al sat, con bound documentati nei test).
 
 ### Divergenza dichiarata dal CLAUDE.md
 

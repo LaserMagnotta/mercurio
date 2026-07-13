@@ -163,10 +163,13 @@ vettore o hub (vedi §6, "bond di custodia unico" — decisione da confermare in
 status (pending_funding|booked|picked_up|completed|returned|expired|failed),
 accepted_at, funding_deadline_at, pickup_deadline_at, transit_deadline_at,
 progress_km, gross_msat, dep_hub_fee_msat, arr_hub_fee_msat, net_msat,
-payment_cp_id, bond_cp_id` (riferimenti ai `conditional_payments`: hold del
-pagamento tratta mittente→vettore e del bond vettore→mittente). Gli importi sono
-calcolati e congelati all'accettazione (ECONOMICS.md): le fee dei due hub adiacenti
-sono percentuali del lordo, pagate dal vettore sul posto ai passaggi di mano.
+finalization_bonus_msat, payment_cp_id, bond_cp_id` (riferimenti ai
+`conditional_payments`: hold del pagamento tratta mittente→vettore e del bond
+vettore→mittente). Gli importi sono calcolati e congelati all'accettazione
+(ECONOMICS.md): le fee dei due hub adiacenti sono percentuali del lordo, pagate
+dal vettore sul posto ai passaggi di mano; `finalization_bonus_msat` è la quota
+vettore del premio ADR-014, > 0 solo sulla tratta che consegna a destinazione
+(la hold di pagamento vale `gross + finalization_bonus`).
 
 **hub_stays** — `id, shipment_id, hub_id, seq, status (reserved|active|released|expired),
 reserved_at, checked_in_at, checked_out_at, storage_deadline_at, bond_cp_id`
@@ -189,7 +192,8 @@ checkin|checkout|evidence), storage_key, sha256, taken_by, created_at, purge_aft
 dell'utente, mai i suoi fondi.
 
 **conditional_payments** — `id, shipment_id, payer_id, payee_id, amount_msat,
-purpose (leg_payment|custody_bond), ref_type+ref_id (leg|hub_stay), payment_hash,
+purpose (leg_payment|custody_bond|finalization_bonus), ref_type+ref_id
+(leg|hub_stay), payment_hash,
 preimage_encrypted (AES-256-GCM, chiave COORDINATOR_KEY — ADR-013),
 bolt11, state (created|held|settled|cancelled|expired), hold_window,
 idempotency_key (unique: una retry di createConditionalPayment restituisce la
@@ -294,26 +298,34 @@ e timeout — mai da un giudizio umano. Il ritiro del destinatario (OTP dopo isp
 | 16  | `reroute`                        | Mittente                                                     | stato `AT_HUB` o `AWAITING_PICKUP`, nessuna tratta prenotata                                                                                               | nessun movimento; nuovo hub destinazione e/o destinatario, `r` ricalcolata, OTP invalidato e riemesso                                          |
 | 17  | `cancel`                         | Mittente                                                     | solo prima del primo `pickup_checkout`                                                                                                                     | 💸 compensazione hub origine `f_o × P` pagata direttamente (la restituzione del pacco si sblocca al pagamento) · ↩ bond hub annullato          |
 
-### Premio di finalizzazione (ADR-014 — **da implementare**)
+### Premio di finalizzazione (ADR-014 — implementato)
 
-Modifiche pendenti alla tabella qui sopra, decise il 2026-07-13 (dettagli e
-razionale in [ADR-014](adr/ADR-014-finalization-bonus.md)):
+Integrazioni alla tabella qui sopra, decise e implementate il 2026-07-13
+(razionale e precisazioni implementative in
+[ADR-014](adr/ADR-014-finalization-bonus.md)):
 
 - **Riga 4/5 (tratta finale, `to_hub = hub destinazione`)**: la hold del
   pagamento tratta vale `lordo + Π_v` (quota vettore del premio) e si aggiunge
   una **quarta hold** ⏳ premio hub (`purpose: finalization_bonus`,
-  mittente→hub destinazione); `LEG_BOOKED` richiede tutte e quattro _held_.
+  mittente→hub destinazione, ref sull'`hub_stay` di destinazione);
+  `LEG_BOOKED` richiede tutte le hold create _held_ (quattro; tre se `Π_h`
+  floora a 0 sat, nel qual caso la hold non nasce proprio).
 - **Riga 9 (check-in a destinazione)**: il vettore incassa lordo + `Π_v`
   (stessa preimage, stessa hold); le fee restano calcolate sul solo lordo.
 - **Riga 11 (`recipient_pickup`)**: 🔑 preimage del premio hub all'hub di
   destinazione — l'hub è premiato per la consegna completata, non per l'arrivo.
 - **Righe 13 e 16 (`storage_expiry` in consegna, `reroute` da
-  `AWAITING_PICKUP`)**: ↩ la hold del premio hub viene annullata (nel reroute,
-  la nuova tratta finale ne creerà una nuova verso il nuovo hub).
+  `AWAITING_PICKUP` con cambio di destinazione)**: ↩ la hold del premio hub
+  viene annullata (nel reroute, la nuova tratta finale ne creerà una nuova
+  verso il nuovo hub). Il cambio del **solo destinatario** mantiene la hold:
+  l'hub corrente completa comunque la consegna. È l'unico caso in cui la
+  riga 16 muove denaro.
 - I fallimenti della tratta finale (righe 7, 10, 14 e la finestra di funding)
   annullano anche la hold del premio hub, come le altre.
 - Schema: `legs.finalization_bonus_msat` (0 per le tratte non finali),
-  valore `finalization_bonus` nell'enum `conditional_payment_purpose`.
+  valore `finalization_bonus` nell'enum `conditional_payment_purpose`
+  (migrazione 0003); journal entry `finalization_bonus_held/released/refunded`,
+  mentre le entry `leg_payment_*` portano l'importo pieno `lordo + Π_v`.
 
 **Principio di responsabilità ("la responsabilità segue la custodia certificata")**: chi
 riceve il pacco (hub o vettore) ne certifica l'integrità al check-in/check-out con foto.
@@ -394,6 +406,13 @@ forzate dagli invarianti qui sopra (non scelte libere di protocollo):
     verifica dell'hash OTP sono dell'API; la macchina valida le guardie di
     protocollo su fatti dichiarati dal chiamante (`otpVerified`, hash foto,
     doppia conferma).
+11. **Premio di finalizzazione nel contesto** (ADR-014): `ShipmentContext`
+    porta `workCommitmentMsat` (impegno work del segmento corrente, per la
+    compensazione di annullamento — a `create` la macchina esige che sia lo
+    split esatto dell'offerta) e `finalizationBonusHold` (la hold `Π_h`
+    pendente, dal `leg_accept` finale al regolamento). L'evento `leg_accept`
+    dichiara `finalizationHubBonusMsat`; guardie: quote > 0 solo su tratte
+    finali, mai un nuovo `leg_accept` con una hold premio non riassorbita.
 
 ## 6. Bond di custodia unico (proposta)
 

@@ -4,9 +4,9 @@
 > proporla e aggiornare `/docs`.
 
 Stato attuale (2026-07-13): architettura approvata; implementati db+ledger,
-auth/API di base, motore economico, matching, macchina a stati e coordinatore
-escrow non custodiale. **Da implementare**: premio di finalizzazione
-(ADR-014), mappa del vettore (ADR-015), API spedizioni/tratte, web UI.
+auth/API di base, motore economico, matching, macchina a stati, coordinatore
+escrow non custodiale e premio di finalizzazione (ADR-014). **Da
+implementare**: mappa del vettore (ADR-015), API spedizioni/tratte, web UI.
 
 ## Documenti
 

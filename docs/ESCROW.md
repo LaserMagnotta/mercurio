@@ -57,13 +57,14 @@ spesa** (pubblicato e vincolante via ToS), pagato tratta per tratta.
 
 ### All'accettazione di una tratta (`leg_accept` → `leg_funded`, finestra ~60 min)
 
-| #   | Hold invoice       | Emessa da | Pagata da         | Importo                                         |
-| --- | ------------------ | --------- | ----------------- | ----------------------------------------------- |
-| 1   | Pagamento tratta   | Vettore   | **Mittente**      | lordo tratta (ECONOMICS §3)                     |
-| 2   | Bond vettore       | Mittente  | **Vettore**       | bond di custodia                                |
-| 3   | Bond hub di arrivo | Mittente  | **Hub di arrivo** | bond di custodia (copre la giacenza successiva) |
+| #   | Hold invoice                          | Emessa da           | Pagata da         | Importo                                                     |
+| --- | ------------------------------------- | ------------------- | ----------------- | ----------------------------------------------------------- |
+| 1   | Pagamento tratta                      | Vettore             | **Mittente**      | lordo tratta (ECONOMICS §3) + `Π_v` se tratta finale (ADR-014) |
+| 2   | Bond vettore                          | Mittente            | **Vettore**       | bond di custodia                                            |
+| 3   | Bond hub di arrivo                    | Mittente            | **Hub di arrivo** | bond di custodia (copre la giacenza successiva)             |
+| 4   | Premio hub (solo tratta finale)       | Hub di destinazione | **Mittente**      | `Π_h` (ADR-014), rilasciata al ritiro del destinatario      |
 
-Tutte e tre con hash generati dal coordinatore. Quando tutte risultano _held_, la
+Tutte con hash generati dal coordinatore. Quando tutte risultano _held_, la
 tratta è prenotata (`LEG_BOOKED`); se la finestra scade, tutto viene annullato e la
 spedizione resta in bacheca. Il vettore **non si muove mai senza che il pagamento
 della tratta sia già vincolato**: non lavora a credito.
@@ -78,9 +79,11 @@ certificazione solo a pagamento avvenuto.
   (`f_dep × lordo`); il bond dell'hub cedente viene annullato (release).
 - **Check-in** (deposito nell'hub successivo): il vettore paga la fee di arrivo;
   l'hub certifica l'integrità; a certificazione avvenuta il coordinatore **rivela la
-  preimage al vettore**, che incassa il lordo direttamente dal mittente; il bond del
-  vettore viene annullato. Il vettore netta `lordo − fee` esattamente come nel
-  modello economico.
+  preimage al vettore**, che incassa la hold direttamente dal mittente (il lordo —
+  più la quota vettore del premio se è la consegna a destinazione, ADR-014); il bond
+  del vettore viene annullato. Il vettore netta `lordo − fee (+ premio)` esattamente
+  come nel modello economico. Il premio hub (`Π_h`) resta invece vincolato fino al
+  ritiro del destinatario.
 
 ### Esiti negativi (deterministici, ADR-012)
 
@@ -139,7 +142,7 @@ export interface EscrowCoordinator {
     payerId: string; // pays the hold invoice
     payeeId: string; // issued it; gets the preimage on release
     amountMsat: bigint;
-    purpose: 'leg_payment' | 'custody_bond';
+    purpose: 'leg_payment' | 'custody_bond' | 'finalization_bonus';
     ref: { type: 'leg' | 'hub_stay'; id: string };
     holdWindowSeconds: number;
     idem: string; // retried calls return the existing payment
