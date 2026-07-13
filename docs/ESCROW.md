@@ -85,6 +85,25 @@ certificazione solo a pagamento avvenuto.
   come nel modello economico. Il premio hub (`Π_h`) resta invece vincolato fino al
   ritiro del destinatario.
 
+### §3-bis — Al ritiro anticipato del destinatario (`recipient_claim` → `CLAIMED`, ADR-016)
+
+Stessa forma delle tratte, con il destinatario al posto del vettore
+(finestra di funding di 60 minuti, la stessa costante):
+
+| #   | Hold invoice                    | Emessa da        | Pagata da    | Importo                                                        |
+| --- | ------------------------------- | ---------------- | ------------ | -------------------------------------------------------------- |
+| 1   | Claim payment                   | Destinatario     | **Mittente** | pool di lavoro residuo + `Π_v` non consumata (ECONOMICS §5-ter) |
+| 2   | Premio hub (solo se > 0)        | Hub di ritiro    | **Mittente** | `Π_h` maturata (`purpose: finalization_bonus`)                  |
+
+Dalla richiesta il pacco esce dalla bacheca. Quando tutte le hold create
+risultano _held_ il ritiro è prenotato (`CLAIMED`); se la finestra scade,
+tutto si annulla e il pacco torna in bacheca. Al **ritiro fisico** (sessione
+dell'hub, QR del pacco, token del destinatario) il coordinatore rivela la
+preimage del claim payment al destinatario e quella di `Π_h` all'hub; il bond
+di custodia dell'hub viene annullato. Il claim **non paga fee hub**: la fee
+d'arrivo della tratta entrante è già stata pagata sul posto e il lavoro di
+consegna è pagato da `Π_h`. La giacenza **non si sospende** durante il claim.
+
 ### Esiti negativi (deterministici, ADR-012)
 
 - `pickup_timeout` / `transit_timeout`: il coordinatore rivela al **mittente** la
@@ -93,11 +112,14 @@ certificazione solo a pagamento avvenuto.
 - `leg_return`: pagamento tratta e bond annullati, nessun incasso per nessuno.
 - `storage_expiry`: il bond dell'hub viene annullato e il pacco è **svincolato**
   secondo ToS: il bene stesso è la compensazione dell'hub (non esiste un escrow
-  prefinanziato da girargli).
+  prefinanziato da girargli). Un claim pendente o già `CLAIMED` si dissolve con
+  la giacenza: le sue hold vengono annullate/rimborsate al mittente (ADR-016).
+- `claim_funding_expired`: le hold del claim vengono annullate (mai diventate
+  impegni) e il pacco torna in bacheca.
 - `cancel` (all'hub di origine): il mittente paga la compensazione `f_o × P`
   direttamente all'hub; la restituzione del pacco si sblocca al pagamento.
 - `boost` / `reroute`: nessun movimento di denaro — cambiano solo l'impegno di
-  spesa e il calcolo delle tratte future.
+  spesa e il calcolo delle tratte future (respinti con un claim in corso).
 
 ## 4. Cosa comporta (onestamente)
 

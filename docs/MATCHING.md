@@ -120,7 +120,12 @@ vettore. `H1` resta visibile come alternativa.
 ## 3. Bacheca: ordinamento
 
 La bacheca dell'hub mostra tutte le spedizioni in stato `AT_HUB` presso quell'hub
-(e, in una vista "lungo il tuo viaggio", quelle negli hub vicini alla rotta):
+(e, in una vista "lungo il tuo viaggio", quelle negli hub vicini alla rotta).
+**Esclusioni**: le spedizioni con una tratta in corso (pendente, prenotata o in
+transito) e quelle con un **claim del destinatario vivo** (pendente o `CLAIMED`
+— [ADR-016](adr/ADR-016-recipient-claim.md)): dalla richiesta di claim il pacco
+sparisce dalla bacheca e ogni `leg_accept` è respinto; se la finestra di
+funding del claim scade, il pacco ricompare.
 
 1. **Sezione "Per te" (match)**: spedizioni con `surplus(H*) ≥ 0` e `detour(H*) ≤ dev_max`,
    evidenziate, ordinate per `surplus(H*)` **decrescente**.

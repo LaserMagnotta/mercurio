@@ -5,11 +5,12 @@
 
 Stato attuale (2026-07-13): architettura approvata; implementati db+ledger,
 auth/API di base, motore economico, matching, macchina a stati, coordinatore
-escrow non custodiale, premio di finalizzazione (ADR-014) e **API del ciclo
+escrow non custodiale, premio di finalizzazione (ADR-014), **API del ciclo
 di vita delle spedizioni** (executor degli effetti, bacheca del viaggio,
 wallet-event pump, timer e worker pg-boss; OpenAPI servita su `/docs`
-dell'API — precisazioni in ARCHITECTURE §5). **Da implementare**: mappa del
-vettore (ADR-015), web UI.
+dell'API — precisazioni in ARCHITECTURE §5) e **ritiro anticipato del
+destinatario** (ADR-016: token di tracking, claim con hold P2P, stato
+`CLAIMED`). **Da implementare**: mappa del vettore (ADR-015), web UI.
 
 ## Documenti
 
@@ -40,6 +41,7 @@ vettore (ADR-015), web UI.
 | [ADR-013](adr/ADR-013-non-custodial-coordinator.md) | Zero custodia: coordinatore per preimage, pagamenti diretti P2P                       |
 | [ADR-014](adr/ADR-014-finalization-bonus.md)        | Premio di finalizzazione: 10% dell'impegno → 70% vettore finale, 30% hub finale       |
 | [ADR-015](adr/ADR-015-carrier-route-map.md)         | Mappa del viaggio del vettore (Leaflet/OSM) + export percorso su Google Maps          |
+| [ADR-016](adr/ADR-016-recipient-claim.md)           | Ritiro anticipato del destinatario: claim con token bearer, pool residuo + Π_v        |
 
 ## Stato delle decisioni
 

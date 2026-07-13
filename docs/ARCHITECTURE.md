@@ -116,6 +116,7 @@ erDiagram
 
     SHIPMENTS ||--o{ LEGS : "tratte (seq)"
     SHIPMENTS ||--o{ HUB_STAYS : "giacenze"
+    SHIPMENTS ||--o{ SHIPMENT_CLAIMS : "ritiri anticipati"
     SHIPMENTS ||--o{ CUSTODY_EVENTS : "catena di custodia"
     SHIPMENTS ||--o{ PHOTOS : ""
     SHIPMENTS ||--o{ REJECTIONS : "rifiuti"
@@ -150,7 +151,9 @@ max_deviation_km, min_rate_msat_per_km, status`. Il viaggio reale dichiarato pri
 consultare la bacheca (MATCHING.md).
 
 **shipments** — `id, sender_id, origin_hub_id, dest_hub_id, recipient_email,
-recipient_pickup_otp_hash, qr_token (random 128 bit), dims, weight_g,
+recipient_pickup_otp_hash, recipient_claim_token_hash (credenziale bearer del
+ritiro anticipato, coniata all'origin_checkin e ruotata dal reroute che cambia
+destinatario — ADR-016), qr_token (random 128 bit), dims, weight_g,
 declared_content?, undeclared (bool), offer_msat (impegno di spesa, pagato per
 tratta — ADR-013), custody_bond_msat, max_storage_hours (≤ 7 giorni nell'MVP,
 vincolo CLTV dei bond — ESCROW §4), eur_rate_snapshot (numeric + source + ts,
@@ -176,6 +179,14 @@ reserved_at, checked_in_at, checked_out_at, storage_deadline_at, bond_cp_id`
 (i guadagni dell'hub sono tracciati sulle tratte adiacenti: `arr_hub_fee_msat` della
 tratta in ingresso, `dep_hub_fee_msat` di quella in uscita).
 
+**shipment_claims** — `id, shipment_id, claimant_id, hub_stay_id,
+claim_payment_msat, hub_bonus_msat, payment_cp_id, hub_bonus_cp_id,
+status (pending_funding|funded|completed|expired), funding_deadline_at,
+created_at, resolved_at`. La storia dei ritiri anticipati del destinatario
+(ADR-016): importi congelati alla richiesta, al più un claim vivo per
+spedizione (indice unico parziale). Le due hold del claim referenziano questa
+riga (`conditional_payments.ref_type = 'claim'`), mai l'`hub_stay`.
+
 **custody_events** — `id, shipment_id, type (created|funded|hub_checkin|leg_accepted|
 hub_checkout|hub_checkin_intermediate|leg_returned|arrived_destination|
 recipient_pickup|handoff_rejected|rerouted|boosted|expired|cancelled),
@@ -192,8 +203,8 @@ checkin|checkout|evidence), storage_key, sha256, taken_by, created_at, purge_aft
 dell'utente, mai i suoi fondi.
 
 **conditional_payments** — `id, shipment_id, payer_id, payee_id, amount_msat,
-purpose (leg_payment|custody_bond|finalization_bonus), ref_type+ref_id
-(leg|hub_stay), payment_hash,
+purpose (leg_payment|custody_bond|finalization_bonus|claim_payment), ref_type+ref_id
+(leg|hub_stay|claim), payment_hash,
 preimage_encrypted (AES-256-GCM, chiave COORDINATOR_KEY — ADR-013),
 bolt11, state (created|held|settled|cancelled|expired), hold_window,
 idempotency_key (unique: una retry di createConditionalPayment restituisce la
@@ -244,8 +255,11 @@ stateDiagram-v2
     AWAITING_DROPOFF --> CANCELLED : cancel<br/>↩ bond hub annullato
     AT_HUB --> AT_HUB : boost / reroute (mittente, nessun movimento)
     AT_HUB --> LEG_BOOKED : leg_accept + leg_funded (finestra 60 min)<br/>⏳ pagamento tratta (mittente→vettore) · ⏳ bond vettore · ⏳ bond hub arrivo
-    AT_HUB --> FORFEITED : storage_expiry<br/>pacco svincolato all'hub (ToS) · ↩ bond hub
+    AT_HUB --> CLAIMED : recipient_claim + claim_funded (finestra 60 min — ADR-016)<br/>⏳ claim payment (mittente→destinatario) · ⏳ Π_h (mittente→hub)
+    AT_HUB --> FORFEITED : storage_expiry<br/>pacco svincolato all'hub (ToS) · ↩ bond hub · ↩ hold claim pendente
     AT_HUB --> CANCELLED : cancel (solo hub origine, nessuna tratta attiva)<br/>💸 compensazione f_o×P diretta all'hub · ↩ bond hub
+    CLAIMED --> DELIVERED : recipient_claimed_pickup (token verificato)<br/>🔑 claim payment al destinatario · 🔑 Π_h all'hub · ↩ bond hub
+    CLAIMED --> FORFEITED : storage_expiry (la giacenza non si sospende)<br/>↩ hold claim · ↩ bond hub
     LEG_BOOKED --> IN_TRANSIT : pickup_checkout (doppia conferma)<br/>💸 fee partenza (vettore→hub, sul posto) · ↩ bond hub cedente
     LEG_BOOKED --> AT_HUB : pickup_timeout<br/>🔑⚔ bond vettore → mittente · ↩ pagamento tratta
     IN_TRANSIT --> AT_HUB : leg_checkin hub intermedio (foto)<br/>💸 fee arrivo (vettore→hub) · 🔑 preimage al vettore: incassa la tratta · ↩ bond vettore
@@ -267,7 +281,11 @@ Legenda: ⏳ hold invoice pagata e pendente (fondi vincolati, mai presso la piat
 ⚔ slash (il bond viene incassato dal beneficiario fissato ex-ante).
 
 `AT_HUB → LEG_BOOKED → IN_TRANSIT → AT_HUB` è il ciclo multi-tratta: si ripete finché
-l'hub di check-in non è quello di destinazione.
+l'hub di check-in non è quello di destinazione. Da qualunque `AT_HUB` senza
+tratta in corso il destinatario può innestare il **ritiro anticipato**
+(`AT_HUB → CLAIMED → DELIVERED`, ADR-016): il ciclo del claim rispecchia la
+finestra di funding delle tratte, con il pacco che sparisce dalla bacheca
+dalla richiesta e vi torna se la finestra scade.
 
 **Non esistono stati di disputa né arbitri** ([ADR-012](adr/ADR-012-no-arbiter.md)):
 chi dovrebbe ricevere il pacco può solo **accettare** (certifica e la custodia passa)
@@ -283,7 +301,7 @@ e timeout — mai da un giudizio umano. Il ritiro del destinatario (OTP dopo isp
 | 1   | `create`                         | Mittente                                                     | dati completi, hub validi, **wallet mittente connesso** (NWC)                                                                                              | — (snapshot cambio EUR congelato)                                                                                                              |
 | 2   | `origin_hub_accept`              | Hub origine (auto se `auto_accept`)                          | dims/peso/undeclared ok, wallet hub connesso                                                                                                               | ⏳ bond hub: l'hub paga la hold invoice emessa dal mittente (hash del coordinatore)                                                            |
 | 3   | `origin_checkin`                 | Hub origine                                                  | scan QR, foto obbligatoria                                                                                                                                 | — (parte il timer di giacenza)                                                                                                                 |
-| 4   | `leg_accept`                     | Vettore                                                      | viaggio attivo, criteri match, wallet connesso; hub di arrivo accetta (auto)                                                                               | tratta in `pending_funding`; importi calcolati e congelati (ECONOMICS)                                                                         |
+| 4   | `leg_accept`                     | Vettore                                                      | viaggio attivo, criteri match, wallet connesso; hub di arrivo accetta (auto); nessun claim pendente (ADR-016)                                              | tratta in `pending_funding`; importi calcolati e congelati (ECONOMICS)                                                                         |
 | 5   | `leg_funded`                     | Wallet-event                                                 | entro 60 min da `leg_accept`: ⏳ pagamento tratta (mittente paga hold del vettore) · ⏳ bond vettore (vettore paga hold del mittente) · ⏳ bond hub arrivo | le tre hold risultano _held_ → `LEG_BOOKED`; finestra scaduta → tutto annullato, si torna in bacheca                                           |
 | 6   | `pickup_checkout`                | Hub cedente + vettore (doppia conferma QR)                   | entro `pickup_deadline`; certificazione sbloccata dal pagamento                                                                                            | 💸 fee di partenza (`f_dep` × lordo) vettore→hub, sul posto · ↩ bond hub cedente annullato                                                     |
 | 7   | `pickup_timeout`                 | Worker                                                       | deadline superata                                                                                                                                          | 🔑⚔ preimage del bond vettore al mittente (incassa dal vettore) · ↩ pagamento tratta e bond hub arrivo annullati; spedizione torna in bacheca  |
@@ -291,12 +309,16 @@ e timeout — mai da un giudizio umano. Il ritiro del destinatario (OTP dopo isp
 | 9   | `leg_checkin` (hub destinazione) | Hub destinazione                                             | idem                                                                                                                                                       | idem (il netto del vettore = lordo − le due fee pagate sul posto)                                                                              |
 | 10  | `leg_return`                     | Vettore + hub di partenza della tratta                       | entro `transit_deadline`; l'hub cedente è tenuto a riaccettare il pacco che ha certificato al check-out (ToS)                                              | ↩ pagamento tratta e bond vettore annullati; la giacenza riparte                                                                               |
 | 11  | `recipient_pickup`               | Destinatario + hub                                           | OTP + QR; l'ispezione precede l'OTP: digitarlo è l'**accettazione definitiva** (nessuna finestra di contestazione)                                         | ↩ bond hub destinazione annullato; spedizione chiusa                                                                                           |
-| 12  | `handoff_reject`                 | Chi dovrebbe ricevere il pacco (hub, vettore o destinatario) | foto + motivo                                                                                                                                              | nessuno: la custodia non passa e lo stato non cambia; evento in catena di custodia, notifica al mittente (che può `reroute`/`boost`)           |
-| 13  | `storage_expiry`                 | Worker                                                       | giacenza scaduta                                                                                                                                           | ↩ bond hub annullato; **pacco svincolato secondo ToS: il bene è la compensazione dell'hub** (nessun escrow prefinanziato — ADR-013)            |
+| 12  | `handoff_reject`                 | Chi dovrebbe ricevere il pacco (hub, vettore o destinatario) | foto + motivo; lo stage `recipient_pickup` copre anche il ritiro del claim in `CLAIMED` (ADR-016)                                                          | nessuno: la custodia non passa e lo stato non cambia; evento in catena di custodia, notifica al mittente (che può `reroute`/`boost`)           |
+| 13  | `storage_expiry`                 | Worker                                                       | giacenza scaduta (anche con claim pendente o in `CLAIMED`: la giacenza non si sospende — ADR-016)                                                          | ↩ bond hub annullato · ↩ hold del claim annullate/rimborsate; **pacco svincolato secondo ToS: il bene è la compensazione dell'hub** (ADR-013)  |
 | 14  | `transit_timeout`                | Worker                                                       | deadline transito superata                                                                                                                                 | 🔑⚔ preimage del bond vettore al mittente · ↩ pagamento tratta annullato (le fee già pagate sul posto restano pagate)                          |
-| 15  | `boost`                          | Mittente                                                     | stato con pacco fermo                                                                                                                                      | nessun movimento: aumenta l'impegno di spesa per le tratte future (ECONOMICS §5)                                                               |
-| 16  | `reroute`                        | Mittente                                                     | stato `AT_HUB` o `AWAITING_PICKUP`, nessuna tratta prenotata                                                                                               | nessun movimento; nuovo hub destinazione e/o destinatario, `r` ricalcolata, OTP invalidato e riemesso                                          |
-| 17  | `cancel`                         | Mittente                                                     | solo prima del primo `pickup_checkout`                                                                                                                     | 💸 compensazione hub origine `f_o × P` pagata direttamente (la restituzione del pacco si sblocca al pagamento) · ↩ bond hub annullato          |
+| 15  | `boost`                          | Mittente                                                     | stato con pacco fermo, nessun claim in corso (ADR-016)                                                                                                     | nessun movimento: aumenta l'impegno di spesa per le tratte future (ECONOMICS §5)                                                               |
+| 16  | `reroute`                        | Mittente                                                     | stato `AT_HUB` o `AWAITING_PICKUP`, nessuna tratta prenotata, nessun claim in corso                                                                        | nessun movimento; nuovo hub destinazione e/o destinatario, `r` ricalcolata, OTP invalidato e riemesso; il cambio del destinatario ruota anche il token di claim e rimanda la mail di tracking (ADR-016) |
+| 17  | `cancel`                         | Mittente                                                     | solo prima del primo `pickup_checkout`, nessun claim in corso                                                                                              | 💸 compensazione hub origine `f_o × P` pagata direttamente (la restituzione del pacco si sblocca al pagamento) · ↩ bond hub annullato          |
+| 18  | `recipient_claim`                | Destinatario (token di tracking)                             | stato `AT_HUB`, nessuna tratta pendente/prenotata né altro claim; token verificato, account + wallet connesso, claimant ≠ mittente e ≠ hub di ritiro       | ⏳ claim payment (mittente→destinatario: pool residuo + Π_v — ECONOMICS §5-ter) · ⏳ Π_h (mittente→hub, se > 0 dopo il floor); pacco fuori bacheca |
+| 19  | `claim_funded`                   | Wallet-event                                                 | entro 60 min da `recipient_claim`; tutte le hold del claim create risultano _held_                                                                         | → `CLAIMED`: gli impegni entrano nel ledger ombra; la giacenza NON si sospende                                                                 |
+| 20  | `claim_funding_expired`          | Worker                                                       | finestra scaduta                                                                                                                                           | ↩ hold del claim annullate (mai diventate impegni); il pacco torna in bacheca                                                                  |
+| 21  | `recipient_claimed_pickup`       | Hub custode + destinatario (QR + token)                      | stato `CLAIMED`; token verificato dall'API (fatto dichiarato — precisazione 10); accettare il pacco è definitivo (ADR-012)                                 | 🔑 claim payment al destinatario · 🔑 Π_h all'hub · ↩ bond hub; spedizione chiusa, conferma email al mittente                                  |
 
 ### Premio di finalizzazione (ADR-014 — implementato)
 
@@ -327,6 +349,20 @@ Integrazioni alla tabella qui sopra, decise e implementate il 2026-07-13
   (migrazione 0003); journal entry `finalization_bonus_held/released/refunded`,
   mentre le entry `leg_payment_*` portano l'importo pieno `lordo + Π_v`.
 
+### Ritiro anticipato del destinatario (ADR-016 — implementato)
+
+Le righe 18–21 e gli aggiornamenti alle guardie di 4/12/13/15/16/17 vengono
+dall'[ADR-016](adr/ADR-016-recipient-claim.md) (decisione utente,
+2026-07-13): il destinatario, con il **token di tracking** ricevuto via email
+all'`origin_checkin` (credenziale bearer, hash a DB come l'OTP; il reroute che
+cambia destinatario lo ruota), può reclamare il pacco fermo in un qualsiasi
+hub incassando **pool di lavoro residuo + Π_v non consumata**; l'hub di ritiro
+incassa la **Π_h** maturata e il claim **non paga fee hub**. Stessa meccanica
+delle tratte: due hold nella finestra di 60 minuti, `CLAIMED` al funding,
+regolamento al ritiro fisico, dissoluzione alla scadenza — della finestra o
+della giacenza, che **non** si sospende. Formula in ECONOMICS §5-ter, flussi
+in ESCROW §3-bis, esclusione dalla bacheca in MATCHING §3.
+
 **Principio di responsabilità ("la responsabilità segue la custodia certificata")**: chi
 riceve il pacco (hub o vettore) ne certifica l'integrità al check-in/check-out con foto.
 Da quel momento il danno scoperto dopo è attribuito al custode corrente, il cui bond è
@@ -343,7 +379,9 @@ tratte già certificate integre sono chiuse e non soggette a clawback.
    fissato ex-ante). Nessun msat con destinazione decisa a posteriori.
 3. **Ledger ombra bilanciato**: ogni journal entry somma a zero (trigger DB + test).
 4. **Un solo custode**: in ogni istante il pacco ha esattamente un custode con bond
-   attivo (hub o vettore), dallo stato `AT_HUB` in poi.
+   attivo (hub o vettore), dallo stato `AT_HUB` in poi. In `CLAIMED` il
+   custode resta l'hub in cui il pacco giace (il claim non muove il pacco):
+   il suo bond si libera solo al ritiro fisico (ADR-016).
 5. **Idempotenza**: ogni evento porta una `idempotency_key`; wallet-event e retry non
    duplicano movimenti.
 6. **Riconciliazione**: lo stato di ogni `conditional_payment` nel ledger coincide con
@@ -413,6 +451,17 @@ forzate dagli invarianti qui sopra (non scelte libere di protocollo):
     pendente, dal `leg_accept` finale al regolamento). L'evento `leg_accept`
     dichiara `finalizationHubBonusMsat`; guardie: quote > 0 solo su tratte
     finali, mai un nuovo `leg_accept` con una hold premio non riassorbita.
+12. **Claim nel contesto** (ADR-016): `ctx.pendingClaim` è lo specchio di
+    `ActiveLeg` (id, claimant, stay, importi congelati, id delle hold,
+    deadline) e la sua presenza respinge `leg_accept`/`boost`/`reroute`/
+    `cancel`. `finalizationBonusHold` resta la Π_h di una TRATTA: la Π_h del
+    claim vive in `pendingClaim` e le due non si aliasano mai (le hold del
+    claim referenziano il claim, ref `'claim'`). Il claim a pool residuo + Π_v
+    pari a zero è respinto (una hold a importo zero non esiste su Lightning:
+    serve prima un boost); gli impegni entrano nel ledger solo a
+    `claim_funded`, come per le tratte; `claim_funded` NON disarma il timer di
+    giacenza. Eventi di custodia: `claim_requested` e `recipient_claimed`
+    (nuovi tipi), `funded`/`expired` riusati con `claimId` nel payload.
 
 ### Precisazioni implementative (`apps/api` — executor, rotte, worker)
 
@@ -489,6 +538,18 @@ registrate:
     rispettati, `origin_hub_accept` parte nella stessa richiesta di
     `POST /shipments` (transazione separata: un fallimento lascia DRAFT e
     l'endpoint manuale disponibile).
+14. **Token di claim come l'OTP** (ADR-016): coniato dall'effetto
+    `rotate_claim_token` a `origin_checkin` (e alla rotazione da reroute con
+    cambio destinatario) — token pieno da 32 byte (si scansiona, non si
+    digita), hash a DB, plaintext solo nella riga di outbox della mail
+    `parcel_tracking` della stessa transazione. `POST /shipments/:id/claim`
+    (sessione del destinatario + token) e `POST /shipments/:id/claimed-pickup`
+    (sessione dell'hub + QR + token) verificano l'hash e dichiarano il fatto
+    alla macchina (precisazione 10); entrambe rate-limited come il ritiro OTP.
+    Il pump del funding e lo sweep dei timer sono gli stessi delle tratte
+    (`claim_funding` è un timer fact come gli altri); la bacheca esclude le
+    spedizioni con un claim vivo; il claimant è un partecipante di
+    `GET /shipments/:id`.
 
 ## 6. Bond di custodia unico (proposta)
 

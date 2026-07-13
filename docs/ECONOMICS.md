@@ -9,7 +9,9 @@
 > descrivono il riparto del **pool di lavoro**, cioè il 90% dell'impegno del
 > mittente; lo scorporo è documentato in §5-bis e ADR-014; rev. 6, stesso
 > giorno: precisazione §6.2 sul reroute dallo stato di consegna, emersa
-> implementando l'API del ciclo di vita).
+> implementando l'API del ciclo di vita; rev. 7, stesso giorno: **ritiro
+> anticipato del destinatario** in §5-ter,
+> [ADR-016](adr/ADR-016-recipient-claim.md) — decisione utente, implementata).
 > Decisione formalizzata in [ADR-006](adr/ADR-006-progress-based-economics.md).
 
 ## 1. Il problema
@@ -249,6 +251,42 @@ Il **Modello C resta la roadmap** (v2) come _overlay_: il prezzo progress-based 
 il prezzo esposto "accetta subito", con possibilità di controfferte. L'interfaccia dati
 (`legs.gross_msat / dep_hub_fee_msat / arr_hub_fee_msat / net_msat` congelati
 all'accettazione) è già compatibile.
+
+## 5-ter. Ritiro anticipato del destinatario (ADR-016 — implementato)
+
+Decisione utente (2026-07-13): il destinatario può **reclamare** il pacco
+fermo in un qualsiasi hub (stato `AT_HUB`, nessuna tratta in corso) facendo
+lui la tratta residua. La formula del claim, congelata alla richiesta con
+floor al sat **per parte** (come i congelamenti di tratta):
+
+```
+claim payment  = ⌊remainingPool(W, D, r, boosts)⌋ + ⌊Π_v non consumata⌋   (mittente → destinatario)
+quota hub      = ⌊Π_h maturata⌋                                           (mittente → hub di ritiro)
+fee hub        = nessuna
+```
+
+Il destinatario incassa esattamente ciò che la rete avrebbe pagato per
+portare il pacco a destinazione da lì: il pool residuo alla distanza corrente
+`r` **più la quota vettore del premio** (sta concludendo lui il percorso — il
+claim **consuma Π_v**). L'hub di ritiro, che completa la consegna, incassa la
+quota hub del premio: esattamente il lavoro che Π_h paga (ADR-014). Nessuna
+fee hub: la fee d'arrivo della tratta entrante è già stata pagata sul posto e
+resta pagata. Conseguenza documentata: un claim all'hub di **origine** dà
+all'hub solo Π_h (nessuna tratta è mai entrata né uscita).
+
+Esempio canonico (P = 5,00 €, D = 100 km, hub al 10%; Luca ha già fatto
+A→C, 40 km): Rita reclama a C e incassa `4,50 × 60/100 + 0,35 = `**3,05 €**;
+Carla (hub C) incassa Π_h = **0,15 €** oltre alla fee d'arrivo già presa
+(0,18 €); Marco ha pagato in tutto 1,80 + 3,05 + 0,15 = **5,00 €** spaccati.
+
+**Conservazione invariata**: il claim liquida il pool residuo alla `r`
+corrente, quindi `Σ lordi tratte pagate + claim payment ≤ 90% × (P + Σ
+boost)` per costruzione; ogni quota del premio si consuma al più una volta; i
+resti di floor restano al mittente. Un claim con pool residuo e Π_v entrambi
+a zero è **respinto** (una hold a importo zero non esiste su Lightning): il
+mittente deve prima fare `boost`, come per sbloccare qualunque vettore. Nel
+codice: `priceClaim` (`@mercurio/core/economics`); meccanica delle hold e
+stati in ARCHITECTURE §5 (righe 18–21) e ESCROW §3-bis.
 
 ### Regole di contorno
 
