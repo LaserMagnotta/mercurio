@@ -87,6 +87,8 @@ function randScenario(rand: () => number): Scenario {
       currentHubId: currentHub.hubId,
       destHubId: destHub.hubId,
       poolMsat: BigInt(randInt(rand, 0, 1e9)),
+      // 0 sometimes: a consumed carrier quota (post-arrival reroute, ADR-014).
+      carrierBonusMsat: rand() < 0.2 ? 0n : BigInt(randInt(rand, 0, 1e8)),
       totalKm,
       remainingKm,
       dimsCm: {
@@ -165,11 +167,16 @@ describe('property: displayed amounts agree with the economics engine', () => {
             progressKm: progressM / 1000,
             depHubFeeBp: currentHub.feeBp,
             arrHubFeeBp: hub.feeBp,
+            carrierBonusMsat: s.carrierBonusMsat,
           });
-          expect(option.netMsat).toBe(pricing.netMsat);
+          // The displayed net includes the finalization bonus, exposed as its
+          // own field for the UI; only direct delivery may carry it (ADR-014).
+          expect(option.netMsat).toBe(pricing.netMsat + pricing.finalizationBonusMsat);
+          expect(option.finalizationBonusMsat).toBe(pricing.finalizationBonusMsat);
+          if (option.hubId !== s.destHubId) expect(option.finalizationBonusMsat).toBe(0n);
           const thresholdMsat =
             (trip.minRateMsatPerKm * BigInt(Math.round(option.detourKm * 1000))) / 1000n;
-          expect(option.surplusMsat).toBe(pricing.netMsat - thresholdMsat);
+          expect(option.surplusMsat).toBe(option.netMsat - thresholdMsat);
         }
         // isMatch is exactly the MATCHING.md criterion on H*.
         expect(card.isMatch).toBe(

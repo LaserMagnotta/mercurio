@@ -84,7 +84,8 @@ function evaluateShipment(
     !Number.isFinite(shipment.remainingKm) ||
     remainingM <= 0 ||
     remainingM > totalM ||
-    shipment.poolMsat < 0n
+    shipment.poolMsat < 0n ||
+    shipment.carrierBonusMsat < 0n
   ) {
     return null;
   }
@@ -115,6 +116,7 @@ function evaluateShipment(
         progressKm: progressM / 1000,
         depHubFeeBp: currentHub.feeBp,
         arrHubFeeBp: hub.feeBp,
+        carrierBonusMsat: shipment.carrierBonusMsat,
       });
     } catch (error) {
       // e.g. a fee above the validation cap: the hub disqualifies itself
@@ -136,11 +138,17 @@ function evaluateShipment(
     // meters / 1000). Integer division floors the threshold, in the
     // carrier's favor by < 1 msat.
     const thresholdMsat = (trip.minRateMsatPerKm * BigInt(detourM)) / 1000n;
+    // Direct delivery includes the carrier's finalization bonus in the net
+    // (MATCHING.md §2, ADR-014): priceLeg freezes it only when H = T, and
+    // the surplus ranking sees it — T becomes systematically more attractive
+    // as the drop hub, which is exactly the incentive the ADR wants.
+    const netMsat = pricing.netMsat + pricing.finalizationBonusMsat;
     options.push({
       hubId: hub.hubId,
       detourKm: detourM / 1000,
-      netMsat: pricing.netMsat,
-      surplusMsat: pricing.netMsat - thresholdMsat,
+      netMsat,
+      finalizationBonusMsat: pricing.finalizationBonusMsat,
+      surplusMsat: netMsat - thresholdMsat,
     });
   }
   if (options.length === 0) return null;

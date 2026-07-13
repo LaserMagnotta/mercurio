@@ -1,4 +1,5 @@
-// Progress-based leg pricing engine — Model B (ECONOMICS.md, ADR-006).
+// Progress-based leg pricing engine — Model B (ECONOMICS.md, ADR-006) with
+// the finalization-bonus carve-out of ADR-014.
 //
 // Pure functions, zero I/O. All money is bigint msat (ADR-008); all rounding
 // is downward (never overpay from someone else's commitment). Distances come
@@ -6,15 +7,26 @@
 // meters so every division below is exact bigint arithmetic: two machines
 // pricing the same leg MUST freeze the same msat amounts.
 //
+// ADR-014 changes the denominations, not the formulas: every sender
+// commitment (offer P, each boost ΔP) is split ONCE at ingestion by
+// splitCommitment into a 90% work part and the two bonus quotas (7% carrier,
+// 3% hub). All pool math below — remainingPool, priceLeg's gross, hub fees,
+// applyReroute, cancellationCompensation — runs exclusively on WORK amounts;
+// the bonus quotas accrue per shipment and only surface here as priceLeg's
+// carrierBonusMsat input, frozen onto the leg that reaches the destination.
+//
 // Rounding ladder (ECONOMICS.md, regole di contorno):
 //   - distances: quantized to whole meters on input;
-//   - the notional pool: truncated at msat precision;
-//   - frozen amounts (gross, fees): floored to a whole sat.
+//   - the notional pool and the commitment split: truncated at msat precision;
+//   - frozen amounts (gross, fees, bonus shares): floored to a whole sat.
 // Truncation remainders stay with the sender as unspent commitment — there is
 // no common pot to redistribute them from (ADR-013).
 
 import type { LegPricing, Msat, PoolBoost, PoolSegment } from '@mercurio/shared';
 import {
+  FINALIZATION_BONUS_BP,
+  FINALIZATION_CARRIER_SHARE_BP,
+  FINALIZATION_HUB_SHARE_BP,
   HUB_FEE_BP_DENOMINATOR,
   MAX_HUB_FEE_BP,
   MIN_LEG_PROGRESS_KM,
@@ -74,6 +86,39 @@ export function floorToSat(amount: Msat): Msat {
 }
 
 /**
+ * How one sender commitment (the offer P at creation, each boost ΔP) splits
+ * under ADR-014. The work part feeds the progress-based pool; the two bonus
+ * parts accrue to the shipment's finalization-bonus quotas.
+ */
+export interface CommitmentSplit {
+  /** 90% — the commitment's contribution to the work pool. */
+  workMsat: Msat;
+  /** Carrier quota Π_v accrual: 70% of the 10% bonus. */
+  carrierBonusMsat: Msat;
+  /** Destination-hub quota Π_h accrual: 30% of the 10% bonus. */
+  hubBonusMsat: Msat;
+}
+
+/**
+ * Split a commitment into work pool and finalization-bonus quotas (ADR-014).
+ * Each part is truncated independently at msat precision (never rounded up:
+ * the parts can only understate their exact shares), so
+ * work + carrier + hub ≤ commitment always, with at most 2 msat of remainder
+ * staying with the sender as unspent commitment. The split happens exactly
+ * once per commitment event: a reroute freezes an already-split work pool and
+ * must NOT be passed through here again.
+ */
+export function splitCommitment(amountMsat: Msat): CommitmentSplit {
+  assertNonNegativeMsat(amountMsat, 'amountMsat');
+  const bonusMsat = (amountMsat * BigInt(FINALIZATION_BONUS_BP)) / BP_DENOMINATOR;
+  return {
+    workMsat: (amountMsat * BigInt(HUB_FEE_BP_DENOMINATOR - FINALIZATION_BONUS_BP)) / BP_DENOMINATOR,
+    carrierBonusMsat: (bonusMsat * BigInt(FINALIZATION_CARRIER_SHARE_BP)) / BP_DENOMINATOR,
+    hubBonusMsat: (bonusMsat * BigInt(FINALIZATION_HUB_SHARE_BP)) / BP_DENOMINATOR,
+  };
+}
+
+/**
  * Minimum admissible progress for a leg: max(5 km, 5% of the segment
  * distance). The leg that reaches the destination is exempt (see priceLeg) —
  * otherwise a parcel rerouted to < 5 km from its goal could never be delivered.
@@ -86,7 +131,8 @@ export function minLegProgressKm(totalKm: number): number {
 }
 
 export interface PriceLegInput {
-  /** Remaining pool before this leg — see remainingPool(). */
+  /** Remaining WORK pool before this leg (90% denomination, ADR-014) — see
+   *  remainingPool(). */
   poolMsat: Msat;
   /** Segment distance D (the shipment's frozen distance, or the remaining
    *  distance frozen at the last reroute). Needed for the 5%-of-D guard. */
@@ -99,15 +145,26 @@ export interface PriceLegInput {
   depHubFeeBp: number;
   /** Arrival hub fee, integer basis points. */
   arrHubFeeBp: number;
+  /** The shipment's accrued carrier quota Π_v of the finalization bonus
+   *  (Σ splitCommitment(...).carrierBonusMsat over offer and boosts), or 0n
+   *  once consumed by a delivery (ADR-014). Explicit on purpose: forgetting
+   *  it on a final leg would silently strip the delivery incentive. Frozen
+   *  (sat-floored) onto the leg only when Δr = r. */
+  carrierBonusMsat: Msat;
 }
 
 /**
- * Price one leg (ECONOMICS.md §3, Model B):
+ * Price one leg (ECONOMICS.md §3 Model B, on the work pool of ADR-014):
  *
  *   gross = pool × Δr / r          (floored to a whole sat)
  *   fee_dep = f_dep × gross        (floored to a whole sat)
  *   fee_arr = f_arr × gross        (floored to a whole sat)
  *   net = gross − fee_dep − fee_arr
+ *   finalization bonus = Δr = r ? floorToSat(carrierBonusMsat) : 0
+ *
+ * The bonus is NOT part of gross: hub fees are computed on the gross only
+ * (ADR-014: the bonus pays no fees) and the leg-payment hold is
+ * gross + bonus.
  *
  * Guards: positive progress only, Δr ≤ r, minimum progress max(5 km, 5% D)
  * unless the leg completes the journey (Δr = r), each hub fee ≤ 30% and
@@ -116,6 +173,7 @@ export interface PriceLegInput {
  */
 export function priceLeg(input: PriceLegInput): LegPricing {
   assertNonNegativeMsat(input.poolMsat, 'poolMsat');
+  assertNonNegativeMsat(input.carrierBonusMsat, 'carrierBonusMsat');
   const totalM = kmToMeters(input.totalKm, 'totalKm');
   const remainingM = kmToMeters(input.remainingKm, 'remainingKm');
   const progressM = kmToMeters(input.progressKm, 'progressKm');
@@ -164,20 +222,26 @@ export function priceLeg(input: PriceLegInput): LegPricing {
   // Never negative: dep + arr < 100% of gross by the guard above, and the fee
   // floors only shrink what the carrier hands over.
   const netMsat = grossMsat - depHubFeeMsat - arrHubFeeMsat;
-  return { grossMsat, depHubFeeMsat, arrHubFeeMsat, netMsat };
+  // Only the leg that reaches the destination earns the carrier quota; the
+  // sub-sat remainder of the freeze stays with the sender (ADR-014 §7).
+  const finalizationBonusMsat = reachesDestination ? floorToSat(input.carrierBonusMsat) : 0n;
+  return { grossMsat, depHubFeeMsat, arrHubFeeMsat, netMsat, finalizationBonusMsat };
 }
 
 /**
- * Notional remaining pool at distance r from the destination, within one
- * segment (ECONOMICS.md §5):
+ * Notional remaining WORK pool at distance r from the destination, within one
+ * segment (ECONOMICS.md §5, denominated per ADR-014):
  *
- *   pool(r) = P × r / D + Σᵢ ΔPᵢ × r / r_bᵢ
+ *   pool(r) = W × r / D + Σᵢ ΔWᵢ × r / r_bᵢ
  *
- * Each boost ΔPᵢ joined the pool when the parcel was r_bᵢ km away and is
- * consumed proportionally from there on — a constant contribution would let a
- * split journey pay out more than P + ΣΔP, breaking conservation. The formula
- * depends only on the current r, not on how past legs were split: anyone can
- * recompute the pool from the shipment row plus its boost events.
+ * where W and ΔWᵢ are the WORK parts (splitCommitment(...).workMsat) of the
+ * segment commitment and of each boost — the 10% finalization bonus never
+ * enters the pool. Each boost joined the pool when the parcel was r_bᵢ km
+ * away and is consumed proportionally from there on — a constant contribution
+ * would let a split journey pay out more than the committed work pool,
+ * breaking conservation. The formula depends only on the current r, not on
+ * how past legs were split: anyone can recompute the pool from the shipment
+ * row plus its boost events.
  *
  * Each term is truncated at msat precision; sub-msat remainders stay with the
  * sender. The result is notional accounting (nothing is prefunded, ADR-013):
@@ -252,12 +316,14 @@ export function applyReroute(
 
 /**
  * Compensation owed to the origin hub when the sender cancels after check-in
- * with no leg ever departed: f_o × P — what the hub would have earned from a
- * single-leg journey (ECONOMICS.md, regole di contorno). Paid directly
- * sender → hub; the parcel is released back on payment.
+ * with no leg ever departed: f_o × the segment's WORK commitment — what the
+ * hub would have earned from a single-leg journey, which under ADR-014 is
+ * priced on the work pool (the finalization bonus is excluded from every
+ * other formula, this one included). Paid directly sender → hub; the parcel
+ * is released back on payment.
  */
-export function cancellationCompensation(offerMsat: Msat, originHubFeeBp: number): Msat {
-  assertNonNegativeMsat(offerMsat, 'offerMsat');
+export function cancellationCompensation(workCommitmentMsat: Msat, originHubFeeBp: number): Msat {
+  assertNonNegativeMsat(workCommitmentMsat, 'workCommitmentMsat');
   const feeBp = assertValidHubFeeBp(originHubFeeBp, 'originHubFeeBp');
-  return floorToSat((offerMsat * feeBp) / BP_DENOMINATOR);
+  return floorToSat((workCommitmentMsat * feeBp) / BP_DENOMINATOR);
 }

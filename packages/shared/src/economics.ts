@@ -5,28 +5,37 @@
 import type { Msat } from './index';
 
 /**
- * The four amounts frozen on a leg at acceptance time (ECONOMICS.md, ADR-006).
- * Invariant: grossMsat = depHubFeeMsat + arrHubFeeMsat + netMsat, all floored
- * to a whole sat (ADR-008: invoices are denominated in sats).
+ * The five amounts frozen on a leg at acceptance time (ECONOMICS.md, ADR-006,
+ * ADR-014). Invariant: grossMsat = depHubFeeMsat + arrHubFeeMsat + netMsat,
+ * all floored to a whole sat (ADR-008: invoices are denominated in sats).
+ * The finalization bonus sits OUTSIDE that identity: hub fees never touch it
+ * (ADR-014), and the leg-payment hold is grossMsat + finalizationBonusMsat.
  */
 export interface LegPricing {
-  /** What the sender pays the carrier for this leg (hold invoice amount). */
+  /** The leg's share of the WORK pool (90% of the commitment, ADR-014). */
   grossMsat: Msat;
   /** Departure-hub cut, paid on the spot by the carrier at pickup. */
   depHubFeeMsat: Msat;
   /** Arrival-hub cut, paid on the spot by the carrier at check-in. */
   arrHubFeeMsat: Msat;
-  /** What the carrier keeps: gross − both hub fees. Shown on the board. */
+  /** What the carrier keeps of the gross: gross − both hub fees. */
   netMsat: Msat;
+  /** Carrier share Π_v of the finalization bonus (ADR-014), rides inside the
+   *  leg-payment hold. Zero unless this leg delivers to the destination hub
+   *  (and zero there too once the share was consumed by an earlier arrival). */
+  finalizationBonusMsat: Msat;
 }
 
 /**
  * A sender top-up while the parcel is idle (ECONOMICS.md §5).
+ * `amountMsat` is the boost's WORK-pool share — splitCommitment(ΔP).workMsat,
+ * the 90% left after the finalization-bonus carve-out (ADR-014); the bonus
+ * shares accrue to the shipment's bonus quotas, never to the pool.
  * `atRemainingKm` is the remaining distance when the boost happened: the boost
  * joins the pool at that point and is consumed proportionally afterwards
  * (pool contribution at distance r ≤ atRemainingKm is amount × r / atRemainingKm).
- * A constant contribution would let a journey pay out more than P + ΔP when
- * split into several legs, breaking pool conservation.
+ * A constant contribution would let a journey pay out more than the committed
+ * work pool when split into several legs, breaking pool conservation.
  */
 export interface PoolBoost {
   amountMsat: Msat;
@@ -39,7 +48,9 @@ export interface PoolBoost {
  * are always relative to the current segment (ECONOMICS.md §5).
  */
 export interface PoolSegment {
-  /** Spending commitment at segment start (the offer P for the first segment). */
+  /** Work-pool commitment at segment start: splitCommitment(P).workMsat for
+   *  the first segment, the frozen pool itself after a reroute (a reroute
+   *  never carves a second bonus out of it — ADR-014). */
   offerMsat: Msat;
   /** Route distance at segment start (D for the first segment), in km. */
   totalKm: number;
@@ -61,6 +72,20 @@ export const MAX_HUB_FEE_BP = 3_000;
  *  leg to the destination is exempt: completing the journey is always allowed. */
 export const MIN_LEG_PROGRESS_KM = 5;
 export const MIN_LEG_PROGRESS_RATIO = 0.05;
+
+/** Share of every sender commitment (offer P and each boost ΔP) carved out as
+ *  the finalization bonus Π (ADR-014). Everything else — progress-based
+ *  grosses, hub fees, cancellation compensation — is computed on the WORK
+ *  pool, the remaining 90%; the bonus is excluded from every other formula,
+ *  in both directions. */
+export const FINALIZATION_BONUS_BP = 1000;
+
+/** Split of the bonus Π: 70% to the carrier who delivers to the destination
+ *  hub (inside the final leg-payment hold), 30% to the destination hub
+ *  (a dedicated hold released at recipient_pickup). Each share is consumed at
+ *  most once per shipment (ADR-014). */
+export const FINALIZATION_CARRIER_SHARE_BP = 7000;
+export const FINALIZATION_HUB_SHARE_BP = 3000;
 
 /**
  * Convert a hub fee percentage — as stored in `hubs.fee_percent numeric(5,2)`,

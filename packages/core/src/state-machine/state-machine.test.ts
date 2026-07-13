@@ -10,16 +10,21 @@ import { SHIPMENT_STATES } from '@mercurio/shared';
 import { transition } from './state-machine';
 import {
   BOND_MSAT,
+  CARRIER_BONUS_MSAT,
   DEADLINES,
+  FINAL_PRICING,
+  HUB_BONUS_MSAT,
   IDS,
   OFFER_MSAT,
   PRICING,
   at,
   baseCtx,
+  bonusHold,
   bookedLeg,
   ctxForState,
   finalLeg,
   originStay,
+  pendingFinalLeg,
   pendingLeg,
   validEvent,
 } from './fixtures';
@@ -78,6 +83,13 @@ describe('create', () => {
     expectRejected(transition(null, { type: 'create' }, { ...baseCtx(), offerMsat: 0n }), 'guard_failed');
     expectRejected(
       transition(null, { type: 'create' }, { ...baseCtx(), custodyBondMsat: 0n }),
+      'guard_failed',
+    );
+  });
+
+  it('guard: the work commitment must be the ADR-014 work part of the offer', () => {
+    expectRejected(
+      transition(null, { type: 'create' }, { ...baseCtx(), workCommitmentMsat: OFFER_MSAT }),
       'guard_failed',
     );
   });
@@ -211,10 +223,79 @@ describe('leg_accept', () => {
           depHubFeeMsat: PRICING.depHubFeeMsat,
           arrHubFeeMsat: PRICING.arrHubFeeMsat,
           netMsat: PRICING.netMsat,
+          finalizationBonusMsat: 0n,
+          finalizationHubBonusMsat: 0n,
           custodyBondMsat: BOND_MSAT,
         },
       },
     ]);
+  });
+
+  it('final leg: the payment hold binds gross + Π_v and a fourth hold freezes Π_h (ADR-014)', () => {
+    const event = {
+      ...validEvent('leg_accept'),
+      toHubId: IDS.destHub,
+      toHubUserId: IDS.destHubUser,
+      pricing: FINAL_PRICING,
+      finalizationHubBonusMsat: HUB_BONUS_MSAT,
+    } as ShipmentEvent;
+    const result = transition('AT_HUB', event, ctx);
+    expectOk(result);
+    const holds = result.effects.filter((e) => e.kind === 'create_conditional_payment');
+    expect(holds).toEqual([
+      {
+        kind: 'create_conditional_payment',
+        purpose: 'leg_payment',
+        payerId: IDS.sender,
+        payeeId: IDS.carrier,
+        amountMsat: FINAL_PRICING.grossMsat + CARRIER_BONUS_MSAT,
+        ref: { type: 'leg', id: IDS.leg },
+      },
+      {
+        kind: 'create_conditional_payment',
+        purpose: 'custody_bond',
+        payerId: IDS.carrier,
+        payeeId: IDS.sender,
+        amountMsat: BOND_MSAT,
+        ref: { type: 'leg', id: IDS.leg },
+      },
+      {
+        kind: 'create_conditional_payment',
+        purpose: 'custody_bond',
+        payerId: IDS.destHubUser,
+        payeeId: IDS.sender,
+        amountMsat: BOND_MSAT,
+        ref: { type: 'hub_stay', id: IDS.arrivalStay },
+      },
+      {
+        kind: 'create_conditional_payment',
+        purpose: 'finalization_bonus',
+        payerId: IDS.sender,
+        payeeId: IDS.destHubUser,
+        amountMsat: HUB_BONUS_MSAT,
+        ref: { type: 'hub_stay', id: IDS.arrivalStay },
+      },
+    ]);
+    const custody = result.effects.find((e) => e.kind === 'append_custody_event');
+    expect(custody).toMatchObject({
+      payload: {
+        finalizationBonusMsat: CARRIER_BONUS_MSAT,
+        finalizationHubBonusMsat: HUB_BONUS_MSAT,
+      },
+    });
+  });
+
+  it('final leg with a zero hub share creates no fourth hold (mirrors zero fees)', () => {
+    const event = {
+      ...validEvent('leg_accept'),
+      toHubId: IDS.destHub,
+      toHubUserId: IDS.destHubUser,
+      pricing: FINAL_PRICING,
+      finalizationHubBonusMsat: 0n,
+    } as ShipmentEvent;
+    const result = transition('AT_HUB', event, ctx);
+    expectOk(result);
+    expect(result.effects.filter((e) => e.kind === 'create_conditional_payment')).toHaveLength(3);
   });
 
   it.each([
@@ -224,7 +305,15 @@ describe('leg_accept', () => {
     ['arrival hub wallet disconnected', { arrivalHubWalletConnected: false }],
     ['arrival hub equals current hub', { toHubId: IDS.originHub }],
     ['inconsistent pricing', { pricing: { ...PRICING, netMsat: PRICING.netMsat + 1n } }],
-    ['zero gross', { pricing: { grossMsat: 0n, depHubFeeMsat: 0n, arrHubFeeMsat: 0n, netMsat: 0n } }],
+    [
+      'zero gross',
+      { pricing: { grossMsat: 0n, depHubFeeMsat: 0n, arrHubFeeMsat: 0n, netMsat: 0n, finalizationBonusMsat: 0n } },
+    ],
+    ['negative carrier bonus', { pricing: { ...PRICING, finalizationBonusMsat: -1n } }],
+    ['negative hub bonus', { finalizationHubBonusMsat: -1n }],
+    // Only the leg that delivers to the destination may carry either share.
+    ['carrier bonus on a non-final leg', { pricing: { ...PRICING, finalizationBonusMsat: 1_000n } }],
+    ['hub bonus on a non-final leg', { finalizationHubBonusMsat: HUB_BONUS_MSAT }],
   ])('guard: %s', (_name, patch) => {
     expectRejected(
       transition('AT_HUB', { ...validEvent('leg_accept'), ...patch } as ShipmentEvent, ctx),
@@ -235,6 +324,13 @@ describe('leg_accept', () => {
   it('guard: only one pending leg at a time', () => {
     expectRejected(
       transition('AT_HUB', validEvent('leg_accept'), { ...ctx, leg: pendingLeg() }),
+      'guard_failed',
+    );
+  });
+
+  it('guard: a stale finalization-bonus hold blocks new acceptances', () => {
+    expectRejected(
+      transition('AT_HUB', validEvent('leg_accept'), { ...ctx, finalizationBonusHold: bonusHold() }),
       'guard_failed',
     );
   });
@@ -292,9 +388,64 @@ describe('leg_funded', () => {
         actorUserId: null,
         legId: IDS.leg,
         hubStayId: null,
-        payload: { grossMsat: PRICING.grossMsat, custodyBondMsat: BOND_MSAT },
+        payload: {
+          grossMsat: PRICING.grossMsat,
+          finalizationBonusMsat: 0n,
+          finalizationHubBonusMsat: 0n,
+          custodyBondMsat: BOND_MSAT,
+        },
       },
     ]);
+  });
+
+  it('final leg: LEG_BOOKED recognizes all FOUR held commitments (ADR-014)', () => {
+    const finalCtx = {
+      ...ctxForState('AT_HUB'),
+      leg: pendingFinalLeg(),
+      finalizationBonusHold: bonusHold(),
+    };
+    const result = transition('AT_HUB', validEvent('leg_funded'), finalCtx);
+    expectOk(result);
+    expect(result.nextState).toBe('LEG_BOOKED');
+    const entries = result.effects.filter((e) => e.kind === 'post_ledger_entry');
+    expect(entries.map((e) => e.eventType)).toEqual([
+      'leg_payment_held',
+      'carrier_bond_held',
+      'hub_bond_held',
+      'finalization_bonus_held',
+    ]);
+    // The payment hold binds gross + Π_v; the fourth hold is the sender's Π_h.
+    expect(entries[0]!.postings).toEqual([
+      {
+        ownerType: 'user',
+        ownerId: IDS.sender,
+        accountKind: 'external_wallet',
+        amountMsat: -(FINAL_PRICING.grossMsat + CARRIER_BONUS_MSAT),
+      },
+      {
+        ownerType: 'shipment',
+        ownerId: IDS.shipment,
+        accountKind: 'commitment',
+        amountMsat: FINAL_PRICING.grossMsat + CARRIER_BONUS_MSAT,
+      },
+    ]);
+    expect(entries[3]).toEqual({
+      kind: 'post_ledger_entry',
+      eventType: 'finalization_bonus_held',
+      ref: { type: 'hub_stay', id: IDS.arrivalStay },
+      postings: [
+        { ownerType: 'user', ownerId: IDS.sender, accountKind: 'external_wallet', amountMsat: -HUB_BONUS_MSAT },
+        { ownerType: 'shipment', ownerId: IDS.shipment, accountKind: 'commitment', amountMsat: HUB_BONUS_MSAT },
+      ],
+    });
+    const custody = result.effects.find((e) => e.kind === 'append_custody_event');
+    expect(custody).toMatchObject({
+      payload: {
+        grossMsat: FINAL_PRICING.grossMsat,
+        finalizationBonusMsat: CARRIER_BONUS_MSAT,
+        finalizationHubBonusMsat: HUB_BONUS_MSAT,
+      },
+    });
   });
 
   it('guard: no pending leg to fund', () => {
@@ -329,6 +480,23 @@ describe('leg_funding_expired', () => {
         payload: { reason: 'leg_funding' },
       },
     ]);
+  });
+
+  it('an expired final leg also cancels the Π_h hold, still with no entries', () => {
+    const finalCtx = {
+      ...ctxForState('AT_HUB'),
+      leg: pendingFinalLeg(),
+      finalizationBonusHold: bonusHold(),
+    };
+    const result = transition('AT_HUB', validEvent('leg_funding_expired'), finalCtx);
+    expectOk(result);
+    expect(result.effects.filter((e) => e.kind === 'refund_conditional_payment')).toEqual([
+      { kind: 'refund_conditional_payment', paymentId: IDS.legPayment },
+      { kind: 'refund_conditional_payment', paymentId: IDS.carrierBond },
+      { kind: 'refund_conditional_payment', paymentId: IDS.arrivalHubBond },
+      { kind: 'refund_conditional_payment', paymentId: IDS.finalizationBonus },
+    ]);
+    expect(result.effects.filter((e) => e.kind === 'post_ledger_entry')).toEqual([]);
   });
 
   it('guard: cannot expire before the window closes', () => {
@@ -474,6 +642,38 @@ describe('pickup_timeout', () => {
     ]);
   });
 
+  it('a timed-out final leg refunds the whole hold (gross + Π_v) and the Π_h hold', () => {
+    const finalCtx = {
+      ...ctxForState('LEG_BOOKED'),
+      leg: { ...pendingFinalLeg(), pickupDeadlineAt: DEADLINES.pickup },
+      finalizationBonusHold: bonusHold(),
+    };
+    const result = transition('LEG_BOOKED', validEvent('pickup_timeout'), finalCtx);
+    expectOk(result);
+    expect(result.nextState).toBe('AT_HUB');
+    const entries = result.effects.filter((e) => e.kind === 'post_ledger_entry');
+    expect(entries.map((e) => e.eventType)).toEqual([
+      'carrier_bond_slashed',
+      'leg_payment_refunded',
+      'hub_bond_refunded',
+      'finalization_bonus_refunded',
+    ]);
+    expect(entries[1]!.postings[1]!.amountMsat).toBe(FINAL_PRICING.grossMsat + CARRIER_BONUS_MSAT);
+    expect(result.effects).toContainEqual({
+      kind: 'refund_conditional_payment',
+      paymentId: IDS.finalizationBonus,
+    });
+    expect(entries[3]).toEqual({
+      kind: 'post_ledger_entry',
+      eventType: 'finalization_bonus_refunded',
+      ref: { type: 'hub_stay', id: IDS.arrivalStay },
+      postings: [
+        { ownerType: 'shipment', ownerId: IDS.shipment, accountKind: 'commitment', amountMsat: -HUB_BONUS_MSAT },
+        { ownerType: 'user', ownerId: IDS.sender, accountKind: 'external_wallet', amountMsat: HUB_BONUS_MSAT },
+      ],
+    });
+  });
+
   it('guard: cannot fire before the pickup deadline', () => {
     expectRejected(transition('LEG_BOOKED', { type: 'pickup_timeout', now: at(119) }, ctx), 'guard_failed');
   });
@@ -561,10 +761,10 @@ describe('leg_checkin at an intermediate hub (row 8)', () => {
 });
 
 describe('leg_checkin at the destination hub (row 9)', () => {
-  const ctx = { ...ctxForState('IN_TRANSIT'), leg: finalLeg() };
+  const ctx = { ...ctxForState('IN_TRANSIT'), leg: finalLeg(), finalizationBonusHold: bonusHold() };
   const event = { ...validEvent('leg_checkin'), hubId: IDS.destHub } as ShipmentEvent;
 
-  it('same money effects, arrived_destination custody event, recipient invited to pick up', () => {
+  it('carrier collects gross + Π_v in one release; the Π_h hold stays for the pickup', () => {
     const result = transition('IN_TRANSIT', event, ctx);
     expectOk(result);
     expect(result.nextState).toBe('AWAITING_PICKUP');
@@ -580,10 +780,40 @@ describe('leg_checkin at the destination hub (row 9)', () => {
     expect(result.effects.filter((e) => e.kind === 'queue_email')).toEqual([
       { kind: 'queue_email', to: 'recipient', template: 'parcel_arrived', payload: { hubId: IDS.destHub } },
     ]);
-    // Money is identical to the intermediate case: fee + release + bond refund.
-    expect(result.effects.filter((e) => e.kind === 'release_conditional_payment')).toHaveLength(1);
-    expect(result.effects.filter((e) => e.kind === 'refund_conditional_payment')).toHaveLength(1);
-    expect(result.effects.filter((e) => e.kind === 'request_instant_payment')).toHaveLength(1);
+    // Money mirrors the intermediate case (fee + release + bond refund) but
+    // the release settles the WHOLE hold: gross plus the carrier bonus share.
+    // The arrival fee stays computed on the gross alone (the bonus pays no
+    // fees, ADR-014) and the Π_h hold is deliberately untouched here.
+    expect(result.effects.filter((e) => e.kind === 'release_conditional_payment')).toEqual([
+      { kind: 'release_conditional_payment', paymentId: IDS.legPayment },
+    ]);
+    expect(result.effects.filter((e) => e.kind === 'refund_conditional_payment')).toEqual([
+      { kind: 'refund_conditional_payment', paymentId: IDS.carrierBond },
+    ]);
+    const released = result.effects.find(
+      (e) => e.kind === 'post_ledger_entry' && e.eventType === 'leg_payment_released',
+    );
+    expect(released).toEqual({
+      kind: 'post_ledger_entry',
+      eventType: 'leg_payment_released',
+      ref: { type: 'leg', id: IDS.leg },
+      postings: [
+        {
+          ownerType: 'shipment',
+          ownerId: IDS.shipment,
+          accountKind: 'commitment',
+          amountMsat: -(FINAL_PRICING.grossMsat + CARRIER_BONUS_MSAT),
+        },
+        {
+          ownerType: 'user',
+          ownerId: IDS.carrier,
+          accountKind: 'external_wallet',
+          amountMsat: FINAL_PRICING.grossMsat + CARRIER_BONUS_MSAT,
+        },
+      ],
+    });
+    const fee = result.effects.find((e) => e.kind === 'request_instant_payment');
+    expect(fee).toMatchObject({ amountMsat: FINAL_PRICING.arrHubFeeMsat });
   });
 });
 
@@ -663,6 +893,26 @@ describe('leg_return', () => {
     ]);
   });
 
+  it('a returned final leg also dissolves the Π_h hold (ADR-014)', () => {
+    const finalCtx = { ...ctxForState('IN_TRANSIT'), leg: finalLeg(), finalizationBonusHold: bonusHold() };
+    const result = transition('IN_TRANSIT', validEvent('leg_return'), finalCtx);
+    expectOk(result);
+    expect(result.effects).toContainEqual({
+      kind: 'refund_conditional_payment',
+      paymentId: IDS.finalizationBonus,
+    });
+    const refunded = result.effects.find(
+      (e) => e.kind === 'post_ledger_entry' && e.eventType === 'finalization_bonus_refunded',
+    );
+    expect(refunded).toMatchObject({ ref: { type: 'hub_stay', id: IDS.arrivalStay } });
+    const paymentRefund = result.effects.find(
+      (e) => e.kind === 'post_ledger_entry' && e.eventType === 'leg_payment_refunded',
+    );
+    expect(paymentRefund!.kind === 'post_ledger_entry' && paymentRefund.postings[1]!.amountMsat).toBe(
+      FINAL_PRICING.grossMsat + CARRIER_BONUS_MSAT,
+    );
+  });
+
   it.each([
     ['return to a hub that is not the departure hub', { hubId: IDS.destHub }],
     ['missing photo', { photoSha256: [] as string[] }],
@@ -681,11 +931,23 @@ describe('leg_return', () => {
 describe('recipient_pickup', () => {
   const ctx = ctxForState('AWAITING_PICKUP');
 
-  it('OTP closes the shipment: destination bond back, storage disarmed, sender notified', () => {
+  it('OTP closes the shipment: Π_h released to the hub, bond back, storage disarmed, sender notified', () => {
     const result = transition('AWAITING_PICKUP', validEvent('recipient_pickup'), ctx);
     expectOk(result);
     expect(result.nextState).toBe('DELIVERED');
     expect(result.effects).toEqual([
+      // The hub is rewarded for the COMPLETED delivery, not for the arrival:
+      // the Π_h preimage is revealed only now (ADR-014).
+      { kind: 'release_conditional_payment', paymentId: IDS.finalizationBonus },
+      {
+        kind: 'post_ledger_entry',
+        eventType: 'finalization_bonus_released',
+        ref: { type: 'hub_stay', id: IDS.arrivalStay },
+        postings: [
+          { ownerType: 'shipment', ownerId: IDS.shipment, accountKind: 'commitment', amountMsat: -HUB_BONUS_MSAT },
+          { ownerType: 'user', ownerId: IDS.destHubUser, accountKind: 'external_wallet', amountMsat: HUB_BONUS_MSAT },
+        ],
+      },
       { kind: 'refund_conditional_payment', paymentId: IDS.arrivalHubBond },
       {
         kind: 'post_ledger_entry',
@@ -707,6 +969,16 @@ describe('recipient_pickup', () => {
       },
       { kind: 'queue_email', to: 'sender', template: 'parcel_delivered', payload: {} },
     ]);
+  });
+
+  it('without a pending Π_h hold (pre-ADR-014 shipments) only the bond moves', () => {
+    const result = transition('AWAITING_PICKUP', validEvent('recipient_pickup'), {
+      ...ctx,
+      finalizationBonusHold: null,
+    });
+    expectOk(result);
+    expect(result.effects.filter((e) => e.kind === 'release_conditional_payment')).toEqual([]);
+    expect(result.effects.filter((e) => e.kind === 'post_ledger_entry')).toHaveLength(1);
   });
 
   it('guard: OTP must be verified', () => {
@@ -821,10 +1093,39 @@ describe('storage_expiry', () => {
     ]);
   });
 
-  it('AWAITING_PICKUP → FORFEITED at the destination hub', () => {
+  it('a pending FINAL leg dissolves its Π_h hold too (no entries: never funded)', () => {
+    const ctx = {
+      ...ctxForState('AT_HUB'),
+      leg: pendingFinalLeg(),
+      finalizationBonusHold: bonusHold(),
+    };
+    const result = transition('AT_HUB', validEvent('storage_expiry'), ctx);
+    expectOk(result);
+    expect(result.effects.slice(0, 5)).toEqual([
+      { kind: 'refund_conditional_payment', paymentId: IDS.legPayment },
+      { kind: 'refund_conditional_payment', paymentId: IDS.carrierBond },
+      { kind: 'refund_conditional_payment', paymentId: IDS.arrivalHubBond },
+      { kind: 'refund_conditional_payment', paymentId: IDS.finalizationBonus },
+      { kind: 'cancel_timeout', timeout: 'leg_funding', refId: IDS.leg },
+    ]);
+  });
+
+  it('AWAITING_PICKUP → FORFEITED: the held Π_h returns to the sender, the parcel compensates the hub', () => {
     const result = transition('AWAITING_PICKUP', validEvent('storage_expiry'), ctxForState('AWAITING_PICKUP'));
     expectOk(result);
     expect(result.nextState).toBe('FORFEITED');
+    expect(result.effects.slice(0, 2)).toEqual([
+      { kind: 'refund_conditional_payment', paymentId: IDS.finalizationBonus },
+      {
+        kind: 'post_ledger_entry',
+        eventType: 'finalization_bonus_refunded',
+        ref: { type: 'hub_stay', id: IDS.arrivalStay },
+        postings: [
+          { ownerType: 'shipment', ownerId: IDS.shipment, accountKind: 'commitment', amountMsat: -HUB_BONUS_MSAT },
+          { ownerType: 'user', ownerId: IDS.sender, accountKind: 'external_wallet', amountMsat: HUB_BONUS_MSAT },
+        ],
+      },
+    ]);
   });
 
   it('guard: cannot fire before the storage deadline', () => {
@@ -892,6 +1193,25 @@ describe('transit_timeout', () => {
     ]);
   });
 
+  it('a lost final leg refunds gross + Π_v to the sender and dissolves the Π_h hold', () => {
+    const finalCtx = { ...ctxForState('IN_TRANSIT'), leg: finalLeg(), finalizationBonusHold: bonusHold() };
+    const result = transition('IN_TRANSIT', validEvent('transit_timeout'), finalCtx);
+    expectOk(result);
+    expect(result.nextState).toBe('LOST');
+    const entries = result.effects.filter((e) => e.kind === 'post_ledger_entry');
+    expect(entries.map((e) => e.eventType)).toEqual([
+      'carrier_bond_slashed',
+      'leg_payment_refunded',
+      'hub_bond_refunded',
+      'finalization_bonus_refunded',
+    ]);
+    expect(entries[1]!.postings[1]!.amountMsat).toBe(FINAL_PRICING.grossMsat + CARRIER_BONUS_MSAT);
+    expect(result.effects).toContainEqual({
+      kind: 'refund_conditional_payment',
+      paymentId: IDS.finalizationBonus,
+    });
+  });
+
   it('guard: cannot fire before the transit deadline', () => {
     expectRejected(transition('IN_TRANSIT', { type: 'transit_timeout', now: at(599) }, ctx), 'guard_failed');
   });
@@ -927,7 +1247,7 @@ describe('boost', () => {
 });
 
 describe('reroute', () => {
-  it('records the change (no PII), rotates the OTP, moves back to AT_HUB', () => {
+  it('away from the delivery state: cancels the Π_h hold (a new final leg will freeze a fresh one)', () => {
     const result = transition(
       'AWAITING_PICKUP',
       { type: 'reroute', newDestHubId: IDS.originHub, newDestHubUserId: IDS.originHubUser, newRecipientEmail: 'new@x.it', newRemainingKm: 100 },
@@ -936,6 +1256,16 @@ describe('reroute', () => {
     expectOk(result);
     expect(result.nextState).toBe('AT_HUB');
     expect(result.effects).toEqual([
+      { kind: 'refund_conditional_payment', paymentId: IDS.finalizationBonus },
+      {
+        kind: 'post_ledger_entry',
+        eventType: 'finalization_bonus_refunded',
+        ref: { type: 'hub_stay', id: IDS.arrivalStay },
+        postings: [
+          { ownerType: 'shipment', ownerId: IDS.shipment, accountKind: 'commitment', amountMsat: -HUB_BONUS_MSAT },
+          { ownerType: 'user', ownerId: IDS.sender, accountKind: 'external_wallet', amountMsat: HUB_BONUS_MSAT },
+        ],
+      },
       {
         kind: 'append_custody_event',
         type: 'rerouted',
@@ -948,7 +1278,24 @@ describe('reroute', () => {
     ]);
   });
 
-  it('recipient-only change at the destination keeps AWAITING_PICKUP and re-invites with the new OTP', () => {
+  it('from AT_HUB (no bonus hold in play): custody event and OTP rotation only', () => {
+    const result = transition('AT_HUB', validEvent('reroute'), ctxForState('AT_HUB'));
+    expectOk(result);
+    expect(result.nextState).toBe('AT_HUB');
+    expect(result.effects).toEqual([
+      {
+        kind: 'append_custody_event',
+        type: 'rerouted',
+        actorUserId: IDS.sender,
+        legId: null,
+        hubStayId: IDS.originStay,
+        payload: { newDestHubId: IDS.intermediateHub, recipientChanged: false, newRemainingKm: 60 },
+      },
+      { kind: 'rotate_pickup_otp' },
+    ]);
+  });
+
+  it('recipient-only change at the destination keeps AWAITING_PICKUP — and keeps the Π_h hold', () => {
     const result = transition(
       'AWAITING_PICKUP',
       { type: 'reroute', newDestHubId: null, newDestHubUserId: null, newRecipientEmail: 'new@x.it', newRemainingKm: 1 },
@@ -1035,12 +1382,13 @@ describe('cancel', () => {
     ]);
   });
 
-  it('from AT_HUB at the origin: f_o × P compensation paid on the spot, bond back, storage disarmed', () => {
+  it('from AT_HUB at the origin: f_o × work commitment paid on the spot, bond back, storage disarmed', () => {
     const result = transition('AT_HUB', { type: 'cancel' }, ctxForState('AT_HUB'));
     expectOk(result);
     expect(result.nextState).toBe('CANCELLED');
-    // f_o × P = 10% × 8_000_000 = 800_000 msat (already sat-aligned).
-    const compensation = 800_000n;
+    // f_o × work commitment = 10% × 7_200_000 = 720_000 msat (ADR-014: the
+    // bonus is excluded from the compensation formula too).
+    const compensation = 720_000n;
     expect(result.effects).toEqual([
       {
         kind: 'request_instant_payment',

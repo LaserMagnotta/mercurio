@@ -52,7 +52,8 @@ function shipment(overrides: Partial<ShipmentAtHub> = {}): ShipmentAtHub {
     shipmentId: 'ship-1',
     currentHubId: 'S',
     destHubId: 'T',
-    poolMsat: 3_750_000n, // 5.00 € × 60/80 (P = 5 €, D = 80, r_S = 60)
+    poolMsat: 3_750_000n, // work pool × 60/80 (work pool 5.00 €, D = 80, r_S = 60)
+    carrierBonusMsat: 350_000n, // accrued Π_v: 0.35 €, paid to whoever delivers to T
     totalKm: 80,
     remainingKm: 60,
     dimsCm: SMALL,
@@ -84,23 +85,27 @@ describe('MATCHING.md §2 — the numeric example on plane geometry', () => {
 
     expect(card.isMatch).toBe(true);
     // Direct delivery: detour = √1000 + 60 + √200 − 100 = 5.765 km (meter-
-    // quantized), gross = whole pool 3.75 €, net = 3.75 × 0.8 = 3.00 €,
-    // surplus = 3.00 € − 0.20 €/km × 5.765 km = 1.847 €.
+    // quantized), gross = whole pool 3.75 €, net = 3.75 × 0.8 + the 0.35 €
+    // finalization bonus (ADR-014, only for H = T) = 3.35 €,
+    // surplus = 3.35 € − 0.20 €/km × 5.765 km = 2.197 €.
     expect(card.bestDropHub).toEqual({
       hubId: 'T',
       detourKm: 5.765,
-      netMsat: 3_000_000n,
-      surplusMsat: 1_847_000n,
+      netMsat: 3_350_000n,
+      finalizationBonusMsat: 350_000n,
+      surplusMsat: 2_197_000n,
     });
     // H1: detour = √1000 + √925 + √1625 − 100 = 2.348 km; progress = 60 −
     // √925 = 29.586 km; gross = 3.75 € × 29586/60000 = 1.849 € (sat floor);
     // each 10% fee is 184_900 msat floored to the sat → 184_000, so net =
-    // 1_849_000 − 2 × 184_000 = 1.481 €, surplus = 1.481 − 0.4696 = 1.0114 €.
+    // 1_849_000 − 2 × 184_000 = 1.481 € (no bonus: H1 is not the
+    // destination), surplus = 1.481 − 0.4696 = 1.0114 €.
     expect(card.alternatives).toEqual([
       {
         hubId: 'H1',
         detourKm: 2.348,
         netMsat: 1_481_000n,
+        finalizationBonusMsat: 0n,
         surplusMsat: 1_011_400n,
       },
     ]);
@@ -113,9 +118,9 @@ describe('MATCHING.md §2 — the numeric example on plane geometry', () => {
 
   it('the match criterion follows the carrier floor: rate_min high enough kills the match', () => {
     // Effective rates: net(H1)/detour(H1) ≈ 0.63 €/km, net(T)/detour(T) ≈
-    // 0.52 €/km. At rate_min = 0.70 €/km every surplus is negative: the card
-    // moves to the "Altre" section and H* becomes H1, the least-negative
-    // option ("quanto manca alla convenienza", MATCHING.md §3).
+    // 0.58 €/km (bonus included). At rate_min = 0.70 €/km every surplus is
+    // negative: the card moves to the "Altre" section and H* becomes H1, the
+    // least-negative option ("quanto manca alla convenienza", MATCHING.md §3).
     const greedy: CarrierTrip = { ...trip, minRateMsatPerKm: 700_000n };
     const board = rankBoard(greedy, [shipment()], hubs, euclidean);
     expect(board).toHaveLength(1);
@@ -133,6 +138,17 @@ describe('MATCHING.md §2 — the numeric example on plane geometry', () => {
     expect(board).toHaveLength(1);
     expect(board[0]!.isMatch).toBe(false);
     expect(board[0]!.bestDropHub.hubId).toBe('T'); // still the best proposal to show
+  });
+
+  it('a consumed carrier quota removes the bonus line from T (post-arrival reroute, ADR-014)', () => {
+    const board = rankBoard(trip, [shipment({ carrierBonusMsat: 0n })], hubs, euclidean);
+    expect(board[0]!.bestDropHub).toEqual({
+      hubId: 'T',
+      detourKm: 5.765,
+      netMsat: 3_000_000n,
+      finalizationBonusMsat: 0n,
+      surplusMsat: 1_847_000n,
+    });
   });
 });
 
@@ -213,6 +229,12 @@ describe('candidate filters (MATCHING.md §2, conditions 1–3)', () => {
   it('skips shipments whose current or destination hub is unknown, without touching the rest', () => {
     const orphan = shipment({ shipmentId: 'orphan', currentHubId: 'missing' });
     const board = rankBoard(axisTrip, [orphan, axisShipment], [S, T], euclidean);
+    expect(board.map((c) => c.shipmentId)).toEqual(['ship-1']);
+  });
+
+  it('skips malformed rows with a negative carrier bonus, like any other bad amount', () => {
+    const bad = shipment({ shipmentId: 'bad-bonus', carrierBonusMsat: -1n });
+    const board = rankBoard(axisTrip, [bad, axisShipment], [S, T], euclidean);
     expect(board.map((c) => c.shipmentId)).toEqual(['ship-1']);
   });
 });

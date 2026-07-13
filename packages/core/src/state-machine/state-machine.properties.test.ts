@@ -55,7 +55,7 @@ type PaymentState = 'created' | 'held' | 'settled' | 'cancelled';
 
 interface MockPayment {
   id: string;
-  purpose: 'leg_payment' | 'custody_bond';
+  purpose: 'leg_payment' | 'custody_bond' | 'finalization_bonus';
   payerId: string;
   payeeId: string;
   amountMsat: bigint;
@@ -140,7 +140,12 @@ class World {
           // held: flip the referenced payment, like the API's wallet-event
           // handler would.
           if (effect.eventType.endsWith('_held')) {
-            const purpose = effect.eventType === 'leg_payment_held' ? 'leg_payment' : 'custody_bond';
+            const purpose =
+              effect.eventType === 'leg_payment_held'
+                ? 'leg_payment'
+                : effect.eventType === 'finalization_bonus_held'
+                  ? 'finalization_bonus'
+                  : 'custody_bond';
             const match = [...this.payments.values()].find(
               (p) =>
                 p.state === 'created' &&
@@ -222,8 +227,10 @@ const HUBS = [
   { hubId: 'hub-3', userId: 'user-hub-3' },
 ];
 
-/** Events that must never move money (documentary/administrative only). */
-const NO_MONEY_EVENTS = new Set(['create', 'origin_checkin', 'boost', 'reroute', 'handoff_reject']);
+/** Events that must never move money (documentary/administrative only).
+ *  `reroute` left this set with ADR-014: rerouting away from the delivery
+ *  state cancels the pending Π_h hold — asserted precisely in the walk. */
+const NO_MONEY_EVENTS = new Set(['create', 'origin_checkin', 'boost', 'handoff_reject']);
 
 const MONEY_KINDS = new Set([
   'create_conditional_payment',
@@ -243,11 +250,23 @@ interface Walker {
 
 const iso = (minutes: number): string => new Date(T0 + minutes * 60_000).toISOString();
 
-function randomGross(rand: () => number): { grossMsat: bigint; depHubFeeMsat: bigint; arrHubFeeMsat: bigint; netMsat: bigint } {
+function randomPricing(
+  rand: () => number,
+  isFinal: boolean,
+): { grossMsat: bigint; depHubFeeMsat: bigint; arrHubFeeMsat: bigint; netMsat: bigint; finalizationBonusMsat: bigint } {
   const gross = BigInt(randInt(rand, 3, 4000)) * 1000n; // sat-aligned
   const dep = (gross * BigInt(randInt(rand, 0, 3000))) / 10_000n;
   const arr = (gross * BigInt(randInt(rand, 0, 3000))) / 10_000n;
-  return { grossMsat: gross, depHubFeeMsat: dep, arrHubFeeMsat: arr, netMsat: gross - dep - arr };
+  // Only the final leg may carry the carrier share; sometimes 0 even there
+  // (consumed quota after a post-arrival reroute, ADR-014 §5).
+  const bonus = isFinal && rand() < 0.8 ? BigInt(randInt(rand, 1, 400)) * 1000n : 0n;
+  return {
+    grossMsat: gross,
+    depHubFeeMsat: dep,
+    arrHubFeeMsat: arr,
+    netMsat: gross - dep - arr,
+    finalizationBonusMsat: bonus,
+  };
 }
 
 /** Which event types are feasible right now, with generator weights. */
@@ -327,6 +346,7 @@ function buildEvent(walker: Walker, rand: () => number, type: string): ShipmentE
       // Bias toward finishing: half the time aim straight at the destination.
       const dest = HUBS.find((h) => h.hubId === ctx.destHubId)!;
       const toHub = rand() < 0.5 && dest.hubId !== current ? dest : candidates[randInt(rand, 0, candidates.length - 1)]!;
+      const isFinal = toHub.hubId === ctx.destHubId;
       return {
         type,
         legId: mint('leg'),
@@ -338,7 +358,9 @@ function buildEvent(walker: Walker, rand: () => number, type: string): ShipmentE
         arrivalHubStayId: mint('stay'),
         arrivalHubAutoAccepts: true,
         arrivalHubWalletConnected: true,
-        pricing: randomGross(rand),
+        pricing: randomPricing(rand, isFinal),
+        // Zero sometimes: the share may floor to nothing (then no 4th hold).
+        finalizationHubBonusMsat: isFinal && rand() < 0.8 ? BigInt(randInt(rand, 1, 300)) * 1000n : 0n,
         fundingDeadlineAt: iso(walker.clock + 60),
       };
     }
@@ -462,6 +484,14 @@ function apply(walker: Walker, type: string, event: ShipmentEvent, nextState: Sh
         pickupDeadlineAt: null,
         transitDeadlineAt: null,
       };
+      // The fourth hold exists only when the final leg froze a hub share.
+      ctx.finalizationBonusHold =
+        e.finalizationHubBonusMsat > 0n
+          ? {
+              paymentId: world.paymentByRef('finalization_bonus', 'hub_stay', e.arrivalHubStayId).id,
+              amountMsat: e.finalizationHubBonusMsat,
+            }
+          : null;
       break;
     }
     case 'leg_funded':
@@ -470,6 +500,7 @@ function apply(walker: Walker, type: string, event: ShipmentEvent, nextState: Sh
     case 'leg_funding_expired':
     case 'pickup_timeout':
       ctx.leg = null;
+      ctx.finalizationBonusHold = null;
       break;
     case 'pickup_checkout':
       ctx.leg!.transitDeadlineAt = (event as Extract<ShipmentEvent, { type: 'pickup_checkout' }>).transitDeadlineAt;
@@ -497,11 +528,19 @@ function apply(walker: Walker, type: string, event: ShipmentEvent, nextState: Sh
         storageDeadlineAt: e.storageDeadlineAt,
       };
       ctx.leg = null;
+      ctx.finalizationBonusHold = null;
       break;
     }
+    case 'transit_timeout':
+      ctx.finalizationBonusHold = null;
+      break;
     case 'reroute': {
       const e = event as Extract<ShipmentEvent, { type: 'reroute' }>;
-      if (e.newDestHubId !== null) ctx.destHubId = e.newDestHubId;
+      if (e.newDestHubId !== null) {
+        ctx.destHubId = e.newDestHubId;
+        // Rerouting away from the delivery state cancelled the Π_h hold.
+        ctx.finalizationBonusHold = null;
+      }
       break;
     }
     default:
@@ -602,6 +641,21 @@ describe('property: random valid walks preserve the §5 invariants', () => {
         // Documentary events never move money.
         if (NO_MONEY_EVENTS.has(type)) {
           expect(result.effects.filter((e) => MONEY_KINDS.has(e.kind))).toEqual([]);
+        }
+        // Reroute moves money in exactly one case: leaving the delivery state
+        // cancels the pending Π_h hold (ADR-014 §5) — nothing more, ever.
+        if (type === 'reroute') {
+          const e = event as Extract<ShipmentEvent, { type: 'reroute' }>;
+          const bonusHold = walker.ctx.finalizationBonusHold;
+          const money = result.effects.filter((ef) => MONEY_KINDS.has(ef.kind));
+          if (walker.state === 'AWAITING_PICKUP' && e.newDestHubId !== null && bonusHold) {
+            expect(money).toEqual([
+              { kind: 'refund_conditional_payment', paymentId: bonusHold.paymentId },
+              expect.objectContaining({ kind: 'post_ledger_entry', eventType: 'finalization_bonus_refunded' }),
+            ]);
+          } else {
+            expect(money).toEqual([]);
+          }
         }
 
         // Executing the effects enforces per-effect discipline (balanced

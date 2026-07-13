@@ -7,6 +7,7 @@
 import type {
   ActiveHubStay,
   ActiveLeg,
+  FinalizationBonusHold,
   LegPricing,
   ShipmentContext,
   ShipmentEvent,
@@ -36,6 +37,7 @@ export const IDS = {
   carrierBond: 'cp-carrier-bond',
   arrivalHubBond: 'cp-arrival-hub-bond',
   originHubBond: 'cp-origin-hub-bond',
+  finalizationBonus: 'cp-finalization-bonus',
 } as const;
 
 /** 5 € ≈ 8000 sats and 15 € ≈ 24000 sats at the frozen snapshot — the exact
@@ -43,13 +45,31 @@ export const IDS = {
 export const OFFER_MSAT = 8_000_000n;
 export const BOND_MSAT = 24_000_000n;
 
-/** Leg A→C: 40 km of 100, hubs at 10% — the canonical example's first leg
- *  (gross 40% of pool = 3 200 000 msat, fees 320 000 each, net 2 560 000). */
+/** ADR-014 split of the offer: work pool 90%, bonus quotas 7% / 3%. */
+export const WORK_MSAT = 7_200_000n;
+export const CARRIER_BONUS_MSAT = 560_000n;
+export const HUB_BONUS_MSAT = 240_000n;
+
+/** Leg A→C: 40 km of 100, hubs at 10% — the canonical example's first leg on
+ *  the work pool (gross 40% of 7 200 000 = 2 880 000 msat, fees 288 000 each,
+ *  net 2 304 000; no bonus: C is not the destination). */
 export const PRICING: LegPricing = {
-  grossMsat: 3_200_000n,
-  depHubFeeMsat: 320_000n,
-  arrHubFeeMsat: 320_000n,
-  netMsat: 2_560_000n,
+  grossMsat: 2_880_000n,
+  depHubFeeMsat: 288_000n,
+  arrHubFeeMsat: 288_000n,
+  netMsat: 2_304_000n,
+  finalizationBonusMsat: 0n,
+};
+
+/** Leg C→B: the final 60 km on the remaining work pool (gross 4 320 000 msat,
+ *  fees 432 000 each, net 3 456 000) plus the carrier bonus share Π_v inside
+ *  the payment hold (ADR-014): hold amount = 4 320 000 + 560 000. */
+export const FINAL_PRICING: LegPricing = {
+  grossMsat: 4_320_000n,
+  depHubFeeMsat: 432_000n,
+  arrHubFeeMsat: 432_000n,
+  netMsat: 3_456_000n,
+  finalizationBonusMsat: CARRIER_BONUS_MSAT,
 };
 
 export const DEADLINES = {
@@ -69,9 +89,11 @@ export function baseCtx(): ShipmentContext {
     destHubId: IDS.destHub,
     custodyBondMsat: BOND_MSAT,
     offerMsat: OFFER_MSAT,
+    workCommitmentMsat: WORK_MSAT,
     originHubFeeBp: 1000, // 10%
     currentHubStay: null,
     leg: null,
+    finalizationBonusHold: null,
   };
 }
 
@@ -112,9 +134,20 @@ export function pickedUpLeg(): ActiveLeg {
   return { ...bookedLeg(), transitDeadlineAt: DEADLINES.transit };
 }
 
-/** Destination-bound variant of the picked-up leg (for rows 9 and 11). */
+/** The pending Π_h hold that accompanies a final leg (ADR-014). */
+export function bonusHold(): FinalizationBonusHold {
+  return { paymentId: IDS.finalizationBonus, amountMsat: HUB_BONUS_MSAT };
+}
+
+/** Destination-bound variants of the leg builders (rows 9 and 11): final
+ *  pricing with the carrier bonus inside the payment hold. Pair them with
+ *  `finalizationBonusHold: bonusHold()` in the context. */
+export function pendingFinalLeg(): ActiveLeg {
+  return { ...pendingLeg(), toHubId: IDS.destHub, toHubUserId: IDS.destHubUser, pricing: FINAL_PRICING };
+}
+
 export function finalLeg(): ActiveLeg {
-  return { ...pickedUpLeg(), toHubId: IDS.destHub, toHubUserId: IDS.destHubUser };
+  return { ...pickedUpLeg(), toHubId: IDS.destHub, toHubUserId: IDS.destHubUser, pricing: FINAL_PRICING };
 }
 
 export function destStay(): ActiveHubStay {
@@ -130,7 +163,8 @@ export function destStay(): ActiveHubStay {
 /**
  * A representative (state, ctx) pair for every reachable state, used to probe
  * the full state × event matrix. AT_HUB comes in two flavours because several
- * guards branch on whether a leg is pending.
+ * guards branch on whether a leg is pending. AWAITING_PICKUP carries the
+ * pending Π_h hold: that is how a shipment normally reaches it (ADR-014).
  */
 export function ctxForState(state: ShipmentState | null): ShipmentContext {
   const ctx = baseCtx();
@@ -147,7 +181,7 @@ export function ctxForState(state: ShipmentState | null): ShipmentContext {
     case 'IN_TRANSIT':
       return { ...ctx, leg: pickedUpLeg() };
     case 'AWAITING_PICKUP':
-      return { ...ctx, currentHubStay: destStay() };
+      return { ...ctx, currentHubStay: destStay(), finalizationBonusHold: bonusHold() };
     case 'DELIVERED':
     case 'CANCELLED':
     case 'FORFEITED':
@@ -179,6 +213,7 @@ export function validEvent(type: ShipmentEvent['type']): ShipmentEvent {
         arrivalHubAutoAccepts: true,
         arrivalHubWalletConnected: true,
         pricing: PRICING,
+        finalizationHubBonusMsat: 0n,
         fundingDeadlineAt: DEADLINES.funding,
       };
     case 'leg_funded':

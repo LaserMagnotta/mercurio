@@ -32,9 +32,19 @@
 //  - Authorization (sessions, QR possession, OTP hash check) happens in the
 //    API before calling the machine: guards here validate protocol logic on
 //    facts the caller declares (e.g. `otpVerified`, photo hashes).
+//
+// Finalization bonus (ADR-014): the carrier share Π_v rides INSIDE the final
+// leg-payment hold (amount = gross + Π_v, same preimage, same events), while
+// the hub share Π_h is a fourth hold sender → destination hub created in the
+// final leg's funding window and released only at recipient_pickup. Every
+// failure of the final leg — funding expiry, pickup/transit timeout, return,
+// storage expiry, reroute away from the destination — cancels the Π_h hold
+// together with the others; a zero share simply creates no hold, mirroring
+// the zero-fee rule.
 
 import type {
   ActiveLeg,
+  FinalizationBonusHold,
   LedgerPosting,
   LedgerRef,
   Msat,
@@ -46,7 +56,7 @@ import type {
   ShipmentState,
   TransitionResult,
 } from '@mercurio/shared';
-import { cancellationCompensation } from '../economics/economics';
+import { cancellationCompensation, splitCommitment } from '../economics/economics';
 
 const TERMINAL_STATES: readonly ShipmentState[] = ['DELIVERED', 'CANCELLED', 'FORFEITED', 'LOST'];
 
@@ -191,14 +201,22 @@ function instantPayment(
 // Small guards shared by several events
 
 function pricingIsConsistent(pricing: ActiveLeg['pricing']): boolean {
-  const { grossMsat, depHubFeeMsat, arrHubFeeMsat, netMsat } = pricing;
+  const { grossMsat, depHubFeeMsat, arrHubFeeMsat, netMsat, finalizationBonusMsat } = pricing;
   return (
     grossMsat > 0n &&
     depHubFeeMsat >= 0n &&
     arrHubFeeMsat >= 0n &&
     netMsat >= 0n &&
+    finalizationBonusMsat >= 0n &&
+    // The bonus sits OUTSIDE the gross identity: fees never touch it (ADR-014).
     depHubFeeMsat + arrHubFeeMsat + netMsat === grossMsat
   );
+}
+
+/** The leg-payment hold binds gross + carrier bonus share (ADR-014): same
+ *  hash, same preimage, collected in one piece at the arrival check-in. */
+function legHoldAmount(leg: ActiveLeg): Msat {
+  return leg.pricing.grossMsat + leg.pricing.finalizationBonusMsat;
 }
 
 function legRef(leg: ActiveLeg): PaymentRef {
@@ -209,13 +227,37 @@ function stayRef(hubStayId: string): PaymentRef {
   return { type: 'hub_stay', id: hubStayId };
 }
 
-/** Cancel the three per-leg holds of a leg that never got booked. No journal
- *  entries: commitments enter the shadow ledger only at leg_funded. */
-function refundPendingLegHolds(leg: ActiveLeg): ShipmentEffect[] {
-  return [
+/** Cancel the per-leg holds of a leg that never got booked — the three of
+ *  ESCROW.md §3 plus, on a final leg, the hub-bonus hold (ADR-014). No
+ *  journal entries: commitments enter the shadow ledger only at leg_funded. */
+function refundPendingLegHolds(leg: ActiveLeg, bonusHold: FinalizationBonusHold | null): ShipmentEffect[] {
+  const effects: ShipmentEffect[] = [
     { kind: 'refund_conditional_payment', paymentId: leg.legPaymentId },
     { kind: 'refund_conditional_payment', paymentId: leg.carrierBondId },
     { kind: 'refund_conditional_payment', paymentId: leg.arrivalHubBondId },
+  ];
+  if (bonusHold) {
+    effects.push({ kind: 'refund_conditional_payment', paymentId: bonusHold.paymentId });
+  }
+  return effects;
+}
+
+/** Cancel a HELD hub-bonus hold and give the commitment back to the sender.
+ *  Used by every failure of a booked/completed final leg (ADR-014 §5). */
+function refundFinalizationBonus(
+  ctx: ShipmentContext,
+  bonusHold: FinalizationBonusHold,
+  hubStayId: string,
+): ShipmentEffect[] {
+  return [
+    { kind: 'refund_conditional_payment', paymentId: bonusHold.paymentId },
+    refundedEntry(
+      'finalization_bonus_refunded',
+      stayRef(hubStayId),
+      ctx.senderId,
+      ctx.shipmentId,
+      bonusHold.amountMsat,
+    ),
   ];
 }
 
@@ -243,6 +285,12 @@ export function transition(
       }
       if (ctx.offerMsat <= 0n || ctx.custodyBondMsat <= 0n) {
         return guardFailed(state, event.type, 'offer and custody bond must both be > 0 msat');
+      }
+      if (ctx.workCommitmentMsat !== splitCommitment(ctx.offerMsat).workMsat) {
+        // At create the segment IS the offer: its work pool is fixed by the
+        // ADR-014 split, not chosen by the caller (after a reroute the API
+        // passes the frozen pool instead, which this guard cannot see).
+        return guardFailed(state, event.type, 'work commitment must be the ADR-014 work part of the offer');
       }
       return ok('DRAFT', [
         {
@@ -339,15 +387,32 @@ export function transition(
       if (!pricingIsConsistent(event.pricing)) {
         return guardFailed(state, event.type, 'leg pricing must satisfy gross = dep + arr + net, gross > 0');
       }
+      if (event.finalizationHubBonusMsat < 0n) {
+        return guardFailed(state, event.type, 'finalization hub bonus must be >= 0 msat');
+      }
+      const isFinalLeg = event.toHubId === ctx.destHubId;
+      if (!isFinalLeg && (event.pricing.finalizationBonusMsat > 0n || event.finalizationHubBonusMsat > 0n)) {
+        // Only the leg that delivers to the destination may carry the bonus
+        // (ADR-014): a non-final leg smuggling either share is a pricing bug.
+        return guardFailed(state, event.type, 'only the final leg may carry finalization-bonus shares');
+      }
+      if (ctx.finalizationBonusHold !== null) {
+        // Set only while a final leg is pending/active or awaiting pickup —
+        // states where leg_accept is barred anyway. A hold surviving here
+        // means the API failed to clear a cancelled one: refuse to stack.
+        return guardFailed(state, event.type, 'a finalization-bonus hold is already pending');
+      }
       const ref: PaymentRef = { type: 'leg', id: event.legId };
-      return ok('AT_HUB', [
+      const effects: ShipmentEffect[] = [
         // The three holds of ESCROW.md §3 — the carrier never works on credit.
+        // On a final leg the payment hold also binds the carrier bonus share
+        // Π_v: one hold, one preimage, one collection (ADR-014).
         {
           kind: 'create_conditional_payment',
           purpose: 'leg_payment',
           payerId: ctx.senderId,
           payeeId: event.carrierId,
-          amountMsat: event.pricing.grossMsat,
+          amountMsat: event.pricing.grossMsat + event.pricing.finalizationBonusMsat,
           ref,
         },
         {
@@ -366,6 +431,21 @@ export function transition(
           amountMsat: ctx.custodyBondMsat,
           ref: stayRef(event.arrivalHubStayId),
         },
+      ];
+      if (event.finalizationHubBonusMsat > 0n) {
+        // Fourth hold of ADR-014: the hub share Π_h, sender → destination hub,
+        // in the same funding window; released only at recipient_pickup. A
+        // zero share creates no hold (mirroring zero-amount fees).
+        effects.push({
+          kind: 'create_conditional_payment',
+          purpose: 'finalization_bonus',
+          payerId: ctx.senderId,
+          payeeId: event.toHubUserId,
+          amountMsat: event.finalizationHubBonusMsat,
+          ref: stayRef(event.arrivalHubStayId),
+        });
+      }
+      effects.push(
         { kind: 'schedule_timeout', timeout: 'leg_funding', refId: event.legId, at: event.fundingDeadlineAt },
         {
           kind: 'append_custody_event',
@@ -379,10 +459,13 @@ export function transition(
             depHubFeeMsat: event.pricing.depHubFeeMsat,
             arrHubFeeMsat: event.pricing.arrHubFeeMsat,
             netMsat: event.pricing.netMsat,
+            finalizationBonusMsat: event.pricing.finalizationBonusMsat,
+            finalizationHubBonusMsat: event.finalizationHubBonusMsat,
             custodyBondMsat: ctx.custodyBondMsat,
           },
         },
-      ]);
+      );
+      return ok('AT_HUB', effects);
     }
 
     // ------------------------------------------------------------------ #5
@@ -395,9 +478,12 @@ export function transition(
       if (!withinDeadline(event.now, leg.fundingDeadlineAt)) {
         return guardFailed(state, event.type, 'funding window expired (60 min, table row 5)');
       }
-      return ok('LEG_BOOKED', [
-        // The three holds are now held: recognize the commitments (ADR-010).
-        heldEntry('leg_payment_held', legRef(leg), ctx.senderId, ctx.shipmentId, leg.pricing.grossMsat),
+      const bonusHold = ctx.finalizationBonusHold;
+      const effects: ShipmentEffect[] = [
+        // Every hold is now held — all three of ESCROW.md §3 plus, on a final
+        // leg, the hub-bonus hold: recognize the commitments (ADR-010). The
+        // leg payment binds gross + carrier bonus share (ADR-014).
+        heldEntry('leg_payment_held', legRef(leg), ctx.senderId, ctx.shipmentId, legHoldAmount(leg)),
         heldEntry('carrier_bond_held', legRef(leg), leg.carrierId, ctx.shipmentId, ctx.custodyBondMsat),
         heldEntry(
           'hub_bond_held',
@@ -406,6 +492,19 @@ export function transition(
           ctx.shipmentId,
           ctx.custodyBondMsat,
         ),
+      ];
+      if (bonusHold) {
+        effects.push(
+          heldEntry(
+            'finalization_bonus_held',
+            stayRef(leg.arrivalHubStayId),
+            ctx.senderId,
+            ctx.shipmentId,
+            bonusHold.amountMsat,
+          ),
+        );
+      }
+      effects.push(
         { kind: 'cancel_timeout', timeout: 'leg_funding', refId: leg.legId },
         // Storage pauses while a carrier is committed; it resumes with the
         // original deadline if pickup_timeout puts the parcel back.
@@ -419,10 +518,13 @@ export function transition(
           hubStayId: null,
           payload: {
             grossMsat: leg.pricing.grossMsat,
+            finalizationBonusMsat: leg.pricing.finalizationBonusMsat,
+            finalizationHubBonusMsat: bonusHold?.amountMsat ?? 0n,
             custodyBondMsat: ctx.custodyBondMsat,
           },
         },
-      ]);
+      );
+      return ok('LEG_BOOKED', effects);
     }
 
     // ------------------------------------------------------- #5 (expiry arm)
@@ -436,7 +538,7 @@ export function transition(
         return guardFailed(state, event.type, 'funding window has not expired yet');
       }
       return ok('AT_HUB', [
-        ...refundPendingLegHolds(leg),
+        ...refundPendingLegHolds(leg, ctx.finalizationBonusHold),
         {
           kind: 'append_custody_event',
           type: 'expired',
@@ -518,7 +620,7 @@ export function transition(
         { kind: 'release_conditional_payment', paymentId: leg.carrierBondId },
         settledEntry('carrier_bond_slashed', legRef(leg), ctx.senderId, ctx.shipmentId, ctx.custodyBondMsat),
         { kind: 'refund_conditional_payment', paymentId: leg.legPaymentId },
-        refundedEntry('leg_payment_refunded', legRef(leg), ctx.senderId, ctx.shipmentId, leg.pricing.grossMsat),
+        refundedEntry('leg_payment_refunded', legRef(leg), ctx.senderId, ctx.shipmentId, legHoldAmount(leg)),
         { kind: 'refund_conditional_payment', paymentId: leg.arrivalHubBondId },
         refundedEntry(
           'hub_bond_refunded',
@@ -527,6 +629,11 @@ export function transition(
           ctx.shipmentId,
           ctx.custodyBondMsat,
         ),
+        // A failed final leg gives the bonus back too: it stays available for
+        // the next final leg (ADR-014 §5).
+        ...(ctx.finalizationBonusHold
+          ? refundFinalizationBonus(ctx, ctx.finalizationBonusHold, leg.arrivalHubStayId)
+          : []),
         // Back on the board: storage resumes with its original deadline.
         { kind: 'schedule_timeout', timeout: 'storage', refId: stay.hubStayId, at: stay.storageDeadlineAt },
         {
@@ -563,8 +670,10 @@ export function transition(
       }
       const isDestination = event.hubId === ctx.destHubId;
       const effects: ShipmentEffect[] = [
-        // Arrival fee on the spot, then the coordinator reveals the preimage:
-        // the carrier collects the gross directly from the sender.
+        // Arrival fee on the spot (computed on the gross alone — the bonus
+        // pays no fees, ADR-014), then the coordinator reveals the preimage:
+        // the carrier collects the whole hold directly from the sender —
+        // gross plus, on the final leg, the carrier bonus share.
         ...instantPayment(
           'arr_hub_fee',
           'arr_hub_fee_paid',
@@ -574,7 +683,7 @@ export function transition(
           leg.pricing.arrHubFeeMsat,
         ),
         { kind: 'release_conditional_payment', paymentId: leg.legPaymentId },
-        settledEntry('leg_payment_released', legRef(leg), leg.carrierId, ctx.shipmentId, leg.pricing.grossMsat),
+        settledEntry('leg_payment_released', legRef(leg), leg.carrierId, ctx.shipmentId, legHoldAmount(leg)),
         { kind: 'refund_conditional_payment', paymentId: leg.carrierBondId },
         refundedEntry('carrier_bond_refunded', legRef(leg), leg.carrierId, ctx.shipmentId, ctx.custodyBondMsat),
         { kind: 'cancel_timeout', timeout: 'transit', refId: leg.legId },
@@ -628,7 +737,7 @@ export function transition(
       return ok('AT_HUB', [
         // Nobody collects: payment and carrier bond dissolve (ADR-012).
         { kind: 'refund_conditional_payment', paymentId: leg.legPaymentId },
-        refundedEntry('leg_payment_refunded', legRef(leg), ctx.senderId, ctx.shipmentId, leg.pricing.grossMsat),
+        refundedEntry('leg_payment_refunded', legRef(leg), ctx.senderId, ctx.shipmentId, legHoldAmount(leg)),
         { kind: 'refund_conditional_payment', paymentId: leg.carrierBondId },
         refundedEntry('carrier_bond_refunded', legRef(leg), leg.carrierId, ctx.shipmentId, ctx.custodyBondMsat),
         // The arrival hub's stay will never activate.
@@ -640,6 +749,10 @@ export function transition(
           ctx.shipmentId,
           ctx.custodyBondMsat,
         ),
+        // A returned final leg gives the bonus back too (ADR-014 §5).
+        ...(ctx.finalizationBonusHold
+          ? refundFinalizationBonus(ctx, ctx.finalizationBonusHold, leg.arrivalHubStayId)
+          : []),
         // The re-accepting hub takes custody again, so it posts a fresh bond
         // (§6: the bond follows the custody; its old one was refunded at
         // check-out and cannot be resurrected).
@@ -681,7 +794,23 @@ export function transition(
       if (!event.otpVerified) {
         return guardFailed(state, event.type, 'OTP must be verified: typing it is the final acceptance');
       }
-      return ok('DELIVERED', [
+      const bonusHold = ctx.finalizationBonusHold;
+      const effects: ShipmentEffect[] = [];
+      if (bonusHold) {
+        // The hub is rewarded for COMPLETING the delivery, not for receiving
+        // the parcel: the Π_h preimage is revealed only now (ADR-014 §3).
+        effects.push(
+          { kind: 'release_conditional_payment', paymentId: bonusHold.paymentId },
+          settledEntry(
+            'finalization_bonus_released',
+            stayRef(stay.hubStayId),
+            stay.hubUserId,
+            ctx.shipmentId,
+            bonusHold.amountMsat,
+          ),
+        );
+      }
+      effects.push(
         { kind: 'refund_conditional_payment', paymentId: stay.bondPaymentId },
         refundedEntry(
           'hub_bond_refunded',
@@ -700,7 +829,8 @@ export function transition(
           payload: { otpVerified: true },
         },
         { kind: 'queue_email', to: 'sender', template: 'parcel_delivered', payload: {} },
-      ]);
+      );
+      return ok('DELIVERED', effects);
     }
 
     // ----------------------------------------------------------------- #12
@@ -752,13 +882,19 @@ export function transition(
       }
       const effects: ShipmentEffect[] = [];
       if (state === 'AT_HUB' && ctx.leg !== null) {
-        // A leg still pending funding: dissolve its holds and disarm its
-        // window — the shipment is over.
-        effects.push(...refundPendingLegHolds(ctx.leg), {
+        // A leg still pending funding: dissolve its holds (the hub-bonus one
+        // included, if this was a final leg) and disarm its window — the
+        // shipment is over.
+        effects.push(...refundPendingLegHolds(ctx.leg, ctx.finalizationBonusHold), {
           kind: 'cancel_timeout',
           timeout: 'leg_funding',
           refId: ctx.leg.legId,
         });
+      } else if (state === 'AWAITING_PICKUP' && ctx.finalizationBonusHold) {
+        // Expired at the destination: the hub is compensated by the forfeited
+        // parcel, never by the bonus — the held Π_h returns to the sender
+        // (ADR-014 §5).
+        effects.push(...refundFinalizationBonus(ctx, ctx.finalizationBonusHold, stay.hubStayId));
       }
       effects.push(
         // The hub's bond is released; the parcel itself, forfeited under the
@@ -800,7 +936,7 @@ export function transition(
         { kind: 'release_conditional_payment', paymentId: leg.carrierBondId },
         settledEntry('carrier_bond_slashed', legRef(leg), ctx.senderId, ctx.shipmentId, ctx.custodyBondMsat),
         { kind: 'refund_conditional_payment', paymentId: leg.legPaymentId },
-        refundedEntry('leg_payment_refunded', legRef(leg), ctx.senderId, ctx.shipmentId, leg.pricing.grossMsat),
+        refundedEntry('leg_payment_refunded', legRef(leg), ctx.senderId, ctx.shipmentId, legHoldAmount(leg)),
         { kind: 'refund_conditional_payment', paymentId: leg.arrivalHubBondId },
         refundedEntry(
           'hub_bond_refunded',
@@ -809,6 +945,10 @@ export function transition(
           ctx.shipmentId,
           ctx.custodyBondMsat,
         ),
+        // A lost final leg also dissolves the hub-bonus hold (ADR-014 §5).
+        ...(ctx.finalizationBonusHold
+          ? refundFinalizationBonus(ctx, ctx.finalizationBonusHold, leg.arrivalHubStayId)
+          : []),
         {
           kind: 'append_custody_event',
           type: 'expired',
@@ -875,7 +1015,15 @@ export function transition(
       // recipient is invited right away with the fresh OTP. Any destination
       // change turns the current hub into an intermediate stop: AT_HUB.
       const staysAtDestination = state === 'AWAITING_PICKUP' && event.newDestHubId === null;
-      const effects: ShipmentEffect[] = [
+      const effects: ShipmentEffect[] = [];
+      if (state === 'AWAITING_PICKUP' && event.newDestHubId !== null && ctx.finalizationBonusHold) {
+        // Rerouting away from the delivery state cancels the hub-bonus hold:
+        // the premium follows the parcel, and the next final leg will freeze
+        // a fresh Π_h toward the NEW destination hub (ADR-014 §5). A
+        // recipient-only change keeps the hold: this hub still delivers.
+        effects.push(...refundFinalizationBonus(ctx, ctx.finalizationBonusHold, stay.hubStayId));
+      }
+      effects.push(
         {
           kind: 'append_custody_event',
           type: 'rerouted',
@@ -891,7 +1039,7 @@ export function transition(
           },
         },
         { kind: 'rotate_pickup_otp' },
-      ];
+      );
       if (staysAtDestination) {
         effects.push({ kind: 'queue_email', to: 'recipient', template: 'parcel_arrived', payload: { hubId: stay.hubId } });
         return ok('AWAITING_PICKUP', effects);
@@ -946,12 +1094,13 @@ export function transition(
           // origin hub; farther along the sender must reroute instead.
           return guardFailed(state, event.type, 'cancel is legal only while the parcel is at the origin hub');
         }
-        const compensation = cancellationCompensation(ctx.offerMsat, ctx.originHubFeeBp);
+        const compensation = cancellationCompensation(ctx.workCommitmentMsat, ctx.originHubFeeBp);
         const shipRef: LedgerRef = { type: 'shipment', id: ctx.shipmentId };
         return ok('CANCELLED', [
-          // f_o × P paid directly sender → hub: what the hub would have
-          // earned from a single-leg journey; the parcel's return unlocks
-          // on payment (ECONOMICS.md, regole di contorno).
+          // f_o × the segment's work commitment paid directly sender → hub:
+          // what the hub would have earned from a single-leg journey, which
+          // under ADR-014 is priced on the work pool; the parcel's return
+          // unlocks on payment (ECONOMICS.md, regole di contorno).
           ...instantPayment(
             'cancellation_compensation',
             'cancellation_compensation_paid',

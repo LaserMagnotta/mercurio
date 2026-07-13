@@ -58,8 +58,13 @@ export interface ShipmentAtHub {
   currentHubId: string;
   /** T — the destination hub. Must appear in the hubs list. */
   destHubId: string;
-  /** Remaining accounting pool = remainingPool(P, D, r_S, boosts), msat. */
+  /** Remaining WORK pool = remainingPool over the 90% work parts of the
+   *  commitment (ECONOMICS.md §5-bis, ADR-014), msat. */
   poolMsat: Msat;
+  /** Accrued carrier quota Π_v of the finalization bonus (ADR-014): what the
+   *  leg delivering to T would earn on top of its net; 0n once consumed by an
+   *  earlier arrival at the destination. */
+  carrierBonusMsat: Msat;
   /** D — segment distance frozen at creation (or at the last reroute), km. */
   totalKm: number;
   /** r_S = d(S, T) — remaining distance to the destination, km. */
@@ -74,8 +79,12 @@ export interface DropHubOption {
   hubId: string;
   /** detour(H) = d(O,S) + d(S,H) + d(H,Dc) − d(O,Dc), quantized to meters. */
   detourKm: number;
-  /** Carrier net for the leg S→H (gross × (1 − f_S − f_H)), msat. */
+  /** What the carrier collects for the leg S→H: gross × (1 − f_S − f_H),
+   *  plus the finalization bonus when H = T (MATCHING.md §2, ADR-014). */
   netMsat: Msat;
+  /** Carrier share of the finalization bonus included in netMsat — a separate
+   *  field so the UI can show the "premio consegna" line; 0n unless H = T. */
+  finalizationBonusMsat: Msat;
   /** net − rate_min × detour: what the leg pays beyond the carrier's floor.
    *  Negative = how far it falls short of being worth it. */
   surplusMsat: Msat;

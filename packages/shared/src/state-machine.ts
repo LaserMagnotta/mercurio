@@ -49,7 +49,7 @@ export type EmailTemplate =
  *  The recipient may not even have an account (identified by email only). */
 export type EmailRecipientRole = 'sender' | 'recipient';
 
-export type PaymentPurpose = 'leg_payment' | 'custody_bond';
+export type PaymentPurpose = 'leg_payment' | 'custody_bond' | 'finalization_bonus';
 
 /** What a conditional payment (or fee) is attached to. */
 export interface PaymentRef {
@@ -178,6 +178,18 @@ export interface ActiveLeg {
  * check) happens BEFORE calling the machine — the machine validates protocol
  * guards on facts the caller declares.
  */
+/**
+ * The pending hub share Π_h of the finalization bonus (ADR-014): a hold
+ * sender → destination-hub user, created in the final leg's funding window
+ * and released only at recipient_pickup (the carrier share Π_v travels inside
+ * the final leg-payment hold instead). Non-null from the final leg's
+ * acceptance until the hold is settled or cancelled.
+ */
+export interface FinalizationBonusHold {
+  paymentId: string;
+  amountMsat: Msat;
+}
+
 export interface ShipmentContext {
   shipmentId: string;
   senderId: string;
@@ -187,12 +199,19 @@ export interface ShipmentContext {
   destHubId: string;
   /** The single custody bond required from whoever holds the parcel (§6). */
   custodyBondMsat: Msat;
-  /** Current segment commitment P (for the cancel compensation f_o × P). */
+  /** Current segment commitment (the sender's offer P for the first segment;
+   *  informational — recorded in the custody chain at create). */
   offerMsat: Msat;
+  /** Current segment WORK-pool commitment (ADR-014): splitCommitment(P)
+   *  .workMsat on the first segment, the frozen pool itself after a reroute.
+   *  The cancel compensation is f_o × this amount — the finalization bonus is
+   *  excluded from every other formula. */
+  workCommitmentMsat: Msat;
   /** Origin hub fee f_o in integer basis points (hubFeePercentToBp). */
   originHubFeeBp: number;
   currentHubStay: ActiveHubStay | null;
   leg: ActiveLeg | null;
+  finalizationBonusHold: FinalizationBonusHold | null;
 }
 
 /**
@@ -221,6 +240,10 @@ export type ShipmentEvent =
       arrivalHubAutoAccepts: boolean;
       arrivalHubWalletConnected: boolean;
       pricing: LegPricing;
+      /** Hub share Π_h of the finalization bonus to freeze into the fourth
+       *  hold (ADR-014). MUST be 0 unless the leg delivers to the destination
+       *  hub; may be 0 there too (share floored to 0, or already refrozen). */
+      finalizationHubBonusMsat: Msat;
       fundingDeadlineAt: string;
     }
   | { type: 'leg_funded'; now: string; pickupDeadlineAt: string }
