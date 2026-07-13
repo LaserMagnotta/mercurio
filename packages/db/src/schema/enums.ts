@@ -6,6 +6,8 @@
 // conventional.
 import { pgEnum } from 'drizzle-orm/pg-core';
 
+// 'claimed' (appended: enum values only ever ADD) is the recipient claim's
+// mirror of leg_booked — claim holds funded, pickup pending (ADR-016).
 export const shipmentStatusEnum = pgEnum('shipment_status', [
   'draft',
   'awaiting_dropoff',
@@ -17,6 +19,7 @@ export const shipmentStatusEnum = pgEnum('shipment_status', [
   'cancelled',
   'forfeited',
   'lost',
+  'claimed',
 ]);
 
 export const legStatusEnum = pgEnum('leg_status', [
@@ -51,6 +54,9 @@ export const custodyEventTypeEnum = pgEnum('custody_event_type', [
   'boosted',
   'expired',
   'cancelled',
+  // ADR-016 (appended: enum values only ever ADD).
+  'claim_requested',
+  'recipient_claimed',
 ]);
 
 export const photoKindEnum = pgEnum('photo_kind', [
@@ -76,10 +82,13 @@ export const walletStatusEnum = pgEnum('wallet_status', ['connected', 'disconnec
 // 'finalization_bonus' is the hub share of the ADR-014 bonus (sender -> dest
 // hub, released at recipient_pickup); the carrier share needs no purpose of
 // its own because it rides inside the final 'leg_payment' hold.
+// 'claim_payment' is the recipient claim's hold (ADR-016): sender -> claimant,
+// remaining work pool + unconsumed carrier bonus, released at the pickup.
 export const conditionalPaymentPurposeEnum = pgEnum('conditional_payment_purpose', [
   'leg_payment',
   'custody_bond',
   'finalization_bonus',
+  'claim_payment',
 ]);
 export const conditionalPaymentStateEnum = pgEnum('conditional_payment_state', [
   'created',
@@ -88,9 +97,23 @@ export const conditionalPaymentStateEnum = pgEnum('conditional_payment_state', [
   'cancelled',
   'expired',
 ]);
+// 'claim' points at a shipment_claims row: the claim's holds reference the
+// claim itself, never the hub stay, so their idempotency keys cannot collide
+// with a hub-stay-referenced hold of an earlier final leg (ADR-016).
 export const conditionalPaymentRefTypeEnum = pgEnum('conditional_payment_ref_type', [
   'leg',
   'hub_stay',
+  'claim',
+]);
+
+// One row per recipient claim (ADR-016): the frozen amounts and outcome —
+// pending_funding -> funded (CLAIMED) -> completed, or -> expired when the
+// funding window or the storage deadline dissolves it.
+export const shipmentClaimStatusEnum = pgEnum('shipment_claim_status', [
+  'pending_funding',
+  'funded',
+  'completed',
+  'expired',
 ]);
 
 // Shadow ledger (ADR-010): tracks commitments/settlements observed on external
@@ -107,6 +130,7 @@ export const shipmentTimerKindEnum = pgEnum('shipment_timer_kind', [
   'pickup',
   'transit',
   'storage',
+  'claim_funding',
 ]);
 
 // On-the-spot instant payments (hub fees, cancellation compensation —

@@ -31,6 +31,10 @@ export const shipments = pgTable('shipments', {
     .references(() => hubs.id),
   recipientEmail: text('recipient_email').notNull(),
   recipientPickupOtpHash: text('recipient_pickup_otp_hash'),
+  // Bearer credential for the recipient's early claim (ADR-016): minted at
+  // origin_checkin, rotated by a recipient-changing reroute. Hash only, like
+  // the OTP — the plaintext lives solely in the tracking email.
+  recipientClaimTokenHash: text('recipient_claim_token_hash'),
   qrToken: text('qr_token').notNull().unique(),
 
   dimLCm: integer('dim_l_cm').notNull(),

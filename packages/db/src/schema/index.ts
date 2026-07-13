@@ -16,5 +16,6 @@ export * from './reviews';
 export * from './rate-observations';
 export * from './email-outbox';
 export * from './shipment-timers';
+export * from './shipment-claims';
 export * from './instant-payments';
 export * from './escrow-intents';
