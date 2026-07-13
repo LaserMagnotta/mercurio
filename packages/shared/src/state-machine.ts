@@ -10,6 +10,20 @@ import type { Msat, ShipmentState } from './index';
 export const LEG_FUNDING_WINDOW_MINUTES = 60;
 
 /**
+ * MVP deadline policy (ARCHITECTURE.md §5 leaves the durations open; these
+ * constants freeze the simplest workable choice, documented in the
+ * "Precisazioni implementative"). All deadlines are computed by the API when
+ * it fires the transition and frozen on the row — the machine only compares.
+ */
+/** From leg_funded to the physical pickup at the ceding hub (row 7). */
+export const PICKUP_WINDOW_HOURS = 24;
+/** From pickup_checkout to the check-in at the arrival hub (row 14). */
+export const TRANSIT_WINDOW_HOURS = 48;
+/** Both halves of the double-confirmation checkout must land within this
+ *  window of each other (ARCHITECTURE.md §7: "entro la stessa finestra"). */
+export const CHECKOUT_CONFIRMATION_WINDOW_MINUTES = 15;
+
+/**
  * Custody-chain event types — mirrors the Postgres enum `custody_event_type`
  * (packages/db/src/schema/enums.ts). Every state transition appends exactly
  * one of these (ARCHITECTURE.md §5: "ogni transizione è un evento della

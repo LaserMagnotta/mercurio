@@ -7,6 +7,7 @@ export type Msat = bigint;
 export * from './economics';
 export * from './matching';
 export * from './state-machine';
+export * from './api';
 
 /** Shipment lifecycle states (ARCHITECTURE.md §5). */
 export const SHIPMENT_STATES = [
