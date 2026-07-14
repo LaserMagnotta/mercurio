@@ -6,12 +6,19 @@ import { hubs, hubStays, shipments, walletConnections } from '@mercurio/db';
 import type { App } from '../app';
 import { requireAuth } from '../plugins/auth-guard';
 import { msat } from '../lib/serialize';
+import { loadRatings, ratingOf } from '../lib/reviews';
 
 export function registerHubRoutes(app: App) {
-  /** Public list of active hubs — the sender picks origin/destination here. */
+  /** Public list of active hubs — the sender picks origin/destination here,
+   *  so each hub carries its owner's hub-role rating (CLAUDE.md: rating
+   *  visible wherever a counterparty is chosen). */
   app.get('/hubs', async () => {
     const rows = await app.db.select().from(hubs).where(eq(hubs.active, true));
     const owners = rows.map((h) => h.userId);
+    const ratings = await loadRatings(
+      app.db,
+      owners.map((userId) => ({ userId, role: 'hub' as const })),
+    );
     const connected = new Set(
       owners.length === 0
         ? []
@@ -41,6 +48,7 @@ export function registerHubRoutes(app: App) {
         maxStorageHours: h.maxStorageHours,
         autoAccept: h.autoAccept,
         walletConnected: connected.has(h.userId),
+        rating: ratingOf(ratings, h.userId, 'hub'),
       })),
     };
   });

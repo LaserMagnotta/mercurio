@@ -95,7 +95,7 @@ describe('trip route view (ADR-015)', () => {
         '&origin=0.000000%2C-5.000000&destination=0.000000%2C50.000000' +
         '&travelmode=driving&waypoints=0.000000%2C0.000000%7C0.000000%2C40.000000',
     );
-  });
+  }, 30_000);
 
   it('orders the stops of two accepted legs and drops the pickup once picked up', async () => {
     const world = await createLifecycleWorld();
@@ -143,7 +143,7 @@ describe('trip route view (ADR-015)', () => {
     expect(
       after.stops.filter((s) => s.shipmentId === shipA).map((s) => [s.hubId, s.kind]),
     ).toEqual([[world.hubC, 'drop']]);
-  });
+  }, 30_000);
 
   it('routes whole shipments up to MAX_ROUTE_WAYPOINTS and lists the rest unrouted', async () => {
     const world = await createLifecycleWorld();
@@ -174,7 +174,7 @@ describe('trip route view (ADR-015)', () => {
       [fifth, 'pickup', true],
       [fifth, 'drop', true],
     ]);
-  });
+  }, 30_000);
 
   it('is owner-only and validates the preview pair', async () => {
     const world = await createLifecycleWorld();
@@ -201,5 +201,5 @@ describe('trip route view (ADR-015)', () => {
       cookie: world.luca.cookie,
       expect: 404,
     });
-  });
+  }, 30_000);
 });

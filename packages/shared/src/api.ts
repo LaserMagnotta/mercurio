@@ -8,7 +8,10 @@
 //     `shipments.eur_rate_snapshot` column).
 
 import { z } from 'zod';
-import { MAX_STORAGE_HOURS, SHIPMENT_STATES } from './index';
+// From the leaf module, NOT './index': the barrel re-exports this file, and
+// a circular value import would leave these constants undefined while the
+// schemas below are being built (silently disabling the checks).
+import { MAX_STORAGE_HOURS, REVIEW_ROLES, SHIPMENT_STATES } from './protocol';
 
 // ---------------------------------------------------------------------------
 // Scalars
@@ -161,6 +164,59 @@ export const createTripBody = z.object({
   expiresAt: z.string().datetime().optional(),
 });
 
+// ---------------------------------------------------------------------------
+// Reviews (CLAUDE.md "Recensioni", ADR-017)
+
+/** Body of POST /shipments/:id/reviews: one per-role judgment about one
+ *  effective counterparty of a CLOSED shipment (ADR-017 defines who counts
+ *  as effective in each role). */
+export const createReviewBody = z.object({
+  subjectId: uuidString,
+  role: z.enum(REVIEW_ROLES),
+  stars: z.number().int().min(1).max(5),
+  comment: z.string().min(1).max(1000).optional(),
+});
+
+/** One per-role aggregate, always computed from the reviews table at read
+ *  time — never denormalized (same principle as the ledger: no stale
+ *  balances). `averageStars` is null until the first review. */
+export const ratingDto = z.object({
+  averageStars: z.number().nullable(),
+  reviewCount: z.number().int(),
+});
+
+export const reviewDto = z.object({
+  id: uuidString,
+  shipmentId: uuidString,
+  authorId: uuidString,
+  subjectId: uuidString,
+  role: z.enum(REVIEW_ROLES),
+  stars: z.number().int(),
+  comment: z.string().nullable(),
+  createdAt: z.string(),
+});
+
+/** Response of GET /users/:id/reviews — the future profile page: per-role
+ *  aggregates plus the received reviews, newest first. */
+export const userReviewsDto = z.object({
+  userId: uuidString,
+  ratings: z.object({
+    sender: ratingDto,
+    carrier: ratingDto,
+    hub: ratingDto,
+  }),
+  reviews: z.array(reviewDto),
+});
+
+/** Rating of one effective participant of a shipment (detail view): the
+ *  hubId is set when the role is 'hub', so the UI can pin the rating to the
+ *  hub card rather than to a bare user id. */
+export const participantRatingDto = ratingDto.extend({
+  userId: uuidString,
+  role: z.enum(REVIEW_ROLES),
+  hubId: uuidString.nullable(),
+});
+
 /** Query of GET /trips/:id/route (ADR-015): optionally previews one board
  *  shipment on top of the accepted legs — both fields or neither (the drop
  *  hub comes from the board card the carrier is looking at; the route
@@ -235,6 +291,10 @@ export const shipmentDetailDto = z.object({
   createdAt: z.string(),
   legs: z.array(legDto),
   custodyChain: z.array(custodyEventDto),
+  /** Per-role ratings of every effective participant (ADR-017): the sender,
+   *  the carriers of funded legs, the hubs that hosted the parcel, a funded
+   *  claimant. Computed from the reviews table on read. */
+  ratings: z.array(participantRatingDto),
 });
 
 /** Response of POST /shipments/:id/claim (ADR-016): the frozen claim amounts
@@ -274,6 +334,9 @@ export const dropHubOptionDto = z.object({
   /** The "premio consegna" line, shown separately on the card (ADR-014). */
   finalizationBonusMsat: msatString,
   surplusMsat: msatString,
+  /** Hub-role rating of the hub's owner (CLAUDE.md: visible wherever a
+   *  counterparty is chosen), computed from the reviews table on read. */
+  hubRating: ratingDto,
 });
 
 export const boardCardDto = z.object({
@@ -290,6 +353,10 @@ export const boardCardDto = z.object({
   dims: dimensionsSchema,
   weightG: z.number().int(),
   undeclared: z.boolean(),
+  /** MATCHING.md §3: the card shows the sender's rating and the ratings of
+   *  the hubs involved (the drop options carry their own `hubRating`). */
+  senderRating: ratingDto,
+  currentHubRating: ratingDto,
 });
 
 /** One stop of the trip route view (ADR-015): a RouteStop plus what the UI
@@ -330,6 +397,8 @@ export const hubDto = z.object({
   maxStorageHours: z.number().int(),
   autoAccept: z.boolean(),
   walletConnected: z.boolean(),
+  /** Hub-role rating of the owner — the sender picks hubs here. */
+  rating: ratingDto,
 });
 
 export type CreateShipmentBody = z.infer<typeof createShipmentBody>;

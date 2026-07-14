@@ -26,6 +26,7 @@ import { registerHubRoutes } from './routes/hubs';
 import { registerTripRoutes } from './routes/trips';
 import { registerShipmentRoutes } from './routes/shipments';
 import { registerShipmentLifecycleRoutes } from './routes/shipment-lifecycle';
+import { registerReviewRoutes } from './routes/reviews';
 import { createMailer, type SendMail } from './lib/mailer';
 import { createDbWalletResolver } from './lib/wallets';
 import { createEnvEurRateProvider, type EurRateProvider } from './lib/eur-rate';
@@ -141,6 +142,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   registerTripRoutes(app);
   registerShipmentRoutes(app);
   registerShipmentLifecycleRoutes(app);
+  registerReviewRoutes(app);
 
   return app;
 }

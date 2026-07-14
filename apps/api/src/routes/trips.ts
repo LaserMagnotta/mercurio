@@ -36,6 +36,7 @@ import { requireAuth } from '../plugins/auth-guard';
 import { loadShipmentBundle, remainingWorkPool } from '../shipments/context';
 import { msat } from '../lib/serialize';
 import { msatPerEur } from '../lib/eur-rate';
+import { loadRatings, ratingOf, type RatingSubject } from '../lib/reviews';
 
 const tripParams = z.object({ id: z.string().uuid() });
 
@@ -473,6 +474,25 @@ async function buildBoard(app: App, trip: typeof carrierTrips.$inferSelect, carr
     provider,
   );
 
+  // Ratings shown on every card (MATCHING.md §3): the sender's and those of
+  // every hub involved — current hub plus each proposed drop. One grouped
+  // query for the whole board, computed from the reviews table on read.
+  const ratingSubjects: RatingSubject[] = [];
+  for (const c of candidates) {
+    const meta = cardMeta.get(c.shipmentId)!;
+    ratingSubjects.push({ userId: meta.row.senderId, role: 'sender' });
+    for (const hubId of [
+      meta.currentHubId,
+      c.bestDropHub.hubId,
+      ...c.alternatives.map((o) => o.hubId),
+    ]) {
+      const owner = hubById.get(hubId)?.userId;
+      if (owner) ratingSubjects.push({ userId: owner, role: 'hub' });
+    }
+  }
+  const ratings = await loadRatings(db, ratingSubjects);
+  const hubRating = (hubId: string) => ratingOf(ratings, hubById.get(hubId)?.userId ?? '', 'hub');
+
   const hubName = (id: string) => hubById.get(id)?.name ?? id;
   return candidates.map((c) => {
     const meta = cardMeta.get(c.shipmentId)!;
@@ -483,6 +503,7 @@ async function buildBoard(app: App, trip: typeof carrierTrips.$inferSelect, carr
       netMsat: msat(o.netMsat),
       finalizationBonusMsat: msat(o.finalizationBonusMsat),
       surplusMsat: msat(o.surplusMsat),
+      hubRating: hubRating(o.hubId),
     });
     return {
       shipmentId: c.shipmentId,
@@ -491,6 +512,8 @@ async function buildBoard(app: App, trip: typeof carrierTrips.$inferSelect, carr
       alternatives: c.alternatives.map(option),
       currentHubId: meta.currentHubId,
       currentHubName: hubName(meta.currentHubId),
+      senderRating: ratingOf(ratings, meta.row.senderId, 'sender'),
+      currentHubRating: hubRating(meta.currentHubId),
       destHubId: meta.row.destHubId,
       remainingKm: meta.remainingKm,
       totalKm: meta.row.distanceKm,

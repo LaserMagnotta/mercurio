@@ -25,6 +25,7 @@ import { parcelFitsHub, storageFitsHub } from '../lib/parcel';
 import { msat, isoOrNull } from '../lib/serialize';
 import { executeShipmentTransition } from '../shipments/executor';
 import { loadShipmentBundle, remainingWorkPool } from '../shipments/context';
+import { effectiveParticipants, loadRatings, ratingOf } from '../lib/reviews';
 import { replyLifecycleError } from './lifecycle-errors';
 
 const shipmentParams = z.object({ id: z.string().uuid() });
@@ -202,6 +203,15 @@ export function registerShipmentRoutes(app: App) {
         claimRowsAll.some((c) => c.claimantId === userId);
       if (!isParticipant) return reply.code(404).send({ error: 'not_found' });
 
+      // Per-role ratings of everyone who effectively took part so far
+      // (ADR-017): the participants pick each other here — the sender
+      // watches the carriers and hubs, the claimant sizes up the hub.
+      const participants = await effectiveParticipants(app.db, {
+        id: s.id,
+        senderId: s.senderId,
+      });
+      const ratings = await loadRatings(app.db, participants);
+
       const currentHubId = bundle.currentStayRow?.hubId ?? null;
       const destHub = bundle.hubById.get(s.destHubId);
       const remainingKm =
@@ -270,6 +280,12 @@ export function registerShipmentRoutes(app: App) {
           payload: e.payload as Record<string, unknown>,
           hash: e.hash,
           createdAt: e.createdAt.toISOString(),
+        })),
+        ratings: participants.map((p) => ({
+          userId: p.userId,
+          role: p.role,
+          hubId: p.hubId,
+          ...ratingOf(ratings, p.userId, p.role),
         })),
       };
     },
