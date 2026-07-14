@@ -19,6 +19,9 @@ export interface WalletResolverOptions {
   key: Buffer;
   /** Present in dev/test builds only: backs `kind = 'fake'` connections. */
   fakeNetwork?: FakeLightningNetwork;
+  /** Balance a fake wallet starts with the first time it is resolved (dev
+   *  demos need spendable sats; existing wallets keep their balance). */
+  fakeInitialBalanceMsat?: bigint;
 }
 
 export class WalletUnavailableError extends Error {
@@ -39,9 +42,7 @@ export function createDbWalletResolver(db: Db, opts: WalletResolverOptions): Wal
     const [row] = await db
       .select()
       .from(walletConnections)
-      .where(
-        and(eq(walletConnections.userId, userId), eq(walletConnections.status, 'connected')),
-      )
+      .where(and(eq(walletConnections.userId, userId), eq(walletConnections.status, 'connected')))
       .orderBy(desc(walletConnections.createdAt))
       .limit(1);
     if (!row) {
@@ -53,7 +54,7 @@ export function createDbWalletResolver(db: Db, opts: WalletResolverOptions): Wal
         if (!opts.fakeNetwork) {
           throw new WalletUnavailableError('fake wallets are not enabled in this environment');
         }
-        return opts.fakeNetwork.wallet(secret);
+        return opts.fakeNetwork.wallet(secret, opts.fakeInitialBalanceMsat ?? 0n);
       }
       case 'lnd_rest': {
         const cfg = JSON.parse(secret) as LndRestSecret;

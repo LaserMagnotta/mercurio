@@ -5,10 +5,18 @@
 // coordinator calls, outbox emails) - the domain itself lives in
 // @mercurio/core and is pure.
 
+import { FakeLightningNetwork } from '@mercurio/escrow';
 import { buildApp } from './app';
 import { startWorkers } from './worker';
 
-const app = await buildApp();
+// FAKE_WALLETS=true backs `kind: 'fake'` connections with an in-memory
+// Lightning network (dev only): flows are exercisable without regtest nodes.
+// The network lives in this process — a restart forgets balances and holds.
+const app = await buildApp(
+  process.env.FAKE_WALLETS === 'true'
+    ? { fakeNetwork: new FakeLightningNetwork(), fakeInitialBalanceMsat: 1_000_000_000n }
+    : {},
+);
 const port = Number(process.env.PORT ?? 3001);
 
 app

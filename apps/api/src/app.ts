@@ -61,6 +61,8 @@ export interface BuildAppOptions {
   coordinatorKey?: Buffer;
   /** Enables `kind: 'fake'` wallet connections (dev/test only). */
   fakeNetwork?: FakeLightningNetwork;
+  /** Starting balance of a fake wallet on first resolution (dev demos). */
+  fakeInitialBalanceMsat?: bigint;
   /** Sync-hold / instant-settlement polling knobs (tests tighten them). */
   waitAttempts?: number;
   waitDelayMs?: number;
@@ -82,6 +84,9 @@ export async function buildApp(options: BuildAppOptions = {}) {
     createDbWalletResolver(db, {
       key: coordinatorKey,
       ...(options.fakeNetwork && { fakeNetwork: options.fakeNetwork }),
+      ...(options.fakeInitialBalanceMsat !== undefined && {
+        fakeInitialBalanceMsat: options.fakeInitialBalanceMsat,
+      }),
     });
   const coordinator =
     options.coordinator ??
