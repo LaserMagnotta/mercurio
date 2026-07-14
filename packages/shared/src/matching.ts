@@ -101,6 +101,24 @@ export interface MatchCandidate {
   isMatch: boolean;
 }
 
+/**
+ * One stop of a carrier's route (ADR-015): the pickup or drop hub of a leg
+ * (or of a board preview). `shipmentId` binds the pickup to its drop so the
+ * route optimizer can enforce pickup-before-drop per shipment.
+ */
+export interface RouteStop {
+  hubId: string;
+  point: GeoPoint;
+  kind: 'pickup' | 'drop';
+  shipmentId: string;
+}
+
+/** Hard cap on the stops orderRouteWaypoints will route (ADR-015): real
+ *  trips carry few waypoints (≤ 8 stops ≈ 4 shipments) and Google Maps
+ *  direction URLs accept at most 9 waypoints — beyond it the UI lists the
+ *  unrouted stops instead. */
+export const MAX_ROUTE_WAYPOINTS = 9;
+
 /** Road/great-circle circuity factor k: d = haversine × k (ADR-007). */
 export const ROAD_CIRCUITY_FACTOR = 1.3;
 

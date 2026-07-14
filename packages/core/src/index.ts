@@ -6,5 +6,6 @@ export * from './economics/economics';
 export * from './matching/distance';
 export * from './matching/matching';
 export * from './matching/rates';
+export * from './matching/route';
 export * from './state-machine/custody-chain';
 export * from './state-machine/state-machine';
