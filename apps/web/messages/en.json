@@ -29,7 +29,8 @@
     "hubs": "Hubs",
     "wallet": "Wallet",
     "login": "Sign in",
-    "logout": "Sign out"
+    "logout": "Sign out",
+    "account": "Account"
   },
   "home": {
     "title": "Ship parcels from person to person",
@@ -484,6 +485,47 @@
     "rejectReasonLabel": "Rejection reason",
     "rejectCta": "File the rejection",
     "rejectDone": "Rejection filed: the sender has been notified."
+  },
+  "reviews": {
+    "title": "Review the participants",
+    "intro": "The shipment is closed: you have 30 days to review whoever held an effective role. One judgment per role: one can be a great carrier and a terrible hub.",
+    "subjectLabel": "Who do you want to review?",
+    "subjectPick": "Pick a participant…",
+    "alreadySent": "reviewed",
+    "starsLabel": "Stars",
+    "starsAria": "{n} stars out of 5",
+    "commentLabel": "Comment (optional)",
+    "commentHint": "Reviews are public and can be neither edited nor deleted.",
+    "submit": "Send the review",
+    "submitting": "Sending…",
+    "done": "Review recorded."
+  },
+  "profile": {
+    "title": "Public profile",
+    "notFound": "User not found.",
+    "idLine": "User {id}",
+    "ratingsTitle": "Reputation by role",
+    "ratingsHint": "Averages computed on read over every received review (ADR-017).",
+    "reviewsTitle": "Received reviews",
+    "reviewsEmpty": "No reviews yet.",
+    "starsAria": "{stars} stars out of 5"
+  },
+  "account": {
+    "title": "Your account",
+    "emailLabel": "Email",
+    "rolesLabel": "Roles",
+    "roleSender": "Sender",
+    "publicProfile": "See your public profile",
+    "exportTitle": "Export your data (GDPR)",
+    "exportBody": "You download one JSON document with everything the platform keeps about you: account, hub, trips, shipments, reviews written and received, consent history.",
+    "exportCta": "Download the export",
+    "exporting": "Preparing…",
+    "deleteTitle": "Delete the account (GDPR)",
+    "deleteOpen": "Delete…",
+    "deleteBody": "Deletion anonymizes your account and revokes every session: your email and personal data are unlinked forever. The ledger and the custody chain remain (they hold no personal data); a hub you own is deactivated. This cannot be undone.",
+    "deleteConfirmLabel": "I understand: this cannot be undone.",
+    "deleteCta": "Delete permanently",
+    "deleting": "Deleting…"
   },
   "track": {
     "title": "Your parcel",

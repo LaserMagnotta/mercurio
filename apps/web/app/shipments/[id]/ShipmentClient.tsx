@@ -31,6 +31,7 @@ import { StatusBadge } from '../../../components/StatusBadge';
 import { RatingStars } from '../../../components/RatingStars';
 import { QrCode } from '../../../components/QrCode';
 import { CarrierActions } from './CarrierActions';
+import { ReviewsSection } from './ReviewsSection';
 
 const SATS_RE = /^\d{1,15}$/;
 const KNOWN_CUSTODY = new Set<string>(CUSTODY_EVENT_TYPES);
@@ -360,7 +361,7 @@ export function ShipmentClient({ id, justCreated }: { id: string; justCreated: b
           {detail.ratings.map((p) => (
             <li key={`${p.userId}-${p.role}`} className="row-between">
               <span>
-                {tRoles(p.role)}
+                <Link href={`/users/${p.userId}`}>{tRoles(p.role)}</Link>
                 {p.hubId && ` — ${hubName(p.hubId)}`}
               </span>
               <RatingStars rating={{ averageStars: p.averageStars, reviewCount: p.reviewCount }} />
@@ -368,6 +369,8 @@ export function ShipmentClient({ id, justCreated }: { id: string; justCreated: b
           ))}
         </ul>
       </section>
+
+      <ReviewsSection detail={detail} userId={user.id} hubName={hubName} />
 
       {offeredActions.length > 0 && (
         <section className="card stack-sm no-print">

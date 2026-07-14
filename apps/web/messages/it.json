@@ -29,7 +29,8 @@
     "hubs": "Hub",
     "wallet": "Wallet",
     "login": "Accedi",
-    "logout": "Esci"
+    "logout": "Esci",
+    "account": "Account"
   },
   "home": {
     "title": "Spedisci pacchi di persona in persona",
@@ -484,6 +485,47 @@
     "rejectReasonLabel": "Motivo del rifiuto",
     "rejectCta": "Registra il rifiuto",
     "rejectDone": "Rifiuto registrato: il mittente è stato avvisato."
+  },
+  "reviews": {
+    "title": "Recensisci i partecipanti",
+    "intro": "La spedizione è chiusa: hai 30 giorni per recensire chi ha avuto un ruolo effettivo. Un giudizio per ruolo: si può essere un ottimo vettore e un pessimo hub.",
+    "subjectLabel": "Chi vuoi recensire?",
+    "subjectPick": "Scegli un partecipante…",
+    "alreadySent": "recensito",
+    "starsLabel": "Stelle",
+    "starsAria": "{n} stelle su 5",
+    "commentLabel": "Commento (facoltativo)",
+    "commentHint": "Le recensioni sono pubbliche e non si possono modificare né cancellare.",
+    "submit": "Invia la recensione",
+    "submitting": "Invio…",
+    "done": "Recensione registrata."
+  },
+  "profile": {
+    "title": "Profilo pubblico",
+    "notFound": "Utente non trovato.",
+    "idLine": "Utente {id}",
+    "ratingsTitle": "Reputazione per ruolo",
+    "ratingsHint": "Medie calcolate al momento su tutte le recensioni ricevute (ADR-017).",
+    "reviewsTitle": "Recensioni ricevute",
+    "reviewsEmpty": "Nessuna recensione ancora.",
+    "starsAria": "{stars} stelle su 5"
+  },
+  "account": {
+    "title": "Il tuo account",
+    "emailLabel": "Email",
+    "rolesLabel": "Ruoli",
+    "roleSender": "Mittente",
+    "publicProfile": "Vedi il tuo profilo pubblico",
+    "exportTitle": "Esporta i tuoi dati (GDPR)",
+    "exportBody": "Scarichi un unico documento JSON con tutto ciò che la piattaforma conserva su di te: account, hub, viaggi, spedizioni, recensioni scritte e ricevute, storico dei consensi.",
+    "exportCta": "Scarica l'export",
+    "exporting": "Preparazione…",
+    "deleteTitle": "Cancella l'account (GDPR)",
+    "deleteOpen": "Cancella…",
+    "deleteBody": "La cancellazione anonimizza il tuo account e revoca ogni sessione: email e dati personali vengono scollegati per sempre. Il ledger e la catena di custodia restano (non contengono dati personali), un eventuale hub viene disattivato. L'operazione è irreversibile.",
+    "deleteConfirmLabel": "Ho capito: l'operazione è irreversibile.",
+    "deleteCta": "Cancella definitivamente",
+    "deleting": "Cancellazione…"
   },
   "track": {
     "title": "Il tuo pacco",

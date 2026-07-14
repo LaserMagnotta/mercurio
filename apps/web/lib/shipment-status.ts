@@ -49,6 +49,20 @@ export const SENDER_ACTIONS: Record<
   LOST: [],
 };
 
+/** Closed shipment (ADR-017): ALL terminal states admit reviews, not just
+ *  DELIVERED — mirrors `isTerminalState` in @mercurio/core (the web depends
+ *  only on @mercurio/shared, so the four states are restated here). */
+const TERMINAL_STATES: ReadonlySet<ShipmentState> = new Set([
+  'DELIVERED',
+  'CANCELLED',
+  'FORFEITED',
+  'LOST',
+]);
+
+export function isTerminal(state: ShipmentState): boolean {
+  return TERMINAL_STATES.has(state);
+}
+
 /** Custody event types with dedicated copy (`custody.<type>` keys); unknown
  *  types fall back to the raw string so new events degrade readably. */
 export const CUSTODY_EVENT_TYPES = [

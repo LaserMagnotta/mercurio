@@ -26,7 +26,10 @@ export function SiteHeader() {
         {!loading &&
           (user ? (
             <span className="row small">
-              <span className="muted">{user.email}</span>
+              {/* The email doubles as the door to the account/GDPR page. */}
+              <Link href="/account" className="muted" title={t('account')}>
+                {user.email}
+              </Link>
               <button
                 type="button"
                 className="btn btn-sm"
