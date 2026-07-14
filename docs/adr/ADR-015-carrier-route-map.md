@@ -1,11 +1,18 @@
 # ADR-015 — Mappa del percorso del vettore con export verso Google Maps
 
-- Stato: accettato (richiesta utente) — 2026-07-13
+- Stato: accettato (richiesta utente) — 2026-07-13; **implementato per
+  intero** (2026-07-14)
 - Contesto UI: bacheca e viaggio del vettore (MATCHING.md §8)
-- Implementazione: **parte dati implementata** (2026-07-14):
-  `orderRouteWaypoints` in `@mercurio/core` e `GET /trips/:id/route` in
-  `apps/api` (tappe ordinate + URL Google Maps — precisazioni in fondo).
-  La mappa Leaflet in-app resta alla web UI, **da fare**.
+- Implementazione: parte dati (2026-07-14): `orderRouteWaypoints` in
+  `@mercurio/core` e `GET /trips/:id/route` in `apps/api` (tappe ordinate +
+  URL Google Maps — precisazioni in fondo). Parte UI (stesso giorno, web
+  parte 1): vista viaggio in `apps/web` (`/carrier/trips/:id/route`) —
+  Leaflet + tile OSM caricati client-only, polilinea nell'ordine
+  dell'endpoint, marker numerati ritiro/consegna (anteprima dalla bacheca
+  via `previewShipmentId`/`previewDropHubId` con stile dedicato), tappe
+  oltre il tetto elencate sotto la mappa, bottone "Apri in Google Maps" che
+  usa l'URL dell'endpoint (nessun dato a Google prima del click),
+  attribution OSM corretta.
 
 ## Contesto
 

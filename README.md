@@ -35,9 +35,15 @@ Prerequisites: Node >= 22, Docker Desktop (or compatible) running.
 corepack enable                                    # provides pnpm (bundled with Node >= 22)
 pnpm install
 docker compose -f infra/docker/docker-compose.yml up -d
-pnpm setup                                         # runs DB migrations, then seeds demo data
-pnpm dev                                            # starts web (:3000) and api (:3001)
+pnpm run setup                                     # runs DB migrations, then seeds demo data
+COORDINATOR_KEY=$(openssl rand -hex 32) FAKE_WALLETS=true pnpm dev   # web (:3000) + api (:3001)
 ```
+
+`COORDINATOR_KEY` is required by the API (see below); `FAKE_WALLETS=true`
+enables dev-only in-memory Lightning wallets so every flow — holds included —
+works without the regtest nodes (they live in the API process: a restart
+forgets balances and pending holds). The web UI's manual walkthrough against
+the seed is in [`apps/web/README.md`](apps/web/README.md).
 
 `pnpm setup` is idempotent — safe to re-run any time (e.g. after `docker compose down -v`).
 

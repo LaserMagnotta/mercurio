@@ -11,10 +11,15 @@ wallet-event pump, timer e worker pg-boss; OpenAPI servita su `/docs`
 dell'API — precisazioni in ARCHITECTURE §5), **ritiro anticipato del
 destinatario** (ADR-016: token di tracking, claim con hold P2P, stato
 `CLAIMED`), **recensioni con aggregati per ruolo** (ADR-017: guardie sui
-ruoli effettivi, rating su bacheca/hub/dettaglio/profilo) e la **parte dati
-della mappa del vettore** (ADR-015: `orderRouteWaypoints`,
-`GET /trips/:id/route` con export Google Maps). **Da implementare**: web UI
-(inclusa la mappa Leaflet in-app dell'ADR-015).
+ruoli effettivi, rating su bacheca/hub/dettaglio/profilo), la **mappa del
+vettore completa** (ADR-015: `orderRouteWaypoints`, `GET /trips/:id/route`
+con export Google Maps, vista Leaflet in `apps/web`) e la **web UI parte 1**
+(ADR-018: fondamenta i18n it/en, client tipizzato sugli schemi condivisi,
+flusso mittente — hub, form Spedisci con QR stampabile, tracking con
+boost/reroute/cancel — e flusso vettore — viaggio, bacheca, accettazione
+tratta, vista viaggio). **Da implementare (web parte 2)**: dashboard hub e
+passaggi di mano, ritiro OTP e claim del destinatario in UI, recensioni e
+profilo, export/cancellazione GDPR in UI, adapter NWC reale.
 
 ## Documenti
 
@@ -47,6 +52,7 @@ della mappa del vettore** (ADR-015: `orderRouteWaypoints`,
 | [ADR-015](adr/ADR-015-carrier-route-map.md)         | Mappa del viaggio del vettore (Leaflet/OSM) + export percorso su Google Maps          |
 | [ADR-016](adr/ADR-016-recipient-claim.md)           | Ritiro anticipato del destinatario: claim con token bearer, pool residuo + Π_v        |
 | [ADR-017](adr/ADR-017-reviews.md)                   | Recensioni: ruoli effettivi, tutte le chiusure recensibili, finestra 30 giorni        |
+| [ADR-018](adr/ADR-018-web-ui-platform.md)           | Web UI: proxy same-origin (niente CORS), importi sats-first solo dall'API, i18n a cookie |
 
 ## Stato delle decisioni
 

@@ -258,10 +258,10 @@ export function suggestSenderOfferEur(
 Funzione pura: testabile con scenari geometrici sintetici (come l'esempio §2) e
 proprietà (mai suggerire hub con progresso ≤ soglia; surplus coerente con ECONOMICS).
 
-## 8. Mappa del viaggio e export Google Maps (ADR-015 — parte dati implementata)
+## 8. Mappa del viaggio e export Google Maps (ADR-015 — implementato, dati + UI)
 
 La vista viaggio del vettore mostra una **mappa** (Leaflet + tile OSM, niente
-API key — la mappa in-app resta alla web UI, da fare) con partenza `O`,
+API key — implementata in `apps/web`, `/carrier/trips/:id/route`) con partenza `O`,
 destinazione `Dc`, gli hub di ritiro/consegna delle tratte accettate (e in
 anteprima quelli della tratta selezionata in bacheca) e la polilinea
 dell'itinerario nell'**ordine di visita più breve** che rispetta il vincolo

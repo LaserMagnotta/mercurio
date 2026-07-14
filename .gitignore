@@ -19,3 +19,6 @@ infra/docker/volumes/
 *.log
 .DS_Store
 Thumbs.db
+
+# Local assistant/tooling configuration
+.claude/
