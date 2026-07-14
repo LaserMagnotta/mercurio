@@ -39,6 +39,13 @@ async function hubLabel(db: Db, hubId: unknown): Promise<string> {
   return hub ? `${hub.name} (${hub.address})` : 'un hub Mercurio';
 }
 
+// Web pages the emails point at (same WEB_URL knob as the magic links in
+// routes/auth.ts). The URLs carry only the shipment id — NEVER the claim
+// token or the OTP: those stay in the email body as bearer credentials.
+const webUrl = () => process.env.WEB_URL ?? 'http://localhost:3000';
+const recipientLink = (shipmentId: unknown) => `${webUrl()}/track/${String(shipmentId ?? '')}`;
+const senderLink = (shipmentId: unknown) => `${webUrl()}/shipments/${String(shipmentId ?? '')}`;
+
 /** UI language is Italian (CLAUDE.md); templates stay minimal plain text. */
 async function render(
   db: Db,
@@ -58,6 +65,7 @@ async function render(
           `(serve un account Mercurio con wallet Lightning collegato). Presentalo all'hub\n` +
           `al momento del ritiro: accettare il pacco vale come accettazione definitiva.\n` +
           `Non condividerlo: chiunque lo possieda può reclamare il pacco.\n\n` +
+          `Segui il pacco (e riscattalo, se vuoi) qui: ${recipientLink(payload.shipmentId)}\n` +
           `Spedizione: ${String(payload.shipmentId ?? '')}`,
       };
     case 'parcel_at_intermediate_hub':
@@ -66,6 +74,7 @@ async function render(
         text:
           `Il pacco è stato depositato presso ${await hubLabel(db, payload.hubId)}.\n` +
           `Resta in attesa di un vettore per la tratta successiva.\n\n` +
+          `Dettagli e tracking: ${recipientLink(payload.shipmentId)}\n` +
           `Spedizione: ${String(payload.shipmentId ?? '')}`,
       };
     case 'parcel_arrived':
@@ -75,6 +84,7 @@ async function render(
           `Il pacco è arrivato presso ${await hubLabel(db, payload.hubId)}.\n` +
           `Il ritiro è gratuito. Presenta questo codice di ritiro (OTP): ${String(payload.otp ?? '')}\n` +
           `Digitarlo al ritiro vale come accettazione definitiva del pacco (ispezionalo prima).\n\n` +
+          `Dettagli e tracking: ${recipientLink(payload.shipmentId)}\n` +
           `Spedizione: ${String(payload.shipmentId ?? '')}`,
       };
     case 'parcel_delivered':
@@ -82,6 +92,7 @@ async function render(
         subject: 'Mercurio — pacco consegnato',
         text:
           `Il destinatario ha ritirato il pacco: la spedizione è conclusa.\n\n` +
+          `Dettagli: ${senderLink(payload.shipmentId)}\n` +
           `Spedizione: ${String(payload.shipmentId ?? '')}`,
       };
     case 'handoff_rejected':
@@ -91,6 +102,7 @@ async function render(
           `Un passaggio di mano è stato rifiutato (fase: ${String(payload.stage ?? '?')}).\n` +
           `Motivo: ${String(payload.reason ?? '')}\n` +
           `La custodia non è passata e lo stato non è cambiato; puoi valutare un reroute o un boost.\n\n` +
+          `Dettagli: ${senderLink(payload.shipmentId)}\n` +
           `Spedizione: ${String(payload.shipmentId ?? '')}`,
       };
     default:
