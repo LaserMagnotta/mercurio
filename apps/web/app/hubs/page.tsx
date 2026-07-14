@@ -1,6 +1,7 @@
 // Public hub list, server-rendered (ADR-002: SSR for public pages). The
 // server talks to the API directly — the /api rewrite exists for browsers.
 
+import Link from 'next/link';
 import { getTranslations } from 'next-intl/server';
 import { apiFetch } from '../../lib/api/client';
 import type { Hub } from '../../lib/api/endpoints';
@@ -25,6 +26,12 @@ export default async function HubsPage() {
     <div className="stack">
       <h1>{t('title')}</h1>
       <p className="muted">{t('intro')}</p>
+      <div className="card row-between">
+        <span>{t('mineBody')}</span>
+        <Link className="btn btn-sm" href="/hub">
+          {t('mineCta')}
+        </Link>
+      </div>
       {failed && <p className="alert alert-danger">{tCommon('error')}</p>}
       {!failed && hubs.length === 0 && <p className="muted">{t('empty')}</p>}
       <div className="list-plain">

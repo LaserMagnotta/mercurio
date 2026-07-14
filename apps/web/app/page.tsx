@@ -41,9 +41,14 @@ export default function HomePage() {
       <section className="card">
         <h2>{t('hubsTitle')}</h2>
         <p className="muted">{t('hubsBody')}</p>
-        <Link className="btn" href="/hubs">
-          {t('hubsCta')}
-        </Link>
+        <div className="row">
+          <Link className="btn" href="/hubs">
+            {t('hubsCta')}
+          </Link>
+          <Link className="btn" href="/hub">
+            {t('hubMineCta')}
+          </Link>
+        </div>
       </section>
 
       <section>
