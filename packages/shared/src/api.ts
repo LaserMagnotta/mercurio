@@ -161,6 +161,15 @@ export const createTripBody = z.object({
   expiresAt: z.string().datetime().optional(),
 });
 
+/** Query of GET /trips/:id/route (ADR-015): optionally previews one board
+ *  shipment on top of the accepted legs — both fields or neither (the drop
+ *  hub comes from the board card the carrier is looking at; the route
+ *  enforces the pairing, zod refinements don't run on querystrings). */
+export const tripRouteQuery = z.object({
+  previewShipmentId: uuidString.optional(),
+  previewDropHubId: uuidString.optional(),
+});
+
 // ---------------------------------------------------------------------------
 // Response DTOs (zod so fastify serializes them — a bigint can never leak)
 
@@ -281,6 +290,31 @@ export const boardCardDto = z.object({
   dims: dimensionsSchema,
   weightG: z.number().int(),
   undeclared: z.boolean(),
+});
+
+/** One stop of the trip route view (ADR-015): a RouteStop plus what the UI
+ *  needs to draw and link it. `legId` is null for board previews. */
+export const routeStopDto = z.object({
+  hubId: uuidString,
+  hubName: z.string(),
+  lat: z.number(),
+  lng: z.number(),
+  kind: z.enum(['pickup', 'drop']),
+  shipmentId: uuidString,
+  legId: uuidString.nullable(),
+  preview: z.boolean(),
+});
+
+/** Response of GET /trips/:id/route (ADR-015, data part): the stops in the
+ *  computed visit order plus the Google Maps deep link. Stops beyond
+ *  MAX_ROUTE_WAYPOINTS come back in `unroutedStops` for the UI to list. */
+export const tripRouteDto = z.object({
+  tripId: uuidString,
+  origin: z.object({ lat: z.number(), lng: z.number() }),
+  destination: z.object({ lat: z.number(), lng: z.number() }),
+  stops: z.array(routeStopDto),
+  unroutedStops: z.array(routeStopDto),
+  googleMapsUrl: z.string(),
 });
 
 export const hubDto = z.object({

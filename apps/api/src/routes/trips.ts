@@ -16,9 +16,20 @@ import {
   shipments,
   walletConnections,
 } from '@mercurio/db';
-import { rankBoard, suggestCarrierRateEurPerKm, suggestSenderOfferEur } from '@mercurio/core';
-import type { MatchingHub, ShipmentAtHub } from '@mercurio/shared';
-import { createTripBody, hubFeePercentToBp, suggestedOfferQuery } from '@mercurio/shared';
+import {
+  orderRouteWaypoints,
+  rankBoard,
+  suggestCarrierRateEurPerKm,
+  suggestSenderOfferEur,
+} from '@mercurio/core';
+import type { GeoPoint, MatchingHub, RouteStop, ShipmentAtHub } from '@mercurio/shared';
+import {
+  createTripBody,
+  hubFeePercentToBp,
+  MAX_ROUTE_WAYPOINTS,
+  suggestedOfferQuery,
+  tripRouteQuery,
+} from '@mercurio/shared';
 import { z } from 'zod';
 import type { App } from '../app';
 import { requireAuth } from '../plugins/auth-guard';
@@ -120,6 +131,152 @@ export function registerTripRoutes(app: App) {
     },
   );
 
+  /** The trip route view, data part of ADR-015 (the Leaflet map itself is
+   *  the web UI's job): stops of the accepted legs — plus one optional board
+   *  preview — in the computed visit order, and the Google Maps deep link. */
+  app.get(
+    '/trips/:id/route',
+    { schema: { params: tripParams, querystring: tripRouteQuery }, preHandler: requireAuth },
+    async (request, reply) => {
+      const [trip] = await app.db
+        .select()
+        .from(carrierTrips)
+        .where(eq(carrierTrips.id, request.params.id));
+      if (!trip || trip.userId !== request.userId) {
+        return reply.code(404).send({ error: 'trip_not_found' });
+      }
+      // No status gate, unlike the board: the route view is read-only and a
+      // carrier mid-journey still needs the map after the trip row expires.
+
+      // Accepted legs of this trip that still have stops ahead. A picked_up
+      // leg contributes only its drop (the pickup already happened).
+      const legRows = (
+        await app.db
+          .select()
+          .from(legs)
+          .where(
+            and(
+              eq(legs.tripId, trip.id),
+              inArray(legs.status, ['pending_funding', 'booked', 'picked_up']),
+            ),
+          )
+      ).sort((a, b) => a.acceptedAt.getTime() - b.acceptedAt.getTime());
+
+      const hubIds = new Set<string>();
+      for (const leg of legRows) {
+        hubIds.add(leg.fromHubId);
+        hubIds.add(leg.toHubId);
+      }
+
+      // Optional board preview: the shipment's current hub as pickup, the
+      // card's chosen drop hub as drop. Light validation only — this draws a
+      // line on a map, it books nothing.
+      const { previewShipmentId, previewDropHubId } = request.query;
+      if ((previewShipmentId === undefined) !== (previewDropHubId === undefined)) {
+        return reply.code(400).send({ error: 'preview_pair_required' });
+      }
+      let previewPickupHubId: string | null = null;
+      if (previewShipmentId) {
+        const bundle = await loadShipmentBundle(app.db, previewShipmentId);
+        if (!bundle) return reply.code(404).send({ error: 'shipment_not_found' });
+        if (bundle.state !== 'AT_HUB' || !bundle.currentStayRow) {
+          return reply.code(409).send({ error: 'not_at_hub' });
+        }
+        previewPickupHubId = bundle.currentStayRow.hubId;
+        hubIds.add(previewPickupHubId);
+        hubIds.add(previewDropHubId!);
+      }
+
+      const hubRows =
+        hubIds.size === 0
+          ? []
+          : await app.db.select().from(hubs).where(inArray(hubs.id, [...hubIds]));
+      const hubById = new Map(hubRows.map((h) => [h.id, h]));
+      if (previewDropHubId && !hubById.get(previewDropHubId)?.active) {
+        return reply.code(404).send({ error: 'hub_not_found' });
+      }
+
+      // Stops grouped per shipment (a pickup is never routed without its
+      // drop), legs in acceptance order, the preview last: when the total
+      // exceeds MAX_ROUTE_WAYPOINTS whole trailing groups go unrouted and
+      // the UI lists them instead (ADR-015).
+      const mustHub = (id: string) => {
+        const hub = hubById.get(id);
+        if (!hub) throw new Error(`trip ${trip.id} references missing hub ${id}`);
+        return hub;
+      };
+      const toStop = (
+        hubId: string,
+        kind: RouteStop['kind'],
+        shipmentId: string,
+        legId: string | null,
+        preview: boolean,
+      ) => {
+        const hub = mustHub(hubId);
+        return {
+          hubId,
+          point: { lat: hub.lat, lng: hub.lng },
+          kind,
+          shipmentId,
+          hubName: hub.name,
+          legId,
+          preview,
+        };
+      };
+      type StopWithMeta = ReturnType<typeof toStop>;
+      const groups: StopWithMeta[][] = legRows.map((leg) =>
+        leg.status === 'picked_up'
+          ? [toStop(leg.toHubId, 'drop', leg.shipmentId, leg.id, false)]
+          : [
+              toStop(leg.fromHubId, 'pickup', leg.shipmentId, leg.id, false),
+              toStop(leg.toHubId, 'drop', leg.shipmentId, leg.id, false),
+            ],
+      );
+      if (previewShipmentId && previewPickupHubId) {
+        groups.push([
+          toStop(previewPickupHubId, 'pickup', previewShipmentId, null, true),
+          toStop(previewDropHubId!, 'drop', previewShipmentId, null, true),
+        ]);
+      }
+      const routable: StopWithMeta[] = [];
+      const unrouted: StopWithMeta[] = [];
+      for (const group of groups) {
+        if (routable.length + group.length <= MAX_ROUTE_WAYPOINTS) routable.push(...group);
+        else unrouted.push(...group);
+      }
+
+      const origin: GeoPoint = { lat: trip.originLat, lng: trip.originLng };
+      const destination: GeoPoint = { lat: trip.destLat, lng: trip.destLng };
+      // orderRouteWaypoints reorders the very objects it receives, so the
+      // metadata riding on each stop survives the cast back.
+      const ordered = orderRouteWaypoints(
+        origin,
+        destination,
+        routable,
+        app.lifecycle.distance,
+      ) as StopWithMeta[];
+
+      const stopDto = (s: StopWithMeta) => ({
+        hubId: s.hubId,
+        hubName: s.hubName,
+        lat: s.point.lat,
+        lng: s.point.lng,
+        kind: s.kind,
+        shipmentId: s.shipmentId,
+        legId: s.legId,
+        preview: s.preview,
+      });
+      return {
+        tripId: trip.id,
+        origin,
+        destination,
+        stops: ordered.map(stopDto),
+        unroutedStops: unrouted.map(stopDto),
+        googleMapsUrl: googleMapsDirectionsUrl(origin, destination, ordered),
+      };
+    },
+  );
+
   /** Suggested sender offer for a route (MATCHING.md §5): what historically
    *  DELIVERED, never the low anchor. */
   app.get(
@@ -157,6 +314,34 @@ export function registerTripRoutes(app: App) {
       return { routeKm, suggestedEur };
     },
   );
+}
+
+/**
+ * The "Apri in Google Maps" deep link (ADR-015): one URL, no API, waypoints
+ * in OUR computed order — Google optimizes the road on each hop but never
+ * reorders the stops, so the pickup-before-drop constraint survives. Nothing
+ * reaches Google until the carrier actually taps the button.
+ */
+function googleMapsDirectionsUrl(
+  origin: GeoPoint,
+  destination: GeoPoint,
+  stops: readonly { point: GeoPoint }[],
+): string {
+  const coord = (p: GeoPoint) => `${p.lat.toFixed(6)},${p.lng.toFixed(6)}`;
+  const waypoints: string[] = [];
+  for (const stop of stops) {
+    const w = coord(stop.point);
+    // Consecutive stops at the same hub (drop + pickup) are one waypoint.
+    if (waypoints.at(-1) !== w) waypoints.push(w);
+  }
+  const params = new URLSearchParams({
+    api: '1',
+    origin: coord(origin),
+    destination: coord(destination),
+    travelmode: 'driving',
+  });
+  if (waypoints.length > 0) params.set('waypoints', waypoints.join('|'));
+  return `https://www.google.com/maps/dir/?${params.toString()}`;
 }
 
 async function buildBoard(app: App, trip: typeof carrierTrips.$inferSelect, carrierId: string) {
