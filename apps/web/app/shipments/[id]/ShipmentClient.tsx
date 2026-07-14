@@ -30,6 +30,7 @@ import { Amount } from '../../../components/Amount';
 import { StatusBadge } from '../../../components/StatusBadge';
 import { RatingStars } from '../../../components/RatingStars';
 import { QrCode } from '../../../components/QrCode';
+import { CarrierActions } from './CarrierActions';
 
 const SATS_RE = /^\d{1,15}$/;
 const KNOWN_CUSTODY = new Set<string>(CUSTODY_EVENT_TYPES);
@@ -350,6 +351,8 @@ export function ShipmentClient({ id, justCreated }: { id: string; justCreated: b
           ))}
         </ol>
       </section>
+
+      <CarrierActions detail={detail} userId={user.id} onDone={load} />
 
       <section className="card">
         <h2>{t('ratingsTitle')}</h2>

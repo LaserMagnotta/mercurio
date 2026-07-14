@@ -485,6 +485,21 @@
     "rejectCta": "File the rejection",
     "rejectDone": "Rejection filed: the sender has been notified."
   },
+  "carrierOps": {
+    "title": "Carrier actions",
+    "checkoutIntro": "At the hub's counter? Confirm the pickup: it counts together with the hub's confirmation, within 15 minutes of each other. When custody passes you pay the handing hub's fee on the spot.",
+    "qrLabel": "Parcel QR",
+    "qrHint": "Scan the QR on the parcel and paste the result here (the full URL works too).",
+    "checkoutCta": "I confirm the pickup",
+    "checkoutWaitingHub": "Confirmation recorded: waiting for the hub's confirmation.",
+    "checkoutComplete": "Pickup complete: the parcel is in your custody, deliver within the transit deadline.",
+    "rejectTitle": "Reject the pickup",
+    "rejectOpen": "Reject…",
+    "rejectIntro": "If the parcel does not match what the board showed, document it with photos and a reason: custody stays with the hub and the sender is notified.",
+    "rejectReasonLabel": "Rejection reason",
+    "rejectCta": "File the rejection",
+    "rejectDone": "Rejection filed: the sender has been notified."
+  },
   "photos": {
     "label": "Parcel photos",
     "hint": "Photos never leave your device: only the sha256 fingerprint is sent, certifying what you photographed. Maximum {max}.",

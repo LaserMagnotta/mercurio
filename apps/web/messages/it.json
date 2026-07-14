@@ -485,6 +485,21 @@
     "rejectCta": "Registra il rifiuto",
     "rejectDone": "Rifiuto registrato: il mittente è stato avvisato."
   },
+  "carrierOps": {
+    "title": "Azioni del vettore",
+    "checkoutIntro": "Sei al banco dell'hub? Conferma il ritiro: vale insieme alla conferma dell'hub, entro 15 minuti l'una dall'altra. Al passaggio di custodia paghi sul posto la fee dell'hub cedente.",
+    "qrLabel": "QR del pacco",
+    "qrHint": "Scansiona il QR sul pacco e incolla qui il risultato (va bene anche l'URL completa).",
+    "checkoutCta": "Confermo il ritiro",
+    "checkoutWaitingHub": "Conferma registrata: in attesa della conferma dell'hub.",
+    "checkoutComplete": "Ritiro completato: il pacco è in custodia a te, consegna entro la scadenza di transito.",
+    "rejectTitle": "Rifiuta il ritiro",
+    "rejectOpen": "Rifiuta…",
+    "rejectIntro": "Se il pacco non corrisponde a quanto in bacheca, documenta con foto e motivo: la custodia resta all'hub e il mittente viene avvisato.",
+    "rejectReasonLabel": "Motivo del rifiuto",
+    "rejectCta": "Registra il rifiuto",
+    "rejectDone": "Rifiuto registrato: il mittente è stato avvisato."
+  },
   "photos": {
     "label": "Foto del pacco",
     "hint": "Le foto restano sul tuo dispositivo: viene inviata solo l'impronta sha256, che certifica cosa hai fotografato. Massimo {max}.",
