@@ -238,7 +238,15 @@ export const eurRateDto = z.object({
 export const legDto = z.object({
   id: uuidString,
   seq: z.number().int(),
-  status: z.enum(['pending_funding', 'booked', 'picked_up', 'completed', 'returned', 'expired', 'failed']),
+  status: z.enum([
+    'pending_funding',
+    'booked',
+    'picked_up',
+    'completed',
+    'returned',
+    'expired',
+    'failed',
+  ]),
   carrierId: uuidString,
   fromHubId: uuidString,
   toHubId: uuidString,
@@ -357,6 +365,27 @@ export const boardCardDto = z.object({
    *  the hubs involved (the drop options carry their own `hubRating`). */
   senderRating: ratingDto,
   currentHubRating: ratingDto,
+  /** The shipment's FROZEN exchange snapshot (ADR-008): the indicative € on
+   *  the card must use the rate that will govern the carrier's payout. */
+  eurRate: eurRateDto,
+});
+
+/** Response of GET /shipments/suggested-offer (MATCHING.md §5). The msat
+ *  equivalent is computed server-side at the current snapshot: the client
+ *  prefills a sats-first input and never converts money itself (ADR-008). */
+export const suggestedOfferDto = z.object({
+  routeKm: z.number(),
+  suggestedEur: z.number(),
+  suggestedMsat: msatString,
+  eurRate: eurRateDto,
+});
+
+/** Response of GET /trips/suggested-rate (MATCHING.md §4) — same contract:
+ *  EUR for display, msat (per km of detour) for the input prefill. */
+export const suggestedRateDto = z.object({
+  eurPerKm: z.number(),
+  msatPerKm: msatString,
+  eurRate: eurRateDto,
 });
 
 /** One stop of the trip route view (ADR-015): a RouteStop plus what the UI

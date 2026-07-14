@@ -35,7 +35,7 @@ import type { App } from '../app';
 import { requireAuth } from '../plugins/auth-guard';
 import { loadShipmentBundle, remainingWorkPool } from '../shipments/context';
 import { msat } from '../lib/serialize';
-import { msatPerEur } from '../lib/eur-rate';
+import { eurFloatToMsat, msatPerEur } from '../lib/eur-rate';
 import { loadRatings, ratingOf, type RatingSubject } from '../lib/reviews';
 
 const tripParams = z.object({ id: z.string().uuid() });
@@ -91,7 +91,9 @@ export function registerTripRoutes(app: App) {
   );
 
   /** Suggested min rate €/km of detour (MATCHING.md §4): p25 of what carriers
-   *  actually accepted AND completed, each at its own frozen EUR rate. */
+   *  actually accepted AND completed, each at its own frozen EUR rate. The
+   *  msat equivalent is computed HERE (current snapshot, floor-to-sat): the
+   *  client prefills a sats-first input and never converts money itself. */
   app.get('/trips/suggested-rate', { preHandler: requireAuth }, async () => {
     const rows = await app.db
       .select({ obs: rateObservations, eurRate: shipments.eurRateSnapshot })
@@ -107,7 +109,12 @@ export function registerTripRoutes(app: App) {
       })),
       app.lifecycle.now(),
     );
-    return { eurPerKm };
+    const rate = await app.eurRate.snapshot();
+    return {
+      eurPerKm,
+      msatPerKm: msat(eurFloatToMsat(eurPerKm, rate.satsPerEur)),
+      eurRate: { satsPerEur: rate.satsPerEur, source: rate.source, at: rate.at.toISOString() },
+    };
   });
 
   /** The ranked board for a declared trip (MATCHING.md §3). */
@@ -312,7 +319,15 @@ export function registerTripRoutes(app: App) {
         })),
         app.lifecycle.now(),
       );
-      return { routeKm, suggestedEur };
+      // msat equivalent computed server-side (current snapshot, floor-to-sat):
+      // the client shows EUR and prefills sats, it never converts money.
+      const rate = await app.eurRate.snapshot();
+      return {
+        routeKm,
+        suggestedEur,
+        suggestedMsat: msat(eurFloatToMsat(suggestedEur, rate.satsPerEur)),
+        eurRate: { satsPerEur: rate.satsPerEur, source: rate.source, at: rate.at.toISOString() },
+      };
     },
   );
 }
@@ -525,6 +540,13 @@ async function buildBoard(app: App, trip: typeof carrierTrips.$inferSelect, carr
       },
       weightG: meta.row.weightG,
       undeclared: meta.row.undeclared,
+      // The shipment's FROZEN snapshot (ADR-008): the card's indicative €
+      // must use the same rate that will govern the carrier's payout.
+      eurRate: {
+        satsPerEur: meta.row.eurRateSnapshot,
+        source: meta.row.eurRateSource,
+        at: meta.row.eurRateAt.toISOString(),
+      },
     };
   });
 }

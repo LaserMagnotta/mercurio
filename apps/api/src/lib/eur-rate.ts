@@ -51,3 +51,22 @@ export function eurToMsat(wholeEur: number, satsPerEur: string): bigint {
 export function msatPerEur(satsPerEur: string): bigint {
   return eurToMsat(1, satsPerEur);
 }
+
+/**
+ * Indicative msat value of a fractional-EUR amount, floored to a whole sat.
+ * For SUGGESTIONS only (offer / min-rate anchors the UI prefixes into
+ * sats-first inputs, ADR-008: EUR exists only at input/display): the EUR side
+ * is quantized to cents before any arithmetic, so the only rounding is the
+ * final floor-to-sat. Real money movements never pass through here — they are
+ * priced in integer msat by the pure engines.
+ */
+export function eurFloatToMsat(eur: number, satsPerEur: string): bigint {
+  if (!Number.isFinite(eur) || eur < 0) {
+    throw new RangeError(`eur must be a non-negative finite number, got ${eur}`);
+  }
+  const cents = BigInt(Math.round(eur * 100));
+  const [intPart, fracPart = ''] = satsPerEur.split('.');
+  const scaled = BigInt(intPart + fracPart.padEnd(8, '0').slice(0, 8)); // sats × 10^8
+  const sats = (cents * scaled) / (100n * 100_000_000n);
+  return sats * 1000n;
+}
