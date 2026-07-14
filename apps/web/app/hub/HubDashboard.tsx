@@ -157,6 +157,9 @@ export function HubDashboard() {
                       />
                       <span className="badge badge-neutral">{t(`stayStatus.${stay.status}`)}</span>
                     </div>
+                    <p className="small">
+                      <strong>{t('acceptDest', { hub: hubName(stay.destHubId) })}</strong>
+                    </p>
                     <p className="small muted">
                       {stay.storageDeadlineAt
                         ? t('storageUntil', {

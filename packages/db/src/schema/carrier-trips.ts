@@ -19,4 +19,8 @@ export const carrierTrips = pgTable('carrier_trips', {
   maxDeviationKm: doublePrecision('max_deviation_km').notNull(),
   minRateMsatPerKm: bigint('min_rate_msat_per_km', { mode: 'bigint' }).notNull(),
   status: carrierTripStatusEnum('status').notNull().default('active'),
+  // Declaration time, distinct from departsAt (which the carrier can set in
+  // the future): GET /me/trips orders by this to find the most recently
+  // declared trip, since ids are random (not time-ordered).
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });

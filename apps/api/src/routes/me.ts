@@ -1,9 +1,11 @@
-import { eq } from 'drizzle-orm';
+import { count, desc, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import type { App } from '../app';
-import { hubs, users } from '@mercurio/db';
+import { carrierTrips, hubs, shipments, users } from '@mercurio/db';
+import { listQuery } from '@mercurio/shared';
 import { requireAuth } from '../plugins/auth-guard';
 import { activateCarrierRole, deleteAccount, exportUserData, getRoles } from '../lib/account';
+import { msat } from '../lib/serialize';
 
 const hubBody = z.object({
   name: z.string().min(1).max(200),
@@ -74,6 +76,108 @@ export function registerMeRoutes(app: App) {
         })
         .returning();
       return reply.code(201).send(hub);
+    },
+  );
+
+  /** The sender's own shipments (ADR-018 §5): replaces the `localStorage`
+   *  memory the web UI used before this endpoint existed. Newest first,
+   *  simple offset pagination — a sender's own history is never large
+   *  enough in the MVP to need a cursor. */
+  app.get(
+    '/me/shipments',
+    { schema: { querystring: listQuery }, preHandler: requireAuth },
+    async (request) => {
+      const senderId = request.userId!;
+      const { limit, offset } = request.query;
+
+      const [rows, totalRows] = await Promise.all([
+        app.db
+          .select()
+          .from(shipments)
+          .where(eq(shipments.senderId, senderId))
+          .orderBy(desc(shipments.createdAt))
+          .limit(limit)
+          .offset(offset),
+        app.db.select({ value: count() }).from(shipments).where(eq(shipments.senderId, senderId)),
+      ]);
+      const total = totalRows[0]?.value ?? 0;
+
+      const hubIds = new Set<string>();
+      for (const s of rows) {
+        hubIds.add(s.originHubId);
+        hubIds.add(s.destHubId);
+      }
+      const hubRows =
+        hubIds.size === 0
+          ? []
+          : await app.db
+              .select({ id: hubs.id, name: hubs.name })
+              .from(hubs)
+              .where(inArray(hubs.id, [...hubIds]));
+      const hubName = (id: string) => hubRows.find((h) => h.id === id)?.name ?? '—';
+
+      return {
+        items: rows.map((s) => ({
+          id: s.id,
+          status: s.status.toUpperCase(),
+          originHubId: s.originHubId,
+          originHubName: hubName(s.originHubId),
+          destHubId: s.destHubId,
+          destHubName: hubName(s.destHubId),
+          offerMsat: msat(s.offerMsat),
+          createdAt: s.createdAt.toISOString(),
+        })),
+        total,
+        limit,
+        offset,
+      };
+    },
+  );
+
+  /** The carrier's own declared trips (ADR-018 §5), newest declaration
+   *  first. `status` mirrors the DB column as-is (MATCHING.md §1 / api.ts
+   *  `meTripDto`): callers must additionally check `expiresAt` for
+   *  "currently active", since no worker ever rewrites this column. */
+  app.get(
+    '/me/trips',
+    { schema: { querystring: listQuery }, preHandler: requireAuth },
+    async (request) => {
+      const userId = request.userId!;
+      const { limit, offset } = request.query;
+
+      const [rows, totalRows] = await Promise.all([
+        app.db
+          .select()
+          .from(carrierTrips)
+          .where(eq(carrierTrips.userId, userId))
+          .orderBy(desc(carrierTrips.createdAt))
+          .limit(limit)
+          .offset(offset),
+        app.db
+          .select({ value: count() })
+          .from(carrierTrips)
+          .where(eq(carrierTrips.userId, userId)),
+      ]);
+      const total = totalRows[0]?.value ?? 0;
+
+      return {
+        items: rows.map((t) => ({
+          id: t.id,
+          status: t.status,
+          originLat: t.originLat,
+          originLng: t.originLng,
+          destLat: t.destLat,
+          destLng: t.destLng,
+          maxDeviationKm: t.maxDeviationKm,
+          minRateMsatPerKm: msat(t.minRateMsatPerKm),
+          departsAt: t.departsAt.toISOString(),
+          expiresAt: t.expiresAt.toISOString(),
+          createdAt: t.createdAt.toISOString(),
+        })),
+        total,
+        limit,
+        offset,
+      };
     },
   );
 

@@ -16,16 +16,27 @@ import {
   activateCarrierRole,
   createTrip,
   getHubs,
+  getMyTrips,
   getSuggestedRate,
   getWallet,
   type Hub,
+  type MeTrips,
   type SuggestedRate,
 } from '../../lib/api/endpoints';
 import { ApiError } from '../../lib/api/client';
 import { useApiErrorMessage } from '../../lib/api-error-message';
 import { useSession } from '../../lib/session';
 import { formatDateTime, formatEurIndicative, formatSats, satsToMsat } from '../../lib/format';
-import { activeTrip, rememberTrip, type ActiveTrip } from '../../lib/recent';
+
+type Trip = MeTrips['items'][number];
+
+/** Whether the most recently declared trip still admits board browsing
+ *  (MATCHING.md §1): a trip row is never rewritten on expiry (ADR-018 §5 —
+ *  GET /me/trips route note), so "active" is `status === 'active'` AND the
+ *  deadline still ahead, checked here exactly like the board/route routes do. */
+function isActive(trip: Trip): boolean {
+  return trip.status === 'active' && new Date(trip.expiresAt).getTime() > Date.now();
+}
 
 const SATS_RE = /^\d{1,12}$/;
 
@@ -39,7 +50,7 @@ export default function CarrierPage() {
 
   const [hubs, setHubs] = useState<Hub[]>([]);
   const [walletConnected, setWalletConnected] = useState<boolean | null>(null);
-  const [trip, setTrip] = useState<ActiveTrip | null>(null);
+  const [trip, setTrip] = useState<Trip | null>(null);
   const [suggested, setSuggested] = useState<SuggestedRate | null>(null);
 
   const [manualCoords, setManualCoords] = useState(false);
@@ -55,7 +66,6 @@ export default function CarrierPage() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    setTrip(activeTrip());
     getHubs()
       .then((res) => setHubs(res.hubs))
       .catch(() => setHubs([]));
@@ -69,6 +79,12 @@ export default function CarrierPage() {
     getSuggestedRate()
       .then(setSuggested)
       .catch(() => setSuggested(null));
+    // Only the most recently declared trip counts as "the active trip"
+    // banner (ADR-018 §5): same one-trip-at-a-time semantics the old
+    // localStorage memory had.
+    getMyTrips({ limit: 1 })
+      .then((res) => setTrip(res.items[0] && isActive(res.items[0]) ? res.items[0] : null))
+      .catch(() => setTrip(null));
   }, [user]);
 
   if (loading) return <p className="muted">{tCommon('loading')}</p>;
@@ -142,7 +158,6 @@ export default function CarrierPage() {
           throw err;
         }
       }
-      rememberTrip({ id: created.id, expiresAt: created.expiresAt });
       router.push(`/carrier/trips/${created.id}`);
     } catch (err) {
       setError(errorMessage(err));

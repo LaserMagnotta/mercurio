@@ -24,7 +24,6 @@ import {
 import { useApiErrorMessage } from '../../lib/api-error-message';
 import { useSession } from '../../lib/session';
 import { formatEurIndicative, formatKm, formatSats, satsToMsat } from '../../lib/format';
-import { rememberShipment } from '../../lib/recent';
 import { HubCard } from '../../components/HubCard';
 
 const SATS_RE = /^\d{1,15}$/;
@@ -198,7 +197,6 @@ export default function SendPage() {
     setBusy(true);
     try {
       const created = await createShipment(parsed.data);
-      rememberShipment(created.id);
       router.push(`/shipments/${created.id}?created=1`);
     } catch (err) {
       setSubmitError(errorMessage(err));

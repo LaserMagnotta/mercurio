@@ -45,9 +45,11 @@
     "hubsBody": "Scopri i punti di deposito attivi nella rete.",
     "hubsCta": "Vedi gli hub",
     "hubMineCta": "Gestisci il tuo hub",
-    "recentTitle": "Le tue spedizioni recenti",
-    "recentNote": "Salvate su questo dispositivo.",
-    "recentEmpty": "Nessuna spedizione recente su questo dispositivo."
+    "recentTitle": "Le tue spedizioni",
+    "recentEmpty": "Non hai ancora creato spedizioni.",
+    "routeLine": "{origin} → {dest}",
+    "openShipment": "Apri",
+    "loadMore": "Carica altre"
   },
   "auth": {
     "loginTitle": "Accedi a Mercurio",

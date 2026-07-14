@@ -55,3 +55,16 @@ export type ReviewRole = (typeof REVIEW_ROLES)[number];
  *  retention window (closure + 30 days, RISKS.md §6): the documentation and
  *  the judgment about one shipment share a lifecycle. */
 export const REVIEW_WINDOW_DAYS = 30;
+
+/** Carrier trip status (mirrors the Postgres enum `carrier_trip_status`). A
+ *  trip row is written once and never updated by any transition: routes
+ *  treat "active" as `status === 'active' && expiresAt > now` (MATCHING.md
+ *  §1) rather than trusting a stale column. */
+export const CARRIER_TRIP_STATUSES = ['active', 'expired', 'cancelled'] as const;
+export type CarrierTripStatus = (typeof CARRIER_TRIP_STATUSES)[number];
+
+/** Simple offset pagination defaults for GET /me/* list endpoints
+ *  (ADR-018 §5: the account is now the source of a user's own shipments and
+ *  trips, not the device). */
+export const DEFAULT_LIST_LIMIT = 20;
+export const MAX_LIST_LIMIT = 100;

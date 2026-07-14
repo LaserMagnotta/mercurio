@@ -43,6 +43,13 @@
       "when": 1783956139712,
       "tag": "0005_recipient_claim",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1784014885838,
+      "tag": "0006_mysterious_hulk",
+      "breakpoints": true
     }
   ]
 }

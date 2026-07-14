@@ -11,7 +11,14 @@ import { z } from 'zod';
 // From the leaf module, NOT './index': the barrel re-exports this file, and
 // a circular value import would leave these constants undefined while the
 // schemas below are being built (silently disabling the checks).
-import { MAX_STORAGE_HOURS, REVIEW_ROLES, SHIPMENT_STATES } from './protocol';
+import {
+  CARRIER_TRIP_STATUSES,
+  DEFAULT_LIST_LIMIT,
+  MAX_LIST_LIMIT,
+  MAX_STORAGE_HOURS,
+  REVIEW_ROLES,
+  SHIPMENT_STATES,
+} from './protocol';
 
 // ---------------------------------------------------------------------------
 // Scalars
@@ -227,6 +234,58 @@ export const tripRouteQuery = z.object({
 });
 
 // ---------------------------------------------------------------------------
+// Account lists (ADR-018 §5): GET /me/shipments and GET /me/trips replace the
+// device-local `localStorage` memory the web UI used to keep — the account
+// is now the source of a user's own shipments and declared trips.
+
+export const listQuery = z.object({
+  limit: z.coerce.number().int().min(1).max(MAX_LIST_LIMIT).default(DEFAULT_LIST_LIMIT),
+  offset: z.coerce.number().int().min(0).default(0),
+});
+
+export const meShipmentDto = z.object({
+  id: uuidString,
+  status: shipmentStateSchema,
+  originHubId: uuidString,
+  originHubName: z.string(),
+  destHubId: uuidString,
+  destHubName: z.string(),
+  offerMsat: msatString,
+  createdAt: z.string(),
+});
+
+export const meShipmentsDto = z.object({
+  items: z.array(meShipmentDto),
+  total: z.number().int(),
+  limit: z.number().int(),
+  offset: z.number().int(),
+});
+
+/** One declared trip (MATCHING.md §1). `status` mirrors the DB column, which
+ *  a transition never rewrites (see CARRIER_TRIP_STATUSES): callers treat a
+ *  trip as active iff `status === 'active' && expiresAt` is in the future. */
+export const meTripDto = z.object({
+  id: uuidString,
+  status: z.enum(CARRIER_TRIP_STATUSES),
+  originLat: z.number(),
+  originLng: z.number(),
+  destLat: z.number(),
+  destLng: z.number(),
+  maxDeviationKm: z.number(),
+  minRateMsatPerKm: msatString,
+  departsAt: z.string(),
+  expiresAt: z.string(),
+  createdAt: z.string(),
+});
+
+export const meTripsDto = z.object({
+  items: z.array(meTripDto),
+  total: z.number().int(),
+  limit: z.number().int(),
+  offset: z.number().int(),
+});
+
+// ---------------------------------------------------------------------------
 // Response DTOs (zod so fastify serializes them — a bigint can never leak)
 
 export const eurRateDto = z.object({
@@ -435,3 +494,8 @@ export type LegAcceptBody = z.infer<typeof legAcceptBody>;
 export type CreateTripBody = z.infer<typeof createTripBody>;
 export type ShipmentDetailDto = z.infer<typeof shipmentDetailDto>;
 export type BoardCardDto = z.infer<typeof boardCardDto>;
+export type ListQuery = z.infer<typeof listQuery>;
+export type MeShipmentDto = z.infer<typeof meShipmentDto>;
+export type MeShipmentsDto = z.infer<typeof meShipmentsDto>;
+export type MeTripDto = z.infer<typeof meTripDto>;
+export type MeTripsDto = z.infer<typeof meTripsDto>;

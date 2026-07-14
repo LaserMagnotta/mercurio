@@ -25,6 +25,11 @@ account page (`/account`: export + erasure). Photos are certified by
 client-computed sha256 (WebCrypto) — they never leave the device; QR fields
 accept the scanned `/p/<token>` URL or the bare token.
 
+Also closed the same day (ADR-018 §5): the home page and `/carrier` now read
+a user's own shipments and declared trips from the account (`GET
+/me/shipments`, `GET /me/trips`, paginated) instead of remembering ids in
+`localStorage`.
+
 ## Architecture notes
 
 - **Same-origin proxy (ADR-018)**: the browser talks to `/api/*`, rewritten
@@ -79,6 +84,9 @@ the GDPR consent on first login, connect a fake wallet from _Wallet_):
      appears in Mario's dashboard for the **manual accept**.
    - The detail page shows the printable QR, amounts with the frozen rate,
      the custody chain and cancel/boost/reroute per state.
+   - Back on the home page, the shipment now appears under **Le tue
+     spedizioni** (`GET /me/shipments`, ADR-018 §5) with its route and
+     status, newest first.
 2. **Origin hub** (mario) — _Hub_ → "Il tuo hub": the dashboard lists deposit
    requests (manual accept) and the stays with storage deadlines. Open the
    stay's operations page and certify the **check-in**: paste the parcel QR
@@ -90,6 +98,9 @@ the GDPR consent on first login, connect a fake wallet from _Wallet_):
    board shows the parcel under **Per te** with the frozen net + delivery
    bonus; _Accetta_ books the leg; the fake wallets fund the holds within
    ~1 min (pg-boss pump) → `LEG_BOOKED`.
+   - Back on `/carrier`, the declared trip shows as the **Viaggio attivo**
+     banner (`GET /me/trips`, ADR-018 §5) — the most recently declared trip,
+     still `active` and unexpired.
 4. **Checkout, double confirmation**: luca on the shipment page ("Azioni del
    vettore": QR + confirm) and mario on the operations page (QR + photo)
    within 15 minutes of each other → `IN_TRANSIT`.
@@ -116,8 +127,6 @@ the GDPR consent on first login, connect a fake wallet from _Wallet_):
 
 ## Known limitations (part 2)
 
-- No `GET /me/shipments`/`GET /me/trips` in the API yet: the home page and
-  the carrier page remember ids in `localStorage` (this device only).
 - NWC wallets are on the roadmap (ADR-013): the API answers 501; the form
   explains it.
 - The suggested-offer "forbice" is qualitative copy: the API does not expose

@@ -12,6 +12,8 @@ import type {
   createTripBody,
   handoffRejectBody,
   hubDto,
+  meShipmentsDto,
+  meTripsDto,
   shipmentCreatedDto,
   shipmentDetailDto,
   shipmentPublicDto,
@@ -23,6 +25,8 @@ import type {
 import { apiFetch } from './client';
 
 export type Hub = z.infer<typeof hubDto>;
+export type MeShipments = z.infer<typeof meShipmentsDto>;
+export type MeTrips = z.infer<typeof meTripsDto>;
 export type ShipmentDetail = z.infer<typeof shipmentDetailDto>;
 export type ShipmentCreated = z.infer<typeof shipmentCreatedDto>;
 export type ShipmentPublic = z.infer<typeof shipmentPublicDto>;
@@ -96,6 +100,14 @@ export const exportMyData = () => apiFetch<Record<string, unknown>>('/me/export'
 
 export const deleteMyAccount = () => apiFetch<{ ok: true }>('/me', { method: 'DELETE' });
 
+/** ADR-018 §5: the account is the source of a user's own shipments/trips —
+ *  simple offset pagination, newest declaration first. */
+export const getMyShipments = (params?: { limit?: number; offset?: number }) =>
+  apiFetch<MeShipments>('/me/shipments', { query: { ...params } });
+
+export const getMyTrips = (params?: { limit?: number; offset?: number }) =>
+  apiFetch<MeTrips>('/me/trips', { query: { ...params } });
+
 // ------------------------------------------------------------------- wallet
 
 export type WalletKind = 'nwc' | 'lnd_rest' | 'fake';
@@ -141,6 +153,7 @@ export interface HubStaySummary {
   shipmentStatus: string;
   storageDeadlineAt: string | null;
   custodyBondMsat: string;
+  destHubId: string;
 }
 
 export interface HubDashboard {

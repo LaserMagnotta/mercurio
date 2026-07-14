@@ -45,9 +45,11 @@
     "hubsBody": "Discover the active deposit points in the network.",
     "hubsCta": "See the hubs",
     "hubMineCta": "Manage your hub",
-    "recentTitle": "Your recent shipments",
-    "recentNote": "Stored on this device.",
-    "recentEmpty": "No recent shipments on this device."
+    "recentTitle": "Your shipments",
+    "recentEmpty": "You haven't created any shipments yet.",
+    "routeLine": "{origin} → {dest}",
+    "openShipment": "Open",
+    "loadMore": "Load more"
   },
   "auth": {
     "loginTitle": "Sign in to Mercurio",

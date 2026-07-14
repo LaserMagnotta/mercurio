@@ -92,6 +92,9 @@ export function registerHubRoutes(app: App) {
         shipmentStatus: shipment.status,
         storageDeadlineAt: stay.storageDeadlineAt?.toISOString() ?? null,
         custodyBondMsat: msat(shipment.custodyBondMsat),
+        // The dashboard identifies a stay by where the parcel is headed
+        // (hub name), never a truncated shipment id.
+        destHubId: shipment.destHubId,
       })),
     };
   });

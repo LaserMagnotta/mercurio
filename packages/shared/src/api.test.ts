@@ -9,7 +9,11 @@ import { describe, expect, it } from 'vitest';
 import {
   createReviewBody,
   createShipmentBody,
+  DEFAULT_LIST_LIMIT,
+  listQuery,
+  MAX_LIST_LIMIT,
   MAX_STORAGE_HOURS,
+  meTripDto,
   shipmentStateSchema,
 } from './index';
 
@@ -40,5 +44,12 @@ describe('api schemas receive real constant values', () => {
     expect(createReviewBody.safeParse(review).success).toBe(true);
     expect(createReviewBody.safeParse({ ...review, role: 'recipient' }).success).toBe(false);
     expect(createReviewBody.safeParse({ ...review, stars: 6 }).success).toBe(false);
+  });
+
+  it('applies DEFAULT_LIST_LIMIT/MAX_LIST_LIMIT and CARRIER_TRIP_STATUSES from the enums', () => {
+    expect(listQuery.parse({}).limit).toBe(DEFAULT_LIST_LIMIT);
+    expect(listQuery.safeParse({ limit: MAX_LIST_LIMIT + 1 }).success).toBe(false);
+    expect(meTripDto.shape.status.parse('active')).toBe('active');
+    expect(meTripDto.shape.status.safeParse('bogus').success).toBe(false);
   });
 });

@@ -1,7 +1,8 @@
 # ADR-018 — Web UI: proxy same-origin, importi sats-first solo dall'API, i18n a cookie
 
 - Stato: accettato e implementato — 2026-07-14 (parte 1); esteso lo stesso
-  giorno con le decisioni della parte 2 (§6)
+  giorno con le decisioni della parte 2 (§6); §5 chiuso lo stesso giorno con
+  l'arrivo di `GET /me/shipments` e `GET /me/trips`
 - Contesto: consegna della web UI (parte 1: fondamenta + flusso mittente e
   vettore; parte 2: hub, destinatario, recensioni, GDPR); ADR-002 (Next.js +
   API Fastify separata), ADR-008 (importi), ADR-009 (auth), ADR-015 (mappa),
@@ -74,13 +75,27 @@ Leaflet + react-leaflet (ADR-015) caricati con `next/dynamic` `ssr: false`
 (Leaflet tocca `window` all'import); tile OSM di default con attribution
 corretta; nessun dato a Google prima del click sull'URL generata dal server.
 
-### 5. Memoria locale del dispositivo (limite dichiarato)
+### 5. Memoria locale del dispositivo — chiuso: `GET /me/shipments` e `GET /me/trips` (2026-07-14)
 
-L'API non ha ancora `GET /me/shipments` né `GET /me/trips`: la UI ricorda in
-`localStorage` gli id delle spedizioni create e l'ultimo viaggio dichiarato
-(soli id e scadenze, niente importi né PII). Quando gli endpoint di lista
-arriveranno, questa memoria sparisce (limite rimasto anche dopo la parte 2:
-gli endpoint non esistono ancora).
+Fino a questo punto l'API non aveva `GET /me/shipments` né `GET /me/trips`:
+la UI ricordava in `localStorage` gli id delle spedizioni create e l'ultimo
+viaggio dichiarato (soli id e scadenze, niente importi né PII). I due
+endpoint esistono ora — paginazione semplice offset/limit (`limit`/`offset`
+in query, default 20, tetto 100, `@mercurio/shared` `listQuery`), risposta
+`{ items, total, limit, offset }` con `meShipmentDto`/`meTripDto` — e la home
+e `/carrier` leggono le spedizioni e i viaggi dall'account al posto del
+dispositivo; `lib/recent.ts` è stato rimosso. Conseguenze:
+
+- Le spedizioni tornano più recenti prima (`shipments.created_at`); i viaggi
+  allo stesso modo, ma su una colonna nuova (`carrier_trips.created_at`,
+  aggiunta con questo cambio): gli id sono UUID casuali, non ordinabili per
+  tempo da soli.
+- Un vettore ha un solo "viaggio attivo" mostrato in `/carrier`: il più
+  recente per dichiarazione con `status = 'active'` e `expiresAt` non ancora
+  scaduto — la stessa semantica "un solo viaggio alla volta" della vecchia
+  memoria locale, solo letta dal server invece che dal browser.
+- `GET /me/shipments` risolve i nomi hub (`originHubName`/`destHubName`) per
+  la card nella home, non solo gli id.
 
 ### 6. Parte 2 — hub, destinatario, recensioni, GDPR (2026-07-14)
 

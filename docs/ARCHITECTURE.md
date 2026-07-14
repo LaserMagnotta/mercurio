@@ -147,8 +147,10 @@ rispettano i vincoli dichiarati (necessaria perché l'hub di arrivo di una tratt
 "accetta quando il pacco parte" senza interazione umana in tempo reale).
 
 **carrier_trips** — `id, user_id, origin_lat/lng, dest_lat/lng, departs_at, expires_at,
-max_deviation_km, min_rate_msat_per_km, status`. Il viaggio reale dichiarato prima di
-consultare la bacheca (MATCHING.md).
+max_deviation_km, min_rate_msat_per_km, status, created_at`. Il viaggio reale dichiarato
+prima di consultare la bacheca (MATCHING.md). `created_at` (ADR-018 §5) è la data di
+dichiarazione, distinta da `departs_at` (che il vettore può impostare nel futuro): ordina
+`GET /me/trips`, dato che gli id sono UUID casuali e non tempo-ordinabili.
 
 **shipments** — `id, sender_id, origin_hub_id, dest_hub_id, recipient_email,
 recipient_pickup_otp_hash, recipient_claim_token_hash (credenziale bearer del
