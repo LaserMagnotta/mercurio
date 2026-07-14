@@ -258,13 +258,14 @@ export function suggestSenderOfferEur(
 Funzione pura: testabile con scenari geometrici sintetici (come l'esempio §2) e
 proprietà (mai suggerire hub con progresso ≤ soglia; surplus coerente con ECONOMICS).
 
-## 8. Mappa del viaggio e export Google Maps (ADR-015 — da implementare)
+## 8. Mappa del viaggio e export Google Maps (ADR-015 — parte dati implementata)
 
 La vista viaggio del vettore mostra una **mappa** (Leaflet + tile OSM, niente
-API key) con partenza `O`, destinazione `Dc`, gli hub di ritiro/consegna delle
-tratte accettate (e in anteprima quelli della tratta selezionata in bacheca) e
-la polilinea dell'itinerario nell'**ordine di visita più breve** che rispetta
-il vincolo ritiro-prima-di-consegna per ogni spedizione:
+API key — la mappa in-app resta alla web UI, da fare) con partenza `O`,
+destinazione `Dc`, gli hub di ritiro/consegna delle tratte accettate (e in
+anteprima quelli della tratta selezionata in bacheca) e la polilinea
+dell'itinerario nell'**ordine di visita più breve** che rispetta il vincolo
+ritiro-prima-di-consegna per ogni spedizione:
 
 ```ts
 /** Shortest open path O → … → Dc visiting all stops, pickup before drop
@@ -277,11 +278,19 @@ export function orderRouteWaypoints(
 ): RouteStop[];
 ```
 
-Il bottone **"Apri in Google Maps"** genera l'URL
+Implementata in `@mercurio/core` (`matching/route.ts`): ricerca esatta (DP su
+sottoinsiemi) su distanze quantizzate al metro, testata contro il brute force
+e con property su precedenze e stabilità. L'API la espone con
+**`GET /trips/:id/route`**: tappe ordinate delle tratte accettate del viaggio
+(una tratta già ritirata contribuisce solo la consegna), anteprima opzionale
+di una spedizione della bacheca (`previewShipmentId` + `previewDropHubId`),
+tappe oltre il tetto in `unroutedStops` (raggruppate per spedizione, da
+mostrare in lista) e l'URL già pronta del bottone **"Apri in Google Maps"**:
 `https://www.google.com/maps/dir/?api=1&origin=…&destination=…&waypoints=lat,lng|…&travelmode=driving`
-con le tappe in quell'ordine: il routing stradale vero lo fa Google al click
-(nessun dato inviato prima dell'azione esplicita dell'utente). Dettagli e
-alternative scartate in [ADR-015](adr/ADR-015-carrier-route-map.md).
+con le tappe in quell'ordine — il routing stradale vero lo fa Google al click
+(nessun dato inviato prima dell'azione esplicita dell'utente). Dettagli,
+alternative scartate e precisazioni implementative in
+[ADR-015](adr/ADR-015-carrier-route-map.md).
 
 ## 7. Precisazioni implementative (rev. 2 — `packages/core/src/matching`)
 

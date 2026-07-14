@@ -2,7 +2,10 @@
 
 - Stato: accettato (richiesta utente) — 2026-07-13
 - Contesto UI: bacheca e viaggio del vettore (MATCHING.md §8)
-- Implementazione: **da fare**
+- Implementazione: **parte dati implementata** (2026-07-14):
+  `orderRouteWaypoints` in `@mercurio/core` e `GET /trips/:id/route` in
+  `apps/api` (tappe ordinate + URL Google Maps — precisazioni in fondo).
+  La mappa Leaflet in-app resta alla web UI, **da fare**.
 
 ## Contesto
 
@@ -64,3 +67,33 @@ più breve.
   attribution corretta; da riesaminare a volumi alti (policy tile server).
 - L'API espone i dati del viaggio già oggi; serve solo un endpoint/selezione
   che restituisca le tappe del viaggio attivo con lat/lng degli hub.
+
+## Precisazioni implementative (parte dati, 2026-07-14)
+
+Decisioni minori emerse implementando, nella direzione della soluzione più
+semplice coerente con la decisione:
+
+1. **`orderRouteWaypoints`** (`packages/core/src/matching/route.ts`): DP
+   esatta su sottoinsiemi (Held–Karp) con vincolo di precedenza; distanze
+   quantizzate al metro intero prima delle somme (come il resto del
+   matching: l'ottimo è ben definito e i test lo confrontano col brute
+   force in uguaglianza stretta). Ordine canonico dei waypoint in ingresso
+   + tie-break per indice ⇒ output indipendente dall'ordine dell'array del
+   chiamante (property test). Oltre `MAX_ROUTE_WAYPOINTS` la funzione lancia
+   `RangeError`: decide il chiamante cosa lasciare fuori.
+2. **`GET /trips/:id/route`** (solo proprietario del viaggio, nessun gate
+   sullo stato del viaggio: la vista è di sola lettura e serve anche a
+   viaggio scaduto con tratte ancora in transito). Le tappe vengono dalle
+   tratte **accettate** (`pending_funding`, `booked`, `picked_up`); una
+   tratta `picked_up` contribuisce solo la consegna (il ritiro è già
+   avvenuto). Query opzionale `previewShipmentId` + `previewDropHubId`
+   (entrambi o nessuno) aggiunge l'anteprima di una spedizione della
+   bacheca: ritiro all'hub corrente, consegna all'hub scelto sulla card.
+3. **Oltre il tetto**: le tappe si raggruppano per spedizione (mai un
+   ritiro instradato senza la sua consegna), tratte in ordine di
+   accettazione e anteprima per ultima; i gruppi che non entrano in
+   `MAX_ROUTE_WAYPOINTS` tornano in `unroutedStops`, che la UI mostra in
+   lista come da decisione 2.
+4. **URL Google Maps** generata dal server nello stesso ordine calcolato;
+   tappe consecutive sullo stesso hub (consegna + ritiro) collassano in un
+   solo waypoint dell'URL.

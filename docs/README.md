@@ -3,14 +3,18 @@
 > Regola dal CLAUDE.md: leggere `/docs` prima di ogni task; se manca una decisione,
 > proporla e aggiornare `/docs`.
 
-Stato attuale (2026-07-13): architettura approvata; implementati db+ledger,
+Stato attuale (2026-07-14): architettura approvata; implementati db+ledger,
 auth/API di base, motore economico, matching, macchina a stati, coordinatore
 escrow non custodiale, premio di finalizzazione (ADR-014), **API del ciclo
 di vita delle spedizioni** (executor degli effetti, bacheca del viaggio,
 wallet-event pump, timer e worker pg-boss; OpenAPI servita su `/docs`
-dell'API — precisazioni in ARCHITECTURE §5) e **ritiro anticipato del
+dell'API — precisazioni in ARCHITECTURE §5), **ritiro anticipato del
 destinatario** (ADR-016: token di tracking, claim con hold P2P, stato
-`CLAIMED`). **Da implementare**: mappa del vettore (ADR-015), web UI.
+`CLAIMED`), **recensioni con aggregati per ruolo** (ADR-017: guardie sui
+ruoli effettivi, rating su bacheca/hub/dettaglio/profilo) e la **parte dati
+della mappa del vettore** (ADR-015: `orderRouteWaypoints`,
+`GET /trips/:id/route` con export Google Maps). **Da implementare**: web UI
+(inclusa la mappa Leaflet in-app dell'ADR-015).
 
 ## Documenti
 
@@ -42,6 +46,7 @@ destinatario** (ADR-016: token di tracking, claim con hold P2P, stato
 | [ADR-014](adr/ADR-014-finalization-bonus.md)        | Premio di finalizzazione: 10% dell'impegno → 70% vettore finale, 30% hub finale       |
 | [ADR-015](adr/ADR-015-carrier-route-map.md)         | Mappa del viaggio del vettore (Leaflet/OSM) + export percorso su Google Maps          |
 | [ADR-016](adr/ADR-016-recipient-claim.md)           | Ritiro anticipato del destinatario: claim con token bearer, pool residuo + Π_v        |
+| [ADR-017](adr/ADR-017-reviews.md)                   | Recensioni: ruoli effettivi, tutte le chiusure recensibili, finestra 30 giorni        |
 
 ## Stato delle decisioni
 

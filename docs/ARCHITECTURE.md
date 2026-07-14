@@ -231,7 +231,11 @@ collegate) e trigger di notifica al mittente, che può reagire con `reroute`/`bo
 **reviews** — `id, shipment_id, author_id, subject_id, role (sender|carrier|hub),
 stars (1..5), comment?, created_at`. Unique su `(shipment_id, author_id, subject_id, role)`;
 si recensisce solo chi ha avuto un ruolo effettivo nella spedizione. Rating separato per
-ruolo come da CLAUDE.md.
+ruolo come da CLAUDE.md. Regole di protocollo (spedizione chiusa in qualunque stato
+terminale, ruoli effettivi = impegni finanziati/custodie certificate, claimant ADR-016
+come `carrier`, finestra chiusura + 30 giorni) in
+[ADR-017](adr/ADR-017-reviews.md); gli aggregati (media + numero per utente e ruolo)
+sono sempre calcolati dal DB in lettura, mai denormalizzati.
 
 **rate_observations** — `id, leg_id, detour_km, net_msat, eur_rate, accepted_at`
 (alimenta il suggeritore di tariffa, MATCHING.md §4).
