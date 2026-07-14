@@ -1,9 +1,11 @@
 # ADR-018 — Web UI: proxy same-origin, importi sats-first solo dall'API, i18n a cookie
 
-- Stato: accettato e implementato — 2026-07-14
-- Contesto: prima consegna della web UI (fondamenta + flusso mittente e
-  vettore); ADR-002 (Next.js + API Fastify separata), ADR-008 (importi),
-  ADR-009 (auth), ADR-015 (mappa)
+- Stato: accettato e implementato — 2026-07-14 (parte 1); esteso lo stesso
+  giorno con le decisioni della parte 2 (§6)
+- Contesto: consegna della web UI (parte 1: fondamenta + flusso mittente e
+  vettore; parte 2: hub, destinatario, recensioni, GDPR); ADR-002 (Next.js +
+  API Fastify separata), ADR-008 (importi), ADR-009 (auth), ADR-015 (mappa),
+  ADR-016 (claim), ADR-017 (recensioni)
 
 ## Contesto
 
@@ -76,8 +78,43 @@ corretta; nessun dato a Google prima del click sull'URL generata dal server.
 
 L'API non ha ancora `GET /me/shipments` né `GET /me/trips`: la UI ricorda in
 `localStorage` gli id delle spedizioni create e l'ultimo viaggio dichiarato
-(soli id e scadenze, niente importi né PII). Quando la parte 2 aggiungerà gli
-endpoint di lista, questa memoria sparisce.
+(soli id e scadenze, niente importi né PII). Quando gli endpoint di lista
+arriveranno, questa memoria sparisce (limite rimasto anche dopo la parte 2:
+gli endpoint non esistono ancora).
+
+### 6. Parte 2 — hub, destinatario, recensioni, GDPR (2026-07-14)
+
+Decisioni di piattaforma emerse consegnando i flussi operativi; nessuna
+tocca il protocollo dei pagamenti:
+
+- **Foto = hash calcolati sul dispositivo.** L'API accetta sha256 dichiarati
+  (ARCHITECTURE §5 precisazione 12): la UI li calcola con WebCrypto
+  (`lib/photo-hash.ts`, testata sui vettori FIPS) da un input file/camera;
+  le immagini non lasciano MAI il dispositivo. Un componente unico
+  (`PhotoHashInput`) rende esplicito il comportamento all'operatore.
+- **Campi QR tolleranti.** Il QR sul pacco codifica l'URL pubblica
+  `/p/<qr_token>`: uno scanner incolla l'URL intera, un operatore digita il
+  token nudo. Ogni campo QR accetta entrambe le forme (`parseQrInput`,
+  testata) — l'API resta il giudice con `qr_mismatch`.
+- **Link nelle email di ciclo vita, MAI credenziali nelle URL.** Le email al
+  destinatario linkano `WEB_URL/track/:id`, quelle al mittente
+  `WEB_URL/shipments/:id` (stessa variabile dei magic link). Le URL portano
+  solo l'id della spedizione: token di claim e OTP restano nel corpo della
+  mail come credenziali bearer e si incollano nella pagina (una URL finisce
+  in history, log e referrer; un corpo mail no).
+- **La pagina del destinatario è una sola** (`/track/:id`): prima del claim
+  il destinatario non è partecipante (`GET /shipments/:id` → 404) e la
+  pagina mostra il form di riscatto; dopo, la stessa pagina è il tracking
+  vivo. Lo stato del claim (pendente/scaduto/attivo) si legge dalla catena
+  di custodia (`claim_requested`/`funded`/`expired` — ADR-016 precisazione
+  4): nessun endpoint nuovo.
+- **La UI offre, l'API giudica.** Le pagine operative (hub/vettore) mappano
+  stato+ruolo → azioni offerte, ma ogni guardia vera vive nell'API: i codici
+  errore delle rotte di lifecycle e recensioni sono copy mappata nei
+  cataloghi (il test di completezza li copre entrambi).
+- **GDPR in UI**: export scaricato client-side (Blob, nessun terzo);
+  cancellazione con conferma esplicita e copy onesta sull'anonimizzazione
+  (il ledger e la catena di custodia restano, senza PII).
 
 ## Conseguenze
 

@@ -537,7 +537,8 @@ registrate:
     trasporto (mai PII) — un retry di rete non raddoppia l'impegno.
 12. **Foto come hash dichiarati**: l'MVP dell'API accetta sha256 calcolati
     dal client (niente blob storage); l'hash entra nella catena di custodia
-    come certificazione. Lo storage arriverà con la web UI.
+    come certificazione. La web UI calcola gli hash sul dispositivo con
+    WebCrypto (ADR-018 §6); il blob storage resta lavoro futuro.
 13. **Auto-accettazione dell'hub di origine**: se `auto_accept` e vincoli
     rispettati, `origin_hub_accept` parte nella stessa richiesta di
     `POST /shipments` (transazione separata: un fallimento lascia DRAFT e

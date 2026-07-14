@@ -17,9 +17,13 @@ con export Google Maps, vista Leaflet in `apps/web`) e la **web UI parte 1**
 (ADR-018: fondamenta i18n it/en, client tipizzato sugli schemi condivisi,
 flusso mittente — hub, form Spedisci con QR stampabile, tracking con
 boost/reroute/cancel — e flusso vettore — viaggio, bacheca, accettazione
-tratta, vista viaggio). **Da implementare (web parte 2)**: dashboard hub e
-passaggi di mano, ritiro OTP e claim del destinatario in UI, recensioni e
-profilo, export/cancellazione GDPR in UI, adapter NWC reale.
+tratta, vista viaggio) e la **web UI parte 2** (ADR-018 §6: registrazione e
+dashboard hub, operazioni di passaggio di mano via QR con foto hashate sul
+dispositivo, check-out a doppia conferma, ritiro OTP, pagina
+tracking/claim del destinatario linkata dalle email, recensioni con profilo
+pubblico, export/cancellazione GDPR in UI). **Da implementare**: adapter NWC
+reale, `GET /me/shipments`/`GET /me/trips` (oggi supplisce il localStorage),
+blob storage foto, scanner QR in pagina, app mobile.
 
 ## Documenti
 

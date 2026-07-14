@@ -12,9 +12,18 @@ Zod schemas, design system), magic-link auth + wallet connection, the sender
 flow (hub list, "Spedisci" form with suggested offer, printable QR, tracking
 with boost/reroute/cancel) and the carrier flow (trip declaration with
 suggested rate, ranked board, leg acceptance, route map with Google Maps
-export — ADR-015). Part 2 (out of scope here): hub dashboard, double-confirm
-handoffs, OTP pickup and recipient claim, review forms, profile page, GDPR
-export/erasure UI.
+export — ADR-015).
+
+Delivered in part 2: the hub flows (`/hub` role registration + deposit
+dashboard, `/hub/shipments/:id` state-driven operations: origin accept and
+check-in, double-confirmation checkout, arrival/return check-in, OTP pickup,
+claimed pickup, documentary handoff-reject), the carrier side of the
+checkout + reject on the shipment page, the recipient tracking/claim page
+(`/track/:id`, linked from the lifecycle emails — ADR-016), reviews on
+closed shipments + the public profile (`/users/:id`, ADR-017) and the GDPR
+account page (`/account`: export + erasure). Photos are certified by
+client-computed sha256 (WebCrypto) — they never leave the device; QR fields
+accept the scanned `/p/<token>` URL or the bare token.
 
 ## Architecture notes
 
@@ -57,38 +66,55 @@ Emails (magic links, tracking) land in Mailpit: http://localhost:8025.
 ## Manual verification against the seed
 
 The demo seed creates three users with a hub each (Milano, Bologna, Firenze)
-but no wallets and no sessions. The full happy path, all through real HTTP:
+but no wallets and no sessions. The full happy path, all through the UI
+(each actor is a browser session: sign in via the Mailpit magic link, accept
+the GDPR consent on first login, connect a fake wallet from _Wallet_):
 
-1. **Sender** — on http://localhost:3000: _Accedi_ with any email (e.g.
-   `sara@example.com`), open the magic link from Mailpit, accept the GDPR
-   consent (first login only). _Wallet_ → kind "Wallet fake" → any id (e.g.
-   `sara`) → connect. _Spedisci_: origin "Bar Mario" (Bologna), destination
-   "Tabaccheria Giulia" (Firenze), recipient email, 20×15×5 cm / 200 g,
-   storage ≤ 48 h (Giulia's cap), offer via "Usa N sats" (suggested ~5,26 €
-   over 105,2 km), bond e.g. 24000 sats (≈ 15 €).
-   - The origin hub auto-accepts **only if its owner has a wallet**: sign in
-     once as `mario@example.com` and connect a fake wallet first (same two
-     steps above) if you want `AWAITING_DROPOFF` instead of `DRAFT`.
-   - The detail page shows the printable QR (print button), amounts with the
-     frozen rate, the custody chain and cancel/boost/reroute per state.
-2. **Origin check-in** (hub UI is part 2 — one curl): as mario's session,
-   `POST /shipments/:id/origin-checkin` with the shipment's `qrToken` and a
-   64-hex `photoSha256` → the parcel is `AT_HUB` and enters the boards.
-3. **Carrier** — sign in as a fourth email (e.g. `luca@example.com`),
-   connect a fake wallet, _Viaggia_: from "Bar Mario" to "Tabaccheria
-   Giulia", detour 15 km, rate via "Usa 320 sats/km" (suggested 0,20 €/km),
-   declare. The board shows the parcel under **Per te** with the frozen
-   net + separate delivery bonus, detour, bond and every rating.
-   - _Anteprima sul percorso_ draws the leg on the OSM map before accepting.
-   - _Accetta_ freezes the amounts and books the leg; the fake wallets fund
-     the holds within ~1 min (pg-boss pump) → shipment `LEG_BOOKED`, holds
-     shown as "vincolato" on the detail page, parcel off the board.
-   - The route view lists the stops in optimal order and "Apri in Google
-     Maps" uses the URL built by the API (nothing sent to Google before the
-     click).
-4. **Public QR page**: `/p/<qrToken>` shows status + hub names only.
+1. **Sender** (e.g. `sara@example.com` + fake wallet `sara`) — _Spedisci_:
+   origin "Bar Mario" (Bologna), destination "Tabaccheria Giulia" (Firenze),
+   recipient email, 20×15×5 cm / 200 g, storage ≤ 48 h (Giulia's cap), offer
+   via "Usa N sats", bond e.g. 24000 sats (≈ 15 €).
+   - The origin hub auto-accepts **only if its owner has a wallet** (connect
+     `mario@example.com` + fake wallet `mario` first); otherwise the request
+     appears in Mario's dashboard for the **manual accept**.
+   - The detail page shows the printable QR, amounts with the frozen rate,
+     the custody chain and cancel/boost/reroute per state.
+2. **Origin hub** (mario) — _Hub_ → "Il tuo hub": the dashboard lists deposit
+   requests (manual accept) and the stays with storage deadlines. Open the
+   stay's operations page and certify the **check-in**: paste the parcel QR
+   (the full `/p/<token>` URL works) and pick a photo — hashed on-device,
+   only the sha256 is sent → `AT_HUB`, parcel on the boards. The tracking
+   email (personal claim token + `/track/:id` link) lands in Mailpit.
+3. **Carrier** (`luca@example.com` + fake wallet) — _Viaggia_: declare the
+   trip Bar Mario → Tabaccheria Giulia, rate via "Usa 320 sats/km"; the
+   board shows the parcel under **Per te** with the frozen net + delivery
+   bonus; _Accetta_ books the leg; the fake wallets fund the holds within
+   ~1 min (pg-boss pump) → `LEG_BOOKED`.
+4. **Checkout, double confirmation**: luca on the shipment page ("Azioni del
+   vettore": QR + confirm) and mario on the operations page (QR + photo)
+   within 15 minutes of each other → `IN_TRANSIT`.
+5. **Destination hub** (giulia + fake wallet, connected BEFORE the leg was
+   accepted — the arrival bond is hers): operations page → arrival check-in
+   with photo + integrity confirmation → `AWAITING_PICKUP`; the recipient
+   gets the OTP email. **Pickup**: QR + OTP on the operations page →
+   `DELIVERED`. A `handoff-reject` (photos + reason) is offered at every
+   receiving step instead of certifying (ADR-012).
+6. **Reviews** (any participant, closed shipment): the detail page offers
+   the form over the effective participants (ADR-017); the public profile
+   `/users/:id` shows per-role aggregates and received reviews.
+7. **Recipient claim** (second shipment, parcel `AT_HUB`): open the
+   `/track/:id` link from the tracking email as a signed-in account with a
+   wallet (e.g. `rita.dest@example.com` + fake wallet `rita`), paste the
+   personal code → the frozen amounts (residual pool + Π_v) and the 60-min
+   funding window appear; once funded → `CLAIMED` with counter instructions
+   and the token QR. The custodian hub completes from its operations page
+   (parcel QR + claim token) → `DELIVERED` (ADR-016).
+8. **GDPR** (`/account`, linked from the header email): JSON export
+   downloaded client-side; irreversible anonymizing erasure with
+   confirmation (signs you out).
+9. **Public QR page**: `/p/<qrToken>` shows status + hub names only.
 
-## Known limitations (part 1)
+## Known limitations (part 2)
 
 - No `GET /me/shipments`/`GET /me/trips` in the API yet: the home page and
   the carrier page remember ids in `localStorage` (this device only).
@@ -96,3 +122,7 @@ but no wallets and no sessions. The full happy path, all through real HTTP:
   explains it.
 - The suggested-offer "forbice" is qualitative copy: the API does not expose
   historical percentiles yet.
+- Photos remain client-declared hashes (no blob storage): the certification
+  is tamper-evident but the image itself is only on the taker's device.
+- QR scanning uses the device camera app / a scanner into the text field;
+  there is no in-page camera scanner yet.
