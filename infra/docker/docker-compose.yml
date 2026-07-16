@@ -1,12 +1,16 @@
-# Mercurio — regtest Lightning dev environment (ADR-004, ADR-013).
+# Mercurio — regtest Lightning dev environment (ADR-004, ADR-013, ADR-019).
 #
 # The platform has NO wallet of its own: the three LND nodes below are the
 # *users'* wallets (alice = sender, bob = carrier, carol = hub), used to
 # exercise hold invoices, preimage reveals and cancellations end-to-end.
+# The nostr relay + two Alby Hub instances on top of alice and bob are the
+# REAL NWC path (ADR-019 §7): the same LND nodes, reached through NIP-47
+# over a relay instead of the direct REST adapter.
 #
 # Usage:
 #   docker compose -f infra/docker/docker-compose.yml up -d
-#   ./infra/docker/bootstrap.sh     # mine blocks, fund wallets, open channels
+#   ./infra/docker/bootstrap.sh     # mine blocks, fund wallets, open channels,
+#                                   # set up the NWC wallet services
 
 name: mercurio-dev
 
@@ -100,3 +104,60 @@ services:
       - '10003:10009'
     volumes:
       - ./volumes/lnd-carol:/home/lnd/.lnd
+
+  # --- Real NWC path: relay + wallet services (ADR-019 §7) ------------------
+  #
+  # nostr-rs-relay is zero-config; NWC request/response kinds (23194/23195)
+  # are ephemeral (NIP-16), so nothing persists — no volume needed.
+  # Everything binds to 127.0.0.1 explicitly: this stack is a dev fixture,
+  # never something to expose on a LAN.
+
+  nostr-relay:
+    image: scsibug/nostr-rs-relay:0.10.0
+    restart: unless-stopped
+    ports:
+      - '127.0.0.1:7447:8080'
+
+  # Alby Hub is the NWC wallet service ADR-019 verified as hold-invoice
+  # capable. One instance per user wallet (a hub fronts exactly one node);
+  # carol keeps using the lnd_rest adapter, so two instances suffice for a
+  # payer + payee NWC pair. Backend config comes from env; the remaining
+  # one-time setup (unlock password, NWC connection) is driven headlessly
+  # over its HTTP API by bootstrap.sh. The unlock password is a fixture,
+  # like every other credential of this regtest stack.
+  albyhub-alice: &albyhub-base # sender's NWC wallet service
+    image: ghcr.io/getalby/hub:v1.23.0
+    restart: unless-stopped
+    depends_on:
+      - lnd-alice
+      - nostr-relay
+    environment: &albyhub-env
+      WORK_DIR: /data
+      LN_BACKEND_TYPE: LND
+      LND_ADDRESS: lnd-alice:10009
+      LND_CERT_FILE: /lnd/tls.cert
+      LND_MACAROON_FILE: /lnd/data/chain/bitcoin/regtest/admin.macaroon
+      RELAY: ws://nostr-relay:8080
+      # Auto-start the node on container restarts once bootstrap.sh has done
+      # the one-time /api/setup (regtest fixture, not a secret).
+      AUTO_UNLOCK_PASSWORD: mercurio-regtest
+      LOG_LEVEL: info
+    ports:
+      - '127.0.0.1:8091:8080'
+    volumes:
+      - ./volumes/albyhub-alice:/data
+      - ./volumes/lnd-alice:/lnd:ro
+
+  albyhub-bob: # carrier's NWC wallet service
+    <<: *albyhub-base
+    depends_on:
+      - lnd-bob
+      - nostr-relay
+    environment:
+      <<: *albyhub-env
+      LND_ADDRESS: lnd-bob:10009
+    ports:
+      - '127.0.0.1:8092:8080'
+    volumes:
+      - ./volumes/albyhub-bob:/data
+      - ./volumes/lnd-bob:/lnd:ro
