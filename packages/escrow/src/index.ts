@@ -14,3 +14,5 @@ export * from './crypto';
 export * from './coordinator';
 export * from './adapters/fake';
 export * from './adapters/lnd-rest';
+export * from './adapters/nwc';
+export * from './testing/nwc-fake-relay';
