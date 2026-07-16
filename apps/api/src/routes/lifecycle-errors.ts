@@ -6,7 +6,7 @@
 import type { FastifyReply } from 'fastify';
 import { EconomicsError } from '@mercurio/core';
 import { ConflictError, PaymentExecutionError, TransitionRejectedError } from '../shipments/errors';
-import { WalletUnavailableError } from '../lib/wallets';
+import { WalletCapabilityError, WalletUnavailableError } from '../lib/wallets';
 
 export async function replyLifecycleError(reply: FastifyReply, err: unknown): Promise<boolean> {
   if (err instanceof TransitionRejectedError) {
@@ -20,6 +20,10 @@ export async function replyLifecycleError(reply: FastifyReply, err: unknown): Pr
   }
   if (err instanceof PaymentExecutionError) {
     await reply.code(402).send({ error: err.code, message: err.message });
+    return true;
+  }
+  if (err instanceof WalletCapabilityError) {
+    await reply.code(402).send({ error: 'wallet_missing_hold_support', message: err.message });
     return true;
   }
   if (err instanceof WalletUnavailableError) {

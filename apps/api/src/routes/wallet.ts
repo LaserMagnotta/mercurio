@@ -6,6 +6,7 @@
 import { and, desc, eq } from 'drizzle-orm';
 import { walletConnections } from '@mercurio/db';
 import { connectWalletBody } from '@mercurio/shared';
+import { NwcProbeError, NwcUriError, probeNwcWallet } from '@mercurio/escrow';
 import type { App } from '../app';
 import { requireAuth } from '../plugins/auth-guard';
 import { sealSecret } from '../lib/secret-box';
@@ -21,11 +22,40 @@ export function registerWalletRoutes(app: App) {
           .code(400)
           .send({ error: 'fake_wallets_disabled', message: 'fake wallets are dev/test only' });
       }
+
+      // ADR-019: validate the connection string and probe capabilities BEFORE
+      // touching any existing connection — a failed attempt to add a new NWC
+      // wallet must never disconnect a working one.
+      let capabilities: Record<string, unknown> = { holdInvoice: true };
       if (kind === 'nwc') {
-        return reply
-          .code(501)
-          .send({ error: 'nwc_not_implemented', message: 'NWC is on the roadmap (ADR-013)' });
+        try {
+          const probe = await probeNwcWallet(connectionSecret, {
+            ...(app.lifecycleConfig.nwcTransportFactory && {
+              transportFactory: app.lifecycleConfig.nwcTransportFactory,
+            }),
+            ...(app.lifecycleConfig.nwcProbeTimeoutMs !== undefined && {
+              timeoutMs: app.lifecycleConfig.nwcProbeTimeoutMs,
+            }),
+          });
+          if (!probe.baseline) {
+            return reply.code(400).send({
+              error: 'nwc_missing_required_methods',
+              message:
+                'This wallet is missing pay_invoice/make_invoice/lookup_invoice — it cannot be used with Mercurio at all',
+            });
+          }
+          capabilities = { holdInvoice: probe.holdInvoice, encryption: probe.encryption };
+        } catch (err) {
+          if (err instanceof NwcUriError) {
+            return reply
+              .code(400)
+              .send({ error: 'nwc_invalid_connection_string', message: err.message });
+          }
+          const message = err instanceof NwcProbeError ? err.message : 'could not reach the wallet';
+          return reply.code(400).send({ error: 'nwc_connection_failed', message });
+        }
       }
+
       // One active connection per user: connecting a new wallet supersedes
       // the previous one (holds already in flight are unaffected — they live
       // in the wallets themselves, not here).
@@ -40,7 +70,7 @@ export function registerWalletRoutes(app: App) {
             userId: request.userId!,
             kind,
             connectionSecretEncrypted: sealSecret(connectionSecret, app.lifecycleConfig.secretKey),
-            capabilities: { holdInvoice: true },
+            capabilities,
             status: 'connected',
           })
           .returning();

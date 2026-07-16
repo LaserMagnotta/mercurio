@@ -16,6 +16,7 @@ import {
   PreimageCoordinator,
   type EscrowCoordinator,
   type FakeLightningNetwork,
+  type NwcTransport,
   type WalletResolver,
 } from '@mercurio/escrow';
 import authGuard from './plugins/auth-guard';
@@ -36,6 +37,12 @@ import type { LifecycleDeps } from './shipments/executor';
 export interface LifecycleConfig {
   secretKey: Buffer;
   fakeWalletsEnabled: boolean;
+  /** Injected by tests to point NWC capability probing (ADR-019) at an
+   *  in-process fake relay instead of a real WebSocket connection. */
+  nwcTransportFactory?: (relays: string[]) => NwcTransport;
+  /** Injected by tests to shrink the connect-time NWC probe timeout
+   *  (production default: probeNwcWallet's own 8s). */
+  nwcProbeTimeoutMs?: number;
 }
 
 declare module 'fastify' {
@@ -66,6 +73,12 @@ export interface BuildAppOptions {
   /** Sync-hold / instant-settlement polling knobs (tests tighten them). */
   waitAttempts?: number;
   waitDelayMs?: number;
+  /** Injected by tests to point NWC capability probing (ADR-019) at an
+   *  in-process fake relay instead of a real WebSocket connection. */
+  nwcTransportFactory?: (relays: string[]) => NwcTransport;
+  /** Injected by tests to shrink the connect-time NWC probe timeout
+   *  (production default: probeNwcWallet's own 8s). */
+  nwcProbeTimeoutMs?: number;
 }
 
 export async function buildApp(options: BuildAppOptions = {}) {
@@ -112,6 +125,10 @@ export async function buildApp(options: BuildAppOptions = {}) {
   app.decorate('lifecycleConfig', {
     secretKey: coordinatorKey,
     fakeWalletsEnabled: options.fakeNetwork !== undefined,
+    ...(options.nwcTransportFactory && { nwcTransportFactory: options.nwcTransportFactory }),
+    ...(options.nwcProbeTimeoutMs !== undefined && {
+      nwcProbeTimeoutMs: options.nwcProbeTimeoutMs,
+    }),
   });
   app.decorate('eurRate', options.eurRate ?? createEnvEurRateProvider());
 
