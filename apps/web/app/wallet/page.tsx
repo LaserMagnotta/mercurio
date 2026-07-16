@@ -2,8 +2,11 @@
 
 // Wallet connection (ADR-013): every money-bearing role connects its OWN
 // wallet — the platform can ask it to act, never dispose of its funds.
-// Kinds: NWC (production roadmap — the API answers 501 for now), LND REST
-// (dev/regtest nodes) and fake (dev-only, needs FAKE_WALLETS=true).
+// Kinds: NWC (Nostr Wallet Connect, any wallet service — ADR-019), LND REST
+// (dev/regtest nodes) and fake (dev-only, needs FAKE_WALLETS=true). The API
+// probes an NWC connection's capabilities at connect time: it is accepted
+// even without hold-invoice support, but money-bearing roles then refuse it
+// (wallet_missing_hold_support) — the form surfaces that as a normal error.
 
 import Link from 'next/link';
 import { useEffect, useState, type FormEvent } from 'react';
