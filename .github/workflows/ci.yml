@@ -60,6 +60,16 @@ jobs:
       # the escrow suite needs @mercurio/db and @mercurio/shared built first.
       - run: pnpm build
 
+      # infra/docker/volumes/ is gitignored, so it doesn't exist on a fresh
+      # checkout. If `docker compose up` creates these bind-mount sources
+      # itself, it does so as root (the daemon's UID), and the runner user
+      # can no longer write inside infra/docker/volumes/ (e.g. bootstrap.sh's
+      # own `mkdir -p volumes/nwc` fails with EACCES). Pre-creating them as
+      # the runner user avoids that.
+      - name: Pre-create bind-mount directories
+        run: |
+          mkdir -p infra/docker/volumes/{postgres,bitcoind,lnd-alice,lnd-bob,lnd-carol,albyhub-alice,albyhub-bob}
+
       # Runner already has Docker; nothing else in the ADR-004/ADR-019 stack
       # (bitcoind, 3x LND, nostr relay, 2x Alby Hub) needs host setup.
       - name: Start regtest Lightning stack
