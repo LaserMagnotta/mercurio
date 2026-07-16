@@ -11,9 +11,6 @@
 // funds actually moving between the users' own nodes.
 
 import { randomBytes } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { request as httpsRequest } from 'node:https';
-import { fileURLToPath } from 'node:url';
 import { eq } from 'drizzle-orm';
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
@@ -25,73 +22,17 @@ import {
 import { LndRestWallet } from './adapters/lnd-rest';
 import { PreimageCoordinator } from './coordinator';
 import type { CoordinatorEvent } from './types';
+import {
+  NODES,
+  localBalanceMsat,
+  macaroonHex,
+  preflightNode,
+  waitFor,
+  type NodeName,
+} from './testing/regtest';
 import { createEscrowWorld, type EscrowWorld } from './testing/world';
 
 const AMOUNT = 100_000n; // msat = 100 sat
-const NODES = {
-  alice: process.env.LND_ALICE_REST ?? 'https://127.0.0.1:8081',
-  bob: process.env.LND_BOB_REST ?? 'https://127.0.0.1:8082',
-  carol: process.env.LND_CAROL_REST ?? 'https://127.0.0.1:8083',
-} as const;
-type NodeName = keyof typeof NODES;
-
-const VOLUMES = fileURLToPath(new URL('../../../infra/docker/volumes/', import.meta.url));
-
-function macaroonHex(node: NodeName): string {
-  const path = `${VOLUMES}lnd-${node}/data/chain/bitcoin/regtest/admin.macaroon`;
-  return readFileSync(path).toString('hex');
-}
-
-/** Raw REST call for assertions the WalletConnection interface does not
- *  (and should not) expose: getinfo, channel list, channel balance. */
-function lndGet(node: NodeName, path: string): Promise<Record<string, unknown>> {
-  const url = new URL(NODES[node]);
-  return new Promise((resolve, reject) => {
-    const req = httpsRequest(
-      {
-        method: 'GET',
-        host: url.hostname,
-        port: Number(url.port),
-        path,
-        headers: { 'Grpc-Metadata-macaroon': macaroonHex(node) },
-        rejectUnauthorized: false,
-      },
-      (res) => {
-        let data = '';
-        res.setEncoding('utf8');
-        res.on('data', (chunk: string) => (data += chunk));
-        res.on('end', () => {
-          if (res.statusCode && res.statusCode < 300) resolve(JSON.parse(data));
-          else reject(new Error(`${node} GET ${path}: ${res.statusCode} ${data.slice(0, 300)}`));
-        });
-      },
-    );
-    req.on('error', reject);
-    req.end();
-  });
-}
-
-async function localBalanceMsat(node: NodeName): Promise<bigint> {
-  const res = (await lndGet(node, '/v1/balance/channels')) as {
-    local_balance?: { msat?: string };
-  };
-  return BigInt(res.local_balance?.msat ?? '0');
-}
-
-async function waitFor<T>(
-  what: string,
-  probe: () => Promise<T | undefined>,
-  timeoutMs = 60_000,
-  intervalMs = 500,
-): Promise<T> {
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    const result = await probe();
-    if (result !== undefined) return result;
-    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
-    await new Promise((r) => setTimeout(r, intervalMs));
-  }
-}
 
 describe('coordinator against LND regtest (hold invoices for real)', () => {
   let wallets: Record<NodeName, LndRestWallet>;
@@ -101,27 +42,26 @@ describe('coordinator against LND regtest (hold invoices for real)', () => {
 
   beforeAll(async () => {
     wallets = {
-      alice: new LndRestWallet({ baseUrl: NODES.alice, macaroonHex: macaroonHex('alice'), allowInsecure: true }),
-      bob: new LndRestWallet({ baseUrl: NODES.bob, macaroonHex: macaroonHex('bob'), allowInsecure: true }),
-      carol: new LndRestWallet({ baseUrl: NODES.carol, macaroonHex: macaroonHex('carol'), allowInsecure: true }),
+      alice: new LndRestWallet({
+        baseUrl: NODES.alice,
+        macaroonHex: macaroonHex('alice'),
+        allowInsecure: true,
+      }),
+      bob: new LndRestWallet({
+        baseUrl: NODES.bob,
+        macaroonHex: macaroonHex('bob'),
+        allowInsecure: true,
+      }),
+      carol: new LndRestWallet({
+        baseUrl: NODES.carol,
+        macaroonHex: macaroonHex('carol'),
+        allowInsecure: true,
+      }),
     };
     // Preflight: nodes reachable, synced, channels active — otherwise fail
     // with instructions instead of forty timeouts.
     for (const node of Object.keys(NODES) as NodeName[]) {
-      const info = (await lndGet(node, '/v1/getinfo').catch((err) => {
-        throw new Error(
-          `lnd-${node} unreachable (${err}). Start the environment first:\n` +
-            '  docker compose -f infra/docker/docker-compose.yml up -d\n' +
-            '  ./infra/docker/bootstrap.sh',
-        );
-      })) as { synced_to_chain?: boolean };
-      if (!info.synced_to_chain) throw new Error(`lnd-${node} not synced to chain`);
-      const channels = (await lndGet(node, '/v1/channels?active_only=true')) as {
-        channels?: unknown[];
-      };
-      if (!channels.channels?.length) {
-        throw new Error(`lnd-${node} has no active channels — run infra/docker/bootstrap.sh`);
-      }
+      await preflightNode(node);
     }
   });
 
@@ -143,7 +83,9 @@ describe('coordinator against LND regtest (hold invoices for real)', () => {
     });
   });
 
-  function createParams(overrides: Partial<Parameters<PreimageCoordinator['createConditionalPayment']>[0]> = {}) {
+  function createParams(
+    overrides: Partial<Parameters<PreimageCoordinator['createConditionalPayment']>[0]> = {},
+  ) {
     return {
       shipmentId: world.shipmentId,
       payerId: world.senderId, // alice
