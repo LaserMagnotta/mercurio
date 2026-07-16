@@ -1,6 +1,7 @@
 # ADR-019 — Adapter NWC reale: quali metodi, come si negozia, come si degrada
 
-- Stato: accettato e implementato — 2026-07-16
+- Stato: accettato e implementato — 2026-07-16 (interop reale verificata su
+  regtest lo stesso giorno, §7)
 - Chiude: il roadmap item di [ADR-013](ADR-013-non-custodial-coordinator.md)
   ("L'adapter NWC di produzione resta da fare")
 - Contesto: `packages/escrow/src/adapters/nwc.ts`; interfaccia da rispettare in
@@ -129,7 +130,13 @@ legittimi per usi futuri non money-bearing. Si rifiuta invece **l'uso**:
   riconosce i valori noti e, per tutto il resto, ricade sul confronto con
   `expires_at` — la stessa strategia open-vs-expired già adottata
   dall'adapter LND REST (ADR-013, "dettagli implementativi", punto 2) per un
-  gap concettualmente identico.
+  gap concettualmente identico. **Finding dell'interop reale (§7)**: Alby
+  Hub riporta una hold **cancellata** come `failed` (lo stato terminale
+  generico della spec), non `cancelled`; prima della correzione l'adapter
+  ricadeva su `open` fino alla scadenza. Ora `failed` → `cancelled`: il
+  coordinatore interroga sempre e solo il wallet del **payee** (ADR-013),
+  dove una invoice entrante `failed` non ancora scaduta può significare solo
+  hold annullata (oltre la scadenza il wallet risponde comunque `expired`).
 - **`payInvoice` deve comunque restituire un `paymentHash`** (contratto
   `WalletConnection`) ma la risposta NWC non lo include mai (nemmeno per le
   invoice normali). Lo recuperiamo decodificando il BOLT11 stesso
@@ -168,17 +175,61 @@ hex a 32 byte>?relay=wss://...&secret=<hex a 32 byte>` con almeno un
   `relay=` (ws/wss) — verificata in `parseNwcUri`, riusata sia dal probe che
   dai test.
 
-## 7. Verifica non fatta (dichiarata, non finta)
+## 7. Verifica interop reale (fatta — regtest, 2026-07-16)
 
-Tutto quanto sopra è verificato contro il relay/wallet finto in-process
-(nessuna rete reale è raggiungibile in questo ambiente di sviluppo). **Non è
-stato verificato contro un wallet NWC reale** (Alby Hub o altro): la codifica
-NIP-44/NIP-04 segue esattamente lo pseudocodice della spec e i test di
-round-trip la validano internamente, ma solo un'interoperabilità reale la
-conferma end-to-end. Percorso di verifica rimandato: connettere un'istanza
-Alby Hub (o altro wallet NWC hold-invoice-capable) su regtest/testnet e
-ripetere il ciclo funding→held→settle di `nwc.test.ts` contro di essa, prima
-del mainnet — annotato anche in `apps/web/README.md`.
+La prima stesura di questo ADR dichiarava la verifica end-to-end rimandata
+(l'adapter era provato solo contro il relay/wallet finto in-process). Ora è
+parte della suite di integrazione: **relay nostr reale + wallet service NWC
+reale (Alby Hub, backend LND) sopra gli stessi nodi regtest di ADR-004**.
+`packages/escrow/src/nwc-regtest.integration.test.ts` ripete via NWC lo
+stesso protocollo della suite LND REST, col `PreimageCoordinator` di
+produzione nel mezzo: probe (NIP-44 v2 negoziata per davvero, `holdInvoice`
+true), hold pagata → `held`, release → il payee incassa davvero (saldo del
+canale verificato via REST LND, non chiedendo al wallet service di
+correggersi i compiti da solo), refund → il payer rientra, scadenza →
+`expired` senza scritture a ledger.
+
+Com'è costruito l'ambiente (`infra/docker`):
+
+- **`nostr-relay`** (`scsibug/nostr-rs-relay`): zero-config; i kind NWC
+  23194/23195 sono effimeri (NIP-16), il relay non persiste nulla.
+- **`albyhub-alice` / `albyhub-bob`** (`ghcr.io/getalby/hub`, backend LND
+  puntato a `lnd-alice` / `lnd-bob`): un hub fronteggia esattamente un nodo,
+  quindi per una coppia payer/payee ne servono due (carol resta su
+  `lnd_rest`). Config del backend via env; il setup one-time (password di
+  sblocco, creazione della connection NWC) è guidato **headless** da
+  `bootstrap.sh` sull'API HTTP del hub (`/api/setup` → `/api/start` →
+  `/api/unlock` → `POST /api/apps`, che restituisce la pairing URI):
+  nessun click. Lo scope `make_invoice` è quello che porta con sé i tre
+  metodi hold. Le pairing URI finiscono in
+  `infra/docker/volumes/nwc/{alice,bob}.nwc` (runtime data gitignorata;
+  come tutte le credenziali di questo ambiente, sono fixture regtest).
+- Il test riscrive il parametro `relay=` della URI
+  (`ws://nostr-relay:8080` → `ws://127.0.0.1:7447`, env `NWC_RELAY`): i hub
+  raggiungono il relay dentro la rete compose, il test dalla porta mappata
+  su localhost — è lo stesso relay. Tutte le porte nuove sono bind su
+  `127.0.0.1`.
+
+Riproduzione:
+
+```sh
+docker compose -f infra/docker/docker-compose.yml up -d
+./infra/docker/bootstrap.sh
+pnpm test:integration
+```
+
+Cosa ha insegnato l'interop reale (oltre alla conferma di cifratura e
+protocollo):
+
+- **`lookup_invoice` di una hold cancellata risponde `failed`**, non
+  `cancelled` → correzione a `mapInvoiceState` (dettagli in §5, aggiornato);
+  senza, l'adapter la leggeva come `open` fino alla scadenza.
+- **Il gap `pay_invoice` di §5 osservato per davvero**: pagando una hold,
+  Alby Hub non risponde finché la hold non si risolve — il test usa un
+  `payInvoiceTimeoutMs` corto sul wallet payer e osserva lo stato dal payee,
+  esattamente la degradazione che §5 prescrive (il coordinatore tratta il
+  dispatch fallito/ignoto come non fatale). Un pagamento impossibile, invece,
+  riceve un errore immediato (`FAILURE_REASON_INSUFFICIENT_BALANCE`).
 
 ## 8. Conseguenze
 

@@ -129,11 +129,13 @@ the GDPR consent on first login, connect a fake wallet from _Wallet_):
 
 - NWC wallets are implemented (ADR-019): the API validates the connection
   string and probes capabilities live (relay reachability, encryption
-  negotiation, method list) before accepting it. Not provable against a real
-  wallet service in this dev environment — verified so far only against the
-  in-process fake relay/wallet (`@mercurio/escrow`'s test suite); verification
-  against a real hold-invoice-capable NWC wallet (e.g. Alby Hub) is deferred
-  to a manual pass before mainnet, per ADR-019 §7.
+  negotiation, method list) before accepting it. Real-wallet interop is
+  **verified, not deferred** (ADR-019 §7): the regtest environment runs a
+  real nostr relay plus two Alby Hub wallet services on the ADR-004 LND
+  nodes, and `pnpm test:integration` drives the full hold lifecycle through
+  them (probe, funding → held, release, refund, expiry). Reproduce with
+  `docker compose -f infra/docker/docker-compose.yml up -d`, then
+  `./infra/docker/bootstrap.sh`, then `pnpm test:integration`.
 - The suggested-offer "forbice" is qualitative copy: the API does not expose
   historical percentiles yet.
 - Photos remain client-declared hashes (no blob storage): the certification
