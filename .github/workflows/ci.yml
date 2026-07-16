@@ -79,6 +79,14 @@ jobs:
       - name: Bootstrap regtest (mine, fund wallets, open channels, NWC setup)
         run: bash infra/docker/bootstrap.sh
 
+      # LND and Alby Hub both run as root in-container, so everything they
+      # write under the bind mounts (e.g. admin.macaroon, mode 0600) lands
+      # owned by root on the runner's disk. The integration suite reads the
+      # macaroon straight off disk as the unprivileged runner user
+      # (packages/escrow/src/testing/regtest.ts), which needs read access.
+      - name: Make bind-mount contents readable by the runner user
+        run: sudo chmod -R go+rX infra/docker/volumes
+
       - name: Run integration suite
         run: pnpm test:integration
 
