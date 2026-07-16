@@ -282,6 +282,14 @@ function mapInvoiceState(result: { state?: string; expires_at?: number }): Invoi
     case 'cancelled':
     case 'canceled':
       return 'cancelled';
+    // Real-interop finding (ADR-019 §7, verified against Alby Hub on
+    // regtest): a cancelled hold invoice comes back as the spec's terminal
+    // "failed", not "cancelled". We only ever look up invoices on the wallet
+    // that ISSUED them (the coordinator asks the payee — ADR-013), so a
+    // failed incoming invoice that has not yet expired can only mean the
+    // hold was cancelled. Past expiry the wallet reports "expired" anyway.
+    case 'failed':
+      return 'cancelled';
     case 'expired':
       return 'expired';
     default: {
