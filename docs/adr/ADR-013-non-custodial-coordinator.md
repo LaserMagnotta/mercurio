@@ -109,7 +109,8 @@ implementando (nessuna cambia il protocollo dei pagamenti):
    preimage — usato dai test unitari e disponibile per i test di api/core) e
    `lnd_rest` (invoicesrpc `/v2/invoices/*` per le hold, routerrpc
    `/v2/router/send` per i pagamenti; byte base64 solo al confine REST, hex
-   ovunque in Mercurio). L'adapter NWC di produzione resta da fare.
+   ovunque in Mercurio). `nwc` (Nostr Wallet Connect — implementato in
+   [ADR-019](ADR-019-nwc-adapter.md), che chiude questo roadmap item).
 7. **Test**: unit su fake + pglite (`pnpm test`); integrazione su regtest
    (`pnpm test:integration`, richiede `docker compose up` + `bootstrap.sh`):
    hold pagata → held, release → il payee incassa davvero (saldo canale),

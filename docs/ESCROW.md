@@ -57,12 +57,12 @@ spesa** (pubblicato e vincolante via ToS), pagato tratta per tratta.
 
 ### All'accettazione di una tratta (`leg_accept` → `leg_funded`, finestra ~60 min)
 
-| #   | Hold invoice                          | Emessa da           | Pagata da         | Importo                                                     |
-| --- | ------------------------------------- | ------------------- | ----------------- | ----------------------------------------------------------- |
-| 1   | Pagamento tratta                      | Vettore             | **Mittente**      | lordo tratta (ECONOMICS §3) + `Π_v` se tratta finale (ADR-014) |
-| 2   | Bond vettore                          | Mittente            | **Vettore**       | bond di custodia                                            |
-| 3   | Bond hub di arrivo                    | Mittente            | **Hub di arrivo** | bond di custodia (copre la giacenza successiva)             |
-| 4   | Premio hub (solo tratta finale)       | Hub di destinazione | **Mittente**      | `Π_h` (ADR-014), rilasciata al ritiro del destinatario      |
+| #   | Hold invoice                    | Emessa da           | Pagata da         | Importo                                                        |
+| --- | ------------------------------- | ------------------- | ----------------- | -------------------------------------------------------------- |
+| 1   | Pagamento tratta                | Vettore             | **Mittente**      | lordo tratta (ECONOMICS §3) + `Π_v` se tratta finale (ADR-014) |
+| 2   | Bond vettore                    | Mittente            | **Vettore**       | bond di custodia                                               |
+| 3   | Bond hub di arrivo              | Mittente            | **Hub di arrivo** | bond di custodia (copre la giacenza successiva)                |
+| 4   | Premio hub (solo tratta finale) | Hub di destinazione | **Mittente**      | `Π_h` (ADR-014), rilasciata al ritiro del destinatario         |
 
 Tutte con hash generati dal coordinatore. Quando tutte risultano _held_, la
 tratta è prenotata (`LEG_BOOKED`); se la finestra scade, tutto viene annullato e la
@@ -90,10 +90,10 @@ certificazione solo a pagamento avvenuto.
 Stessa forma delle tratte, con il destinatario al posto del vettore
 (finestra di funding di 60 minuti, la stessa costante):
 
-| #   | Hold invoice                    | Emessa da        | Pagata da    | Importo                                                        |
-| --- | ------------------------------- | ---------------- | ------------ | -------------------------------------------------------------- |
-| 1   | Claim payment                   | Destinatario     | **Mittente** | pool di lavoro residuo + `Π_v` non consumata (ECONOMICS §5-ter) |
-| 2   | Premio hub (solo se > 0)        | Hub di ritiro    | **Mittente** | `Π_h` maturata (`purpose: finalization_bonus`)                  |
+| #   | Hold invoice             | Emessa da     | Pagata da    | Importo                                                         |
+| --- | ------------------------ | ------------- | ------------ | --------------------------------------------------------------- |
+| 1   | Claim payment            | Destinatario  | **Mittente** | pool di lavoro residuo + `Π_v` non consumata (ECONOMICS §5-ter) |
+| 2   | Premio hub (solo se > 0) | Hub di ritiro | **Mittente** | `Π_h` maturata (`purpose: finalization_bonus`)                  |
 
 Dalla richiesta il pacco esce dalla bacheca. Quando tutte le hold create
 risultano _held_ il ritiro è prenotato (`CLAIMED`); se la finestra scade,
@@ -123,13 +123,13 @@ consegna è pagato da `Π_h`. La giacenza **non si sospende** durante il claim.
 
 ## 4. Cosa comporta (onestamente)
 
-| Tema                     | Implicazione                                                                                                                                                                                    | Gestione                                                                                                                                                                         |
-| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Wallet degli utenti**  | Emettere hold invoice richiede un wallet capace (LND, Core Lightning, Alby Hub…): serve a mittenti (bond), vettori (pagamento tratta). Pagarle richiede wallet che tollerino pagamenti pendenti | Connessione via **NWC (Nostr Wallet Connect)** + adapter diretti (REST LND); guida all'onboarding; in dev: un LND regtest per utente. È il prezzo dichiarato dello zero-custodia |
-| **Durata dei lock (R1)** | Il lock più lungo è il bond hub = intera giacenza. HTLC di settimane = liquidità congelata e rischio force-close                                                                                | **Giacenza massima 7 giorni nell'MVP** (budget CLTV sano); rinnovo rolling del bond come evoluzione                                                                              |
-| **Mittente reattivo**    | A ogni `leg_accept` il mittente deve pagare/emettere entro la finestra                                                                                                                          | Notifiche push/email; metrica di reattività del mittente visibile in bacheca (un mittente lento = spedizione poco appetibile)                                                    |
-| **Liquidità in-flight**  | I bond bloccano liquidità sui canali di chi li paga per ore/giorni                                                                                                                              | Dimensionamento del bond a discrezione del mittente: il mercato prezza                                                                                                           |
-| **Fee di rete LN**       | Ogni pagamento diretto paga le sue routing fee                                                                                                                                                  | Importi piccoli, rotte corte; mostrate in UI, mai nascoste                                                                                                                       |
+| Tema                     | Implicazione                                                                                                                                                                                    | Gestione                                                                                                                                                                                                                               |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Wallet degli utenti**  | Emettere hold invoice richiede un wallet capace (LND, Core Lightning, Alby Hub…): serve a mittenti (bond), vettori (pagamento tratta). Pagarle richiede wallet che tollerino pagamenti pendenti | Connessione via **NWC (Nostr Wallet Connect, implementato — [ADR-019](adr/ADR-019-nwc-adapter.md))** + adapter diretti (REST LND); guida all'onboarding; in dev: un LND regtest per utente. È il prezzo dichiarato dello zero-custodia |
+| **Durata dei lock (R1)** | Il lock più lungo è il bond hub = intera giacenza. HTLC di settimane = liquidità congelata e rischio force-close                                                                                | **Giacenza massima 7 giorni nell'MVP** (budget CLTV sano); rinnovo rolling del bond come evoluzione                                                                                                                                    |
+| **Mittente reattivo**    | A ogni `leg_accept` il mittente deve pagare/emettere entro la finestra                                                                                                                          | Notifiche push/email; metrica di reattività del mittente visibile in bacheca (un mittente lento = spedizione poco appetibile)                                                                                                          |
+| **Liquidità in-flight**  | I bond bloccano liquidità sui canali di chi li paga per ore/giorni                                                                                                                              | Dimensionamento del bond a discrezione del mittente: il mercato prezza                                                                                                                                                                 |
+| **Fee di rete LN**       | Ogni pagamento diretto paga le sue routing fee                                                                                                                                                  | Importi piccoli, rotte corte; mostrate in UI, mai nascoste                                                                                                                                                                             |
 
 ## 5. Interfaccia astratta
 
