@@ -1,6 +1,7 @@
 # ADR-004 — Lightning di sviluppo: bitcoind regtest + LND via Docker Compose
 
-- Stato: proposto (in revisione) — 2026-07-12
+- Stato: accettato — 2026-07-12 (CI GitHub Actions implementata il 2026-07-16,
+  vedi "Implementazione CI" sotto)
 
 ## Contesto
 
@@ -35,6 +36,30 @@ l'ecosistema di tooling è il più ampio.
 - **Mock del layer Lightning nei test**: c'è comunque (adapter `fake` di
   `WalletConnection` per i test unitari di core), ma i test _di integrazione_
   devono attraversare hold invoice vere.
+
+## Implementazione CI (2026-07-16)
+
+La promessa "i test di integrazione girano contro questo ambiente anche in
+CI" era rimasta sulla carta: nessun workflow esisteva. `.github/workflows/ci.yml`
+la chiude con due job indipendenti, entrambi su `ubuntu-latest` (Docker già
+presente sul runner, e niente dei problemi di permessi sui bind-mount che
+esistono solo su Windows):
+
+- **`test`**: `pnpm install --frozen-lockfile`, poi `lint` → `typecheck` →
+  `build` → `test` (unit, su `pglite` in-memory — nessun servizio Docker
+  richiesto).
+- **`integration`**: `pnpm build` (i pacchetti workspace si risolvono a
+  vicenda via `dist/`, non via sorgente), poi
+  `docker compose -f infra/docker/docker-compose.yml up -d`,
+  `bash infra/docker/bootstrap.sh` (non `./bootstrap.sh`: lo script non è
+  tracciato come eseguibile in git) e infine `pnpm test:integration`. Log dei
+  servizi raccolti solo in caso di fallimento; `docker compose down -v`
+  sempre in coda, successo o meno.
+
+Entrambi i job girano su push/PR verso `main`. Nessuna delle "credenziali" di
+questo stack (password hub `mercurio-regtest`, `rpcuser`/`rpcpassword` di
+bitcoind) è diventata un secret GitHub: sono fixture regtest committate, come
+da CLAUDE.md — non custodiscono nulla di reale.
 
 ## Conseguenze
 

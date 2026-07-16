@@ -1,5 +1,7 @@
 # Mercurio
 
+[![CI](../../actions/workflows/ci.yml/badge.svg)](../../actions/workflows/ci.yml)
+
 Peer-to-peer logistics network: senders, occasional carriers and neighbourhood
 hubs (shops, bars) move low-value, non-urgent parcels hop by hop. Payments run
 on the Lightning Network as **direct peer-to-peer conditional payments (hold

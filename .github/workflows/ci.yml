@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Keep in sync with packageManager in package.json.
+  PNPM_VERSION: 9.15.4
+  NODE_VERSION: '22'
+
+jobs:
+  test:
+    name: Lint, typecheck, build, test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm build
+      - run: pnpm test
+
+  integration:
+    name: Lightning integration (regtest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Workspace packages resolve each other through dist/ (main field), so
+      # the escrow suite needs @mercurio/db and @mercurio/shared built first.
+      - run: pnpm build
+
+      # Runner already has Docker; nothing else in the ADR-004/ADR-019 stack
+      # (bitcoind, 3x LND, nostr relay, 2x Alby Hub) needs host setup.
+      - name: Start regtest Lightning stack
+        run: docker compose -f infra/docker/docker-compose.yml up -d
+
+      # Not committed executable (100644): invoke via bash rather than ./bootstrap.sh.
+      - name: Bootstrap regtest (mine, fund wallets, open channels, NWC setup)
+        run: bash infra/docker/bootstrap.sh
+
+      - name: Run integration suite
+        run: pnpm test:integration
+
+      - name: Service logs (on failure)
+        if: failure()
+        run: docker compose -f infra/docker/docker-compose.yml logs --tail=500
+
+      - name: Tear down
+        if: always()
+        run: docker compose -f infra/docker/docker-compose.yml down -v
