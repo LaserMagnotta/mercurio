@@ -73,5 +73,6 @@ unico fino a 1.000 €, valore dichiarabile ≤ 45 €, offerta libera con prezz
 consigliato, boost + reroute del mittente, ritiro definitivo senza finestra di
 contestazione, nessun arbitro (ADR-012), nessun controllo AML preventivo,
 **zero custodia in ogni momento** (ADR-013 — pagamenti diretti P2P, la piattaforma
-non tocca mai fondi), fee piattaforma 0%. Restano aperti solo i punti legali ⚖️
-(bloccano il mainnet, non lo sviluppo).
+non tocca mai fondi), fee piattaforma 0%. I punti legali ⚖️ sono stati chiusi il
+2026-07-17 come decisioni di progetto motivate dalle norme (RISKS.md §2, §4, §5,
+§6): il lavoro residuo è la redazione dei testi — ToS e informative privacy.
