@@ -19,21 +19,21 @@ import {
   type NwcTransport,
   type WalletResolver,
 } from '@mercurio/escrow';
-import authGuard from './plugins/auth-guard';
-import { registerAuthRoutes } from './routes/auth';
-import { registerMeRoutes } from './routes/me';
-import { registerWalletRoutes } from './routes/wallet';
-import { registerHubRoutes } from './routes/hubs';
-import { registerTripRoutes } from './routes/trips';
-import { registerShipmentRoutes } from './routes/shipments';
-import { registerShipmentLifecycleRoutes } from './routes/shipment-lifecycle';
-import { registerReviewRoutes } from './routes/reviews';
-import { registerPhotoRoutes } from './routes/photos';
-import { createBlobStoreFromEnv, type BlobStore } from './lib/blob-store';
-import { createMailer, type SendMail } from './lib/mailer';
-import { createDbWalletResolver } from './lib/wallets';
-import { createEnvEurRateProvider, type EurRateProvider } from './lib/eur-rate';
-import type { LifecycleDeps } from './shipments/executor';
+import authGuard from './plugins/auth-guard.js';
+import { registerAuthRoutes } from './routes/auth.js';
+import { registerMeRoutes } from './routes/me.js';
+import { registerWalletRoutes } from './routes/wallet.js';
+import { registerHubRoutes } from './routes/hubs.js';
+import { registerTripRoutes } from './routes/trips.js';
+import { registerShipmentRoutes } from './routes/shipments.js';
+import { registerShipmentLifecycleRoutes } from './routes/shipment-lifecycle.js';
+import { registerReviewRoutes } from './routes/reviews.js';
+import { registerPhotoRoutes } from './routes/photos.js';
+import { createBlobStoreFromEnv, type BlobStore } from './lib/blob-store.js';
+import { createMailer, type SendMail } from './lib/mailer.js';
+import { createDbWalletResolver } from './lib/wallets.js';
+import { createEnvEurRateProvider, type EurRateProvider } from './lib/eur-rate.js';
+import type { LifecycleDeps } from './shipments/executor.js';
 
 /** Non-injectable knobs the routes need beyond LifecycleDeps. */
 export interface LifecycleConfig {
@@ -85,11 +85,21 @@ export interface BuildAppOptions {
   /** Injected by tests (memory store); defaults to the driver selected by
    *  PHOTO_STORAGE_DRIVER (ADR-020 fs / ADR-023 s3). */
   blobStore?: BlobStore;
+  /** Read `X-Forwarded-For` as the client address; defaults to TRUST_PROXY. */
+  trustProxy?: boolean;
 }
 
 export async function buildApp(options: BuildAppOptions = {}) {
   const app = Fastify({
     logger: process.env.NODE_ENV !== 'test',
+    // Behind the production reverse proxy (ADR-024) every request reaches
+    // Fastify from the proxy's own address, so @fastify/rate-limit — which
+    // keys its buckets on `request.ip` — would put the entire internet in ONE
+    // bucket and the anti-abuse limits of RISKS §7 would fire on innocent
+    // users. Off unless asked: trusting `X-Forwarded-For` with nothing in
+    // front to overwrite it lets any client forge its own address and get a
+    // fresh quota per request, which is the same control failed open.
+    trustProxy: options.trustProxy ?? process.env.TRUST_PROXY === 'true',
   }).withTypeProvider<ZodTypeProvider>();
 
   app.setValidatorCompiler(validatorCompiler);
@@ -169,7 +179,11 @@ export async function buildApp(options: BuildAppOptions = {}) {
   void app.register(cookie);
   // Global default; individual routes (magic-link request/verify, OTP pickup)
   // set tighter limits via route config (RISKS.md sec.7: anti-abuse).
-  void app.register(rateLimit, { max: 100, timeWindow: '1 minute' });
+  // Awaited for the same reason as @fastify/swagger above: the per-route
+  // limits are attached by an onRoute hook, so registering without awaiting
+  // leaves every limit — global and per-route — silently inert (regression
+  // covered by rate-limit.test.ts).
+  await app.register(rateLimit, { max: 100, timeWindow: '1 minute' });
   void app.register(authGuard);
 
   app.get('/health', async () => ({ status: 'ok' }));
