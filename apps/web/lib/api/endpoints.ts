@@ -141,6 +141,14 @@ export const getHubs = () => apiFetch<{ hubs: Hub[] }>('/hubs');
 // Response of GET /hubs/mine/requests (the hub owner's dashboard) — shaped
 // in the API route, typed here explicitly like the other non-DTO endpoints.
 
+/** The shipment's frozen exchange snapshot (ADR-008): sats-first amounts carry
+ *  the rate that governs them so every one shows "≈ €" (matches eurRateDto). */
+export interface EurRate {
+  satsPerEur: string;
+  source: string;
+  at: string;
+}
+
 export interface HubAcceptRequest {
   shipmentId: string;
   codename: string;
@@ -150,6 +158,7 @@ export interface HubAcceptRequest {
   undeclared: boolean;
   custodyBondMsat: string;
   maxStorageDays: number;
+  eurRate: EurRate;
   createdAt: string;
 }
 
@@ -162,6 +171,7 @@ export interface HubStaySummary {
   shipmentStatus: string;
   storageDeadlineAt: string | null;
   custodyBondMsat: string;
+  eurRate: EurRate;
   destHubId: string;
 }
 

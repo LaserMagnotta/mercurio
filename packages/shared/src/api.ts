@@ -258,6 +258,15 @@ export const tripRouteQuery = z.object({
   previewDropHubId: uuidString.optional(),
 });
 
+/** The EUR exchange snapshot attached to an amount (ADR-008/ADR-025): sats per
+ *  EUR, its source, and when it was observed. Defined here — above the first
+ *  DTO that embeds it — so no DTO references it in the temporal dead zone. */
+export const eurRateDto = z.object({
+  satsPerEur: z.string(),
+  source: z.string(),
+  at: z.string(),
+});
+
 // ---------------------------------------------------------------------------
 // Account lists (ADR-018 §5): GET /me/shipments and GET /me/trips replace the
 // device-local `localStorage` memory the web UI used to keep — the account
@@ -277,6 +286,9 @@ export const meShipmentDto = z.object({
   destHubId: uuidString,
   destHubName: z.string(),
   offerMsat: msatString,
+  /** The shipment's FROZEN snapshot (ADR-008): sats-first amounts everywhere
+   *  carry the rate that governs them, so the list shows "≈ €" too (ADR-025). */
+  eurRate: eurRateDto,
   createdAt: z.string(),
 });
 
@@ -313,12 +325,6 @@ export const meTripsDto = z.object({
 
 // ---------------------------------------------------------------------------
 // Response DTOs (zod so fastify serializes them — a bigint can never leak)
-
-export const eurRateDto = z.object({
-  satsPerEur: z.string(),
-  source: z.string(),
-  at: z.string(),
-});
 
 export const legDto = z.object({
   id: uuidString,

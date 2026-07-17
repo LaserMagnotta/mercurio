@@ -84,6 +84,12 @@ export function registerHubRoutes(app: App) {
         undeclared: s.undeclared,
         custodyBondMsat: msat(s.custodyBondMsat),
         maxStorageDays: s.maxStorageDays,
+        // Frozen snapshot (ADR-008): the bond's "≈ €" uses the shipment's rate.
+        eurRate: {
+          satsPerEur: s.eurRateSnapshot,
+          source: s.eurRateSource,
+          at: s.eurRateAt.toISOString(),
+        },
         createdAt: s.createdAt.toISOString(),
       })),
       stays: stays.map(({ stay, shipment }) => ({
@@ -94,6 +100,11 @@ export function registerHubRoutes(app: App) {
         shipmentStatus: shipment.status,
         storageDeadlineAt: stay.storageDeadlineAt?.toISOString() ?? null,
         custodyBondMsat: msat(shipment.custodyBondMsat),
+        eurRate: {
+          satsPerEur: shipment.eurRateSnapshot,
+          source: shipment.eurRateSource,
+          at: shipment.eurRateAt.toISOString(),
+        },
         // The dashboard identifies a stay by where the parcel is headed
         // (hub name), never a truncated shipment id.
         destHubId: shipment.destHubId,

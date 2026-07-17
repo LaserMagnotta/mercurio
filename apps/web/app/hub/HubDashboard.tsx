@@ -127,7 +127,8 @@ export function HubDashboard() {
                     </p>
                     <div className="row-between">
                       <span className="small">
-                        {t('bondLine')} <Amount msat={req.custodyBondMsat} />
+                        {t('bondLine')}{' '}
+                        <Amount msat={req.custodyBondMsat} satsPerEur={req.eurRate.satsPerEur} />
                       </span>
                       <button
                         type="button"
@@ -170,7 +171,8 @@ export function HubDashboard() {
                           })
                         : t('storageNotStarted')}
                       {' · '}
-                      {t('bondLine')} <Amount msat={stay.custodyBondMsat} />
+                      {t('bondLine')}{' '}
+                      <Amount msat={stay.custodyBondMsat} satsPerEur={stay.eurRate.satsPerEur} />
                     </p>
                     <Link className="btn btn-sm" href={`/hub/shipments/${stay.shipmentId}`}>
                       {t('openOps')}

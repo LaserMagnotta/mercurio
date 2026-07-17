@@ -126,6 +126,11 @@ export function registerMeRoutes(app: App) {
           destHubId: s.destHubId,
           destHubName: hubName(s.destHubId),
           offerMsat: msat(s.offerMsat),
+          eurRate: {
+            satsPerEur: s.eurRateSnapshot,
+            source: s.eurRateSource,
+            at: s.eurRateAt.toISOString(),
+          },
           createdAt: s.createdAt.toISOString(),
         })),
         total,

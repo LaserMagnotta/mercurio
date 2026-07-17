@@ -114,7 +114,7 @@ export default function HomePage() {
                     </p>
                     <span className="muted small">{formatDateTime(s.createdAt, locale)}</span>
                     <div className="row-between">
-                      <Amount msat={s.offerMsat} />
+                      <Amount msat={s.offerMsat} satsPerEur={s.eurRate.satsPerEur} />
                       <Link className="btn btn-sm" href={`/shipments/${s.id}`}>
                         {t('openShipment')}
                       </Link>

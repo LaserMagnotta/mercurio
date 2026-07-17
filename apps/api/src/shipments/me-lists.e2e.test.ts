@@ -54,6 +54,7 @@ describe('GET /me/shipments', () => {
         destHubId: string;
         destHubName: string;
         offerMsat: string;
+        eurRate: { satsPerEur: string; source: string; at: string };
         createdAt: string;
       }[];
       total: number;
@@ -66,6 +67,9 @@ describe('GET /me/shipments', () => {
     expect(body.items[0]!.status).toBe('AWAITING_DROPOFF');
     expect(body.items[0]!.destHubName).toBe('Hub C');
     expect(body.items[0]!.offerMsat).toBe(OFFER_MSAT.toString());
+    // Every list amount carries the shipment's frozen rate so the UI shows "≈ €"
+    // (ADR-008 audit, Fase 1 punto 4): no Amount is rendered without it.
+    expect(body.items[0]!.eurRate.satsPerEur).toMatch(/^\d+(\.\d+)?$/);
     expect(body.items[1]!.status).toBe('AT_HUB');
     expect(body.items[1]!.originHubName).toBe('Hub A');
     expect(body.items[1]!.destHubName).toBe('Hub B');
