@@ -60,11 +60,39 @@ Il modello con i placeholder è
 | `SMTP_PASS`         | insieme a `SMTP_USER` | —               | Password del relay                                                                     |
 | `SMTP_FROM`         | sì                   | `…@mercurio.local` | Mittente: un dominio tuo, o SPF/DKIM non allineano e le email finiscono in spam     |
 | `SMTP_SECURE`       | no                   | dedotto          | TLS implicito; dedotto dalla porta (`465` → `true`). Serve solo per relay anomali      |
-| `EUR_RATE_SATS_PER_EUR` | no               | `1600`           | Snapshot di cambio (ADR-008)                                                           |
+| `EUR_RATE_PROVIDER` | **sì** (in produzione) | `fixed`        | `market` = mediana di ticker pubblici reali; `fixed` = tasso fissato a mano. Vedi sotto |
+| `EUR_RATE_SOURCES`  | no                   | tutte e tre      | Ticker da usare per `market`: `kraken`, `bitstamp`, `coinbase`. Almeno due             |
+| `EUR_RATE_SATS_PER_EUR` | solo con `fixed` | `1600` (non in produzione) | Sats per euro fissati a mano. In produzione con `fixed` è obbligatoria       |
 
 Le variabili `PHOTO_STORAGE_*` servono solo per passare al driver S3
 (ADR-023): il default `fs` è quello giusto per questo deploy e non richiede
 configurazione.
+
+### Il cambio EUR→sats: perché l'API si rifiuta di partire senza (ADR-025)
+
+Quel numero fa due cose serie: dimensiona il **tetto ToS del bond** (1000 €) e
+viene **congelato su ogni spedizione per tutta la sua vita** (ADR-008) — se è
+sbagliato, resta sbagliato lì dentro fino alla consegna, e niente sembra rotto.
+Perciò in produzione **nessun cambio può venire da un default**: senza
+`EUR_RATE_PROVIDER` l'API non parte, e il messaggio dice cosa scegliere.
+
+- **`EUR_RATE_PROVIDER=market`** — la scelta giusta. L'API interroga tre ticker
+  BTC/EUR pubblici (Kraken, Bitstamp, Coinbase) e ne prende la **mediana**, così
+  una fonte rotta è l'outlier e viene scartata. Nessuna chiave, nessun account,
+  nessun dato utente verso terzi: sono tre GET fatte dal server. Il valore è in
+  cache 5 minuti. L'unico requisito nuovo è che **l'host possa uscire in HTTPS**
+  verso quei tre domini.
+- **`EUR_RATE_PROVIDER=fixed`** + `EUR_RATE_SATS_PER_EUR` — la via d'uscita se
+  un giorno tutte e tre le fonti cambiassero formato insieme: si fissa un numero
+  a mano, consapevolmente, e si continua a spedire. Con `fixed` la variabile del
+  tasso è obbligatoria: il default (1600 sats/€) è la scala dell'esempio della
+  documentazione, non un prezzo.
+
+Se il feed è irraggiungibile, la creazione di spedizioni continua a usare
+l'ultimo cambio noto **fino a 6 ore**; oltre risponde `503
+eur_rate_unavailable` finché le fonti non tornano. **Nessun altro flusso si
+ferma**: consegne, ritiri, rilasci e rimborsi leggono il cambio congelato sulla
+spedizione, non il feed.
 
 ### Impostate dal compose (non metterle in `.env`)
 
@@ -147,7 +175,9 @@ Sintomi tipici: **il certificato non arriva** → il DNS non punta ancora qui, o
 la 80 è chiusa; **`migrate` esce != 0** → l'API non parte apposta (è il
 comportamento voluto: leggi il log e correggi, non aggirare); **`api` unhealthy
 al primo avvio** → quasi sempre `COORDINATOR_KEY` assente o non di 64 caratteri
-hex.
+hex, oppure `EUR_RATE_PROVIDER` non impostata (§3: in produzione va scelta, non
+ereditata da un default). In tutti e due i casi l'API scrive nel log esattamente
+cosa manca e cosa metterci.
 
 ## 6. Aggiornamento
 
