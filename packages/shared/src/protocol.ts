@@ -42,6 +42,12 @@ export const MAX_STORAGE_HOURS = 7 * 24;
 /** ToS cap on declared parcel value, in EUR (RISKS.md §2). */
 export const MAX_DECLARED_VALUE_EUR = 45;
 
+/** Storage-expiry warning emails (RISKS.md §4, ToS §10.1): sender and
+ *  recipient are warned when the armed `storage` timer is within these many
+ *  hours of firing. Order matters: most-lenient first, the sweep picks the
+ *  most urgent threshold still unsent. */
+export const STORAGE_WARNING_HOURS = [72, 24] as const;
+
 /** Cap on the custody bond, in EUR (RISKS.md §2). */
 export const MAX_CUSTODY_BOND_EUR = 1000;
 

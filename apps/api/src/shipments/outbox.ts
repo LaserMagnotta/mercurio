@@ -15,6 +15,7 @@ const LIFECYCLE_TEMPLATES = [
   'parcel_arrived',
   'parcel_delivered',
   'handoff_rejected',
+  'storage_expiry_warning',
 ] as const;
 
 const MAX_ATTEMPTS = 5;
@@ -46,6 +47,16 @@ const webUrl = () => process.env.WEB_URL ?? 'http://localhost:3000';
 const recipientLink = (shipmentId: unknown) => `${webUrl()}/track/${String(shipmentId ?? '')}`;
 const senderLink = (shipmentId: unknown) => `${webUrl()}/shipments/${String(shipmentId ?? '')}`;
 
+// Privacy notice in every lifecycle mail (RISKS.md §6: art. 21 GDPR objection
+// link in each message); parcel_tracking is the recipient's FIRST contact and
+// additionally carries the art. 14 source-of-data line.
+const privacyFooter = () =>
+  `\n\n—\nInformativa privacy e diritto di opposizione (art. 21 GDPR): ${webUrl()}/privacy`;
+const firstContactFooter = () =>
+  `\n\n—\nRicevi questa email perché il mittente ha indicato questo indirizzo come` +
+  `\ndestinatario della spedizione (art. 14 GDPR).` +
+  `\nInformativa privacy e diritto di opposizione (art. 21 GDPR): ${webUrl()}/privacy`;
+
 /** UI language is Italian (CLAUDE.md); templates stay minimal plain text. */
 async function render(
   db: Db,
@@ -66,7 +77,8 @@ async function render(
           `al momento del ritiro: accettare il pacco vale come accettazione definitiva.\n` +
           `Non condividerlo: chiunque lo possieda può reclamare il pacco.\n\n` +
           `Segui il pacco (e riscattalo, se vuoi) qui: ${recipientLink(payload.shipmentId)}\n` +
-          `Spedizione: ${String(payload.shipmentId ?? '')}`,
+          `Spedizione: ${String(payload.shipmentId ?? '')}` +
+          firstContactFooter(),
       };
     case 'parcel_at_intermediate_hub':
       return {
@@ -75,7 +87,8 @@ async function render(
           `Il pacco è stato depositato presso ${await hubLabel(db, payload.hubId)}.\n` +
           `Resta in attesa di un vettore per la tratta successiva.\n\n` +
           `Dettagli e tracking: ${recipientLink(payload.shipmentId)}\n` +
-          `Spedizione: ${String(payload.shipmentId ?? '')}`,
+          `Spedizione: ${String(payload.shipmentId ?? '')}` +
+          privacyFooter(),
       };
     case 'parcel_arrived':
       return {
@@ -85,7 +98,8 @@ async function render(
           `Il ritiro è gratuito. Presenta questo codice di ritiro (OTP): ${String(payload.otp ?? '')}\n` +
           `Digitarlo al ritiro vale come accettazione definitiva del pacco (ispezionalo prima).\n\n` +
           `Dettagli e tracking: ${recipientLink(payload.shipmentId)}\n` +
-          `Spedizione: ${String(payload.shipmentId ?? '')}`,
+          `Spedizione: ${String(payload.shipmentId ?? '')}` +
+          privacyFooter(),
       };
     case 'parcel_delivered':
       return {
@@ -93,7 +107,8 @@ async function render(
         text:
           `Il destinatario ha ritirato il pacco: la spedizione è conclusa.\n\n` +
           `Dettagli: ${senderLink(payload.shipmentId)}\n` +
-          `Spedizione: ${String(payload.shipmentId ?? '')}`,
+          `Spedizione: ${String(payload.shipmentId ?? '')}` +
+          privacyFooter(),
       };
     case 'handoff_rejected':
       return {
@@ -103,8 +118,38 @@ async function render(
           `Motivo: ${String(payload.reason ?? '')}\n` +
           `La custodia non è passata e lo stato non è cambiato; puoi valutare un reroute o un boost.\n\n` +
           `Dettagli: ${senderLink(payload.shipmentId)}\n` +
-          `Spedizione: ${String(payload.shipmentId ?? '')}`,
+          `Spedizione: ${String(payload.shipmentId ?? '')}` +
+          privacyFooter(),
       };
+    case 'storage_expiry_warning': {
+      // RISKS.md §4 / ToS §10.1: warning while the storage timer is still
+      // armed (storage-warnings.ts). Times are rendered in Italian time —
+      // the UI language of the project (CLAUDE.md).
+      const deadline = new Date(String(payload.deadline ?? ''));
+      const when = Number.isNaN(deadline.getTime())
+        ? '?'
+        : deadline.toLocaleString('it-IT', {
+            dateStyle: 'short',
+            timeStyle: 'short',
+            timeZone: 'Europe/Rome',
+          });
+      const intro =
+        `La giacenza del pacco presso ${await hubLabel(db, payload.hubId)} scade il ${when} (ora italiana).\n` +
+        `Alla scadenza il pacco diventa svincolabile a favore dell'hub secondo i Termini di\n` +
+        `servizio (${webUrl()}/tos): resta poi una finestra di 7 giorni per recuperarlo pagando\n` +
+        `la giacenza extra direttamente all'hub.\n\n`;
+      const action =
+        payload.audience === 'sender'
+          ? `Puoi ancora far ripartire il pacco (boost), cambiarne la destinazione o richiamarlo\n` +
+            `verso l'origine: ${senderLink(payload.shipmentId)}\n`
+          : `Se ti conviene, puoi ritirarlo in anticipo con il tuo codice personale:\n` +
+            `${recipientLink(payload.shipmentId)}\n`;
+      return {
+        subject: 'Mercurio — giacenza in scadenza: il pacco sta per essere svincolato',
+        text:
+          intro + action + `Spedizione: ${String(payload.shipmentId ?? '')}` + privacyFooter(),
+      };
+    }
     default:
       return null;
   }

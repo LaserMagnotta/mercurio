@@ -14,6 +14,7 @@ import type { LifecycleDeps } from './shipments/executor';
 import { fireDueTimers } from './shipments/timers';
 import { pumpWalletEvents } from './shipments/pump';
 import { dispatchEmailOutbox } from './shipments/outbox';
+import { enqueueStorageWarnings } from './shipments/storage-warnings';
 import { purgeExpiredPhotos } from './shipments/photo-purge';
 import { reconcile, retryEscrowIntents } from './shipments/reconcile';
 
@@ -31,6 +32,7 @@ const QUEUES = {
   intents: 'mercurio-escrow-intents',
   reconcile: 'mercurio-reconcile',
   photoPurge: 'mercurio-photo-purge',
+  storageWarnings: 'mercurio-storage-warnings',
 } as const;
 
 export async function startWorkers(opts: WorkerOptions): Promise<PgBoss> {
@@ -50,6 +52,8 @@ export async function startWorkers(opts: WorkerOptions): Promise<PgBoss> {
   await boss.schedule(QUEUES.intents, '*/5 * * * *');
   await boss.schedule(QUEUES.reconcile, '0 3 * * *'); // nightly (invariant 6)
   await boss.schedule(QUEUES.photoPurge, '30 3 * * *'); // nightly (ADR-020 §5)
+  // 72h/24h thresholds tolerate a coarse cadence (RISKS.md §4, ToS §10.1).
+  await boss.schedule(QUEUES.storageWarnings, '*/10 * * * *');
 
   await boss.work(QUEUES.timers, async () => {
     await fireDueTimers(opts.lifecycle);
@@ -66,6 +70,9 @@ export async function startWorkers(opts: WorkerOptions): Promise<PgBoss> {
   });
   await boss.work(QUEUES.intents, async () => {
     await retryEscrowIntents(opts.lifecycle);
+  });
+  await boss.work(QUEUES.storageWarnings, async () => {
+    await enqueueStorageWarnings({ db: opts.lifecycle.db, now: opts.lifecycle.now });
   });
   await boss.work(QUEUES.photoPurge, async () => {
     const report = await purgeExpiredPhotos({
