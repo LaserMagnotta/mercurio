@@ -35,8 +35,9 @@ import type { App } from '../app.js';
 import { requireAuth } from '../plugins/auth-guard.js';
 import { loadShipmentBundle, remainingWorkPool } from '../shipments/context.js';
 import { msat } from '../lib/serialize.js';
-import { eurFloatToMsat, msatPerEur } from '../lib/eur-rate.js';
+import { eurFloatToMsat, msatPerEur, type EurRateSnapshot } from '../lib/eur-rate.js';
 import { loadRatings, ratingOf, type RatingSubject } from '../lib/reviews.js';
+import { replyLifecycleError } from './lifecycle-errors.js';
 
 const tripParams = z.object({ id: z.string().uuid() });
 
@@ -94,7 +95,7 @@ export function registerTripRoutes(app: App) {
    *  actually accepted AND completed, each at its own frozen EUR rate. The
    *  msat equivalent is computed HERE (current snapshot, floor-to-sat): the
    *  client prefills a sats-first input and never converts money itself. */
-  app.get('/trips/suggested-rate', { preHandler: requireAuth }, async () => {
+  app.get('/trips/suggested-rate', { preHandler: requireAuth }, async (_request, reply) => {
     const rows = await app.db
       .select({ obs: rateObservations, eurRate: shipments.eurRateSnapshot })
       .from(rateObservations)
@@ -109,7 +110,15 @@ export function registerTripRoutes(app: App) {
       })),
       app.lifecycle.now(),
     );
-    const rate = await app.eurRate.snapshot();
+    // `suggest`: this only prefills an input the carrier can overwrite, so any
+    // cached rate does (ADR-025 §5). It fails only if there has never been one.
+    let rate: EurRateSnapshot;
+    try {
+      rate = await app.eurRate.snapshot('suggest');
+    } catch (err) {
+      if (await replyLifecycleError(reply, err)) return;
+      throw err;
+    }
     return {
       eurPerKm,
       msatPerKm: msat(eurFloatToMsat(eurPerKm, rate.satsPerEur)),
@@ -321,7 +330,14 @@ export function registerTripRoutes(app: App) {
       );
       // msat equivalent computed server-side (current snapshot, floor-to-sat):
       // the client shows EUR and prefills sats, it never converts money.
-      const rate = await app.eurRate.snapshot();
+      // `suggest`: a hint, not a contract — any cached rate does (ADR-025 §5).
+      let rate: EurRateSnapshot;
+      try {
+        rate = await app.eurRate.snapshot('suggest');
+      } catch (err) {
+        if (await replyLifecycleError(reply, err)) return;
+        throw err;
+      }
       return {
         routeKm,
         suggestedEur,

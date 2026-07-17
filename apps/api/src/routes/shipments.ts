@@ -19,7 +19,7 @@ import {
 import type { App } from '../app.js';
 import { requireAuth } from '../plugins/auth-guard.js';
 import { generateToken } from '../lib/tokens.js';
-import { eurToMsat } from '../lib/eur-rate.js';
+import { eurToMsat, type EurRateSnapshot } from '../lib/eur-rate.js';
 import { hasConnectedWallet } from '../lib/wallets.js';
 import { parcelFitsHub, storageFitsHub } from '../lib/parcel.js';
 import { msat, isoOrNull } from '../lib/serialize.js';
@@ -69,7 +69,18 @@ export function registerShipmentRoutes(app: App) {
 
       const offerMsat = BigInt(b.offerMsat);
       const custodyBondMsat = BigInt(b.custodyBondMsat);
-      const rate = await app.eurRate.snapshot();
+      // The one place a NEW rate is required: it sizes the ToS bond cap below
+      // and is then frozen on the row for the shipment's whole life (ADR-008).
+      // A rate too old to be trusted fails here as a typed 503 — the sender
+      // retries with no funds committed. Every other flow reads the frozen
+      // column instead, so none of them can stall on a dead feed (ADR-025).
+      let rate: EurRateSnapshot;
+      try {
+        rate = await app.eurRate.snapshot('freeze');
+      } catch (err) {
+        if (await replyLifecycleError(reply, err)) return;
+        throw err;
+      }
       const bondCapMsat = eurToMsat(MAX_CUSTODY_BOND_EUR, rate.satsPerEur);
       if (custodyBondMsat > bondCapMsat) {
         return reply
