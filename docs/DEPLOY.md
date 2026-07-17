@@ -35,6 +35,10 @@ nessun Kubernetes; nessun dato demo.
   rinnovo ACME, oltre che al redirect verso HTTPS.
 - Un **relay SMTP** con credenziali (le email sono l'unico modo in cui un
   utente entra e riceve gli avvisi del ciclo di vita).
+- **Uscita HTTPS** verso `api.kraken.com`, `www.bitstamp.net` e
+  `api.coinbase.com`: l'API ne prende la mediana come cambio EUR→sats
+  (ADR-025). Nessuna chiave e nessun account da creare; se l'egress è chiuso,
+  il tasso si fissa a mano (§3).
 - Nessun Node, nessun pnpm, nessun Postgres installati sull'host: le immagini
   si costruiscono da sole.
 
