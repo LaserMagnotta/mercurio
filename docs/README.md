@@ -46,7 +46,18 @@ purge invariati) e il **deploy di produzione** (ADR-024: immagini multi-stage
 per api e web, compose su singolo VPS in `infra/production/` con Caddy come
 unica origin pubblica — `/api/*` al proxy, stesso contratto same-origin
 dell'ADR-018 — migrazioni come servizio one-shot, segreti solo da env, backup
-di Postgres e foto; guida in [DEPLOY.md](DEPLOY.md)). Preparando il deploy sono
+di Postgres e foto; guida in [DEPLOY.md](DEPLOY.md)) e il **cambio EUR→sats
+reale** (ADR-025: mediana di tre ticker BTC/EUR pubblici senza chiave, presi
+solo server-side e tenuti in cache 5 minuti dietro lo stesso `EurRateProvider`
+di ADR-008 — la matematica intera non cambia; una fonte rotta è l'outlier e
+viene scartata. Il tasso fisso da env resta il default di sviluppo, perché i
+sats di regtest non hanno un prezzo di mercato, mentre in produzione **nessun
+cambio può venire da un default**: senza `EUR_RATE_PROVIDER` l'API rifiuta di
+avviarsi, come già fa con `FAKE_WALLETS`. Un feed giù non ferma niente che non
+chieda uno snapshot nuovo — release/refund, check-in/out, ritiri e claim
+leggono il cambio congelato sulla riga — e solo `POST /shipments` risponde
+`503` oltre le 6 ore di età massima, perché lì il cambio si congela per tutta
+la vita della spedizione). Preparando il deploy sono
 emersi e chiusi due difetti che solo la produzione avrebbe rivelato: l'output di
 `tsc` non era eseguibile da Node (import relativi senza estensione — la `dist/`
 non era mai stata eseguita: `pnpm dev` gira su tsx e i test su vitest) e i
@@ -96,6 +107,7 @@ acquisto di VPS e dominio; un check di uptime esterno su `/api/health`.
 | [ADR-022](adr/ADR-022-sender-creation-photos.md)    | Foto del mittente alla creazione: certificazione nell'evento `created`, upload con le guardie di ADR-020 |
 | [ADR-023](adr/ADR-023-s3-blob-storage-driver.md)    | Driver S3-compatibile per il blob storage delle foto (MinIO/Garage), selezione da config, MinIO dev opt-in |
 | [ADR-024](adr/ADR-024-production-deploy.md)         | Deploy: immagini multi-stage, compose su singolo VPS, Caddy unica origin, segreti solo da env |
+| [ADR-025](adr/ADR-025-eur-rate-market-provider.md)  | Cambio EUR→sats reale: mediana di ticker pubblici senza chiave, cache in processo, fisso solo per dev |
 
 ## Stato delle decisioni
 
