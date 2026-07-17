@@ -99,9 +99,30 @@ throwaway keys.
 ### Photo blob storage
 
 Certified handoff photos are uploaded to the API and stored content-addressed
-(key = sha256) on the local filesystem under `PHOTO_STORAGE_DIR` (default
-`./data/photos`, gitignored). Download is session-authorized only — no public
-URLs. Retention is enforced by a nightly purge worker (ADR-020).
+(key = sha256) behind a `BlobStore` interface (ADR-020). `PHOTO_STORAGE_DRIVER`
+picks the driver: `fs` (default, unchanged — local filesystem under
+`PHOTO_STORAGE_DIR`, default `./data/photos`, gitignored) or `s3` for any
+S3-compatible object store (MinIO, Garage — ADR-023), configured with
+`PHOTO_STORAGE_S3_ENDPOINT` / `_BUCKET` / `_REGION` / `_ACCESS_KEY_ID` /
+`_SECRET_ACCESS_KEY` / `_FORCE_PATH_STYLE` (all required when `s3` is
+selected; never committed). Download is session-authorized only — no public
+URLs. Retention is enforced by a nightly purge worker (ADR-020 §5), unchanged
+by the driver.
+
+To exercise the S3 driver locally, bring up the opt-in MinIO fixture (never
+started by a plain `docker compose up -d`) and point the API at it:
+
+```sh
+docker compose -f infra/docker/docker-compose.yml up -d minio
+# create the bucket once (console at http://127.0.0.1:9001, mercurio/mercurio-dev-secret,
+# or any S3-compatible client) before pointing the API at it:
+PHOTO_STORAGE_DRIVER=s3 PHOTO_STORAGE_S3_ENDPOINT=http://127.0.0.1:9000 \
+  PHOTO_STORAGE_S3_BUCKET=mercurio-photos PHOTO_STORAGE_S3_ACCESS_KEY_ID=mercurio \
+  PHOTO_STORAGE_S3_SECRET_ACCESS_KEY=mercurio-dev-secret pnpm --filter @mercurio/api dev
+```
+
+The driver's own contract suite (`apps/api/src/lib/blob-store.s3.integration.test.ts`)
+creates its own test bucket and runs against that same MinIO via `pnpm test:integration`.
 
 ### Auth (magic link)
 

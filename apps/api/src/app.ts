@@ -29,7 +29,7 @@ import { registerShipmentRoutes } from './routes/shipments';
 import { registerShipmentLifecycleRoutes } from './routes/shipment-lifecycle';
 import { registerReviewRoutes } from './routes/reviews';
 import { registerPhotoRoutes } from './routes/photos';
-import { createFsBlobStore, type BlobStore } from './lib/blob-store';
+import { createBlobStoreFromEnv, type BlobStore } from './lib/blob-store';
 import { createMailer, type SendMail } from './lib/mailer';
 import { createDbWalletResolver } from './lib/wallets';
 import { createEnvEurRateProvider, type EurRateProvider } from './lib/eur-rate';
@@ -82,8 +82,8 @@ export interface BuildAppOptions {
   /** Injected by tests to shrink the connect-time NWC probe timeout
    *  (production default: probeNwcWallet's own 8s). */
   nwcProbeTimeoutMs?: number;
-  /** Injected by tests (memory store); defaults to the filesystem driver on
-   *  PHOTO_STORAGE_DIR (ADR-020). */
+  /** Injected by tests (memory store); defaults to the driver selected by
+   *  PHOTO_STORAGE_DRIVER (ADR-020 fs / ADR-023 s3). */
   blobStore?: BlobStore;
 }
 
@@ -137,11 +137,9 @@ export async function buildApp(options: BuildAppOptions = {}) {
     }),
   });
   app.decorate('eurRate', options.eurRate ?? createEnvEurRateProvider());
-  // Photo blobs (ADR-020): filesystem driver, content-addressed by sha256.
-  app.decorate(
-    'blobStore',
-    options.blobStore ?? createFsBlobStore(process.env.PHOTO_STORAGE_DIR ?? './data/photos'),
-  );
+  // Photo blobs (ADR-020, ADR-023): fs or S3-compatible driver from config,
+  // content-addressed by sha256.
+  app.decorate('blobStore', options.blobStore ?? createBlobStoreFromEnv());
 
   // Photo uploads are raw JPEG bodies (ADR-020 §3): parsed as a Buffer, with
   // the per-route bodyLimit as the size cap. The whitelist itself is decided

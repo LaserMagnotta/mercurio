@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitest/config';
+import { configDefaults, defineConfig } from 'vitest/config';
 
 // The api suites are END-TO-END: each file boots a full world (pglite with
 // every migration, fake Lightning network, buildApp). Under parallel load
@@ -7,5 +7,8 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     testTimeout: 30_000,
+    // *.integration.test.ts needs a real MinIO (ADR-023) and runs only via
+    // the separate `test:integration` script/config, never the default run.
+    exclude: [...configDefaults.exclude, '**/*.integration.test.ts'],
   },
 });

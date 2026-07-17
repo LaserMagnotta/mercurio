@@ -29,17 +29,21 @@ collegamento, interop verificata su regtest con relay nostr + Alby Hub) e il
 certificato, EXIF rimosso sul dispositivo, download solo via API con authz
 di sessione, purge worker con retention GDPR) e lo **scanner QR in pagina**
 (ADR-021: BarcodeDetector nativo dove disponibile, campo testo come fallback
-universale, stream fotocamera mai fuori dal dispositivo) e le **foto del
+universale, stream fotocamera mai fuori dal dispositivo), le **foto del
 mittente alla creazione** (ADR-022: hash `content`/`sealed` opzionali
 dichiarati nella `POST /shipments` e certificati dall'evento `created`,
-upload e visibilità con le guardie di ADR-020) e i **testi legali**
+upload e visibilità con le guardie di ADR-020), i **testi legali**
 (docs/legal: [TOS.md](legal/TOS.md) e [PRIVACY.md](legal/PRIVACY.md), serviti
 dalle pagine `/tos` e `/privacy` del web con parità it/en, linkate dal footer
 e dal consenso al primo login — che ora registra anche l'approvazione
 specifica ex artt. 1341-1342 c.c.; il worker manda i preavvisi di giacenza a
 72/24 h e ogni mail del ciclo di vita porta il link all'informativa,
-artt. 14/21 GDPR). **Da implementare**: driver blob S3-compatibile, app
-mobile. **Todo umano**: revisione dei testi legali da parte di un legale.
+artt. 14/21 GDPR) e il **driver S3-compatibile per il blob storage delle
+foto** (ADR-023: stessa interfaccia `BlobStore` di ADR-020, selezione da
+config con `PHOTO_STORAGE_DRIVER` — default filesystem, invariato — MinIO
+nel docker-compose di sviluppo solo per testare il driver stesso, refcount e
+purge invariati). **Da implementare**: app mobile. **Todo umano**: revisione
+dei testi legali da parte di un legale.
 
 ## Documenti
 
@@ -79,6 +83,7 @@ mobile. **Todo umano**: revisione dei testi legali da parte di un legale.
 | [ADR-020](adr/ADR-020-photo-blob-storage.md)        | Foto: blob storage fs content-addressed, EXIF strip sul dispositivo, accesso solo via API |
 | [ADR-021](adr/ADR-021-in-page-qr-scanner.md)        | Scanner QR in pagina: BarcodeDetector nativo, campo testo come fallback universale, nessun decoder nel bundle |
 | [ADR-022](adr/ADR-022-sender-creation-photos.md)    | Foto del mittente alla creazione: certificazione nell'evento `created`, upload con le guardie di ADR-020 |
+| [ADR-023](adr/ADR-023-s3-blob-storage-driver.md)    | Driver S3-compatibile per il blob storage delle foto (MinIO/Garage), selezione da config, MinIO dev opt-in |
 
 ## Stato delle decisioni
 

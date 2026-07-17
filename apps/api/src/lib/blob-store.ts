@@ -1,7 +1,7 @@
-// Photo blob storage (ADR-020). A minimal interface in the repo's usual
-// style (WalletConnection, DistanceProvider): routes and workers depend on
-// this boundary, so swapping the MVP filesystem driver for an S3-compatible
-// one (future ADR) never touches them.
+// Photo blob storage (ADR-020, ADR-023). A minimal interface in the repo's
+// usual style (WalletConnection, DistanceProvider): routes and workers
+// depend on this boundary, so choosing the S3-compatible driver over the
+// MVP filesystem one (ADR-023) never touches them.
 //
 // Keys are the photos' sha256 (the schema's natural key): the store is
 // content-addressed by construction — same bytes, same key, same path — so
@@ -11,6 +11,13 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import {
+  DeleteObjectCommand,
+  GetObjectCommand,
+  ListObjectsV2Command,
+  PutObjectCommand,
+  S3Client,
+} from '@aws-sdk/client-s3';
 
 export interface BlobEntry {
   key: string;
@@ -118,4 +125,114 @@ export function createMemoryBlobStore(now: () => Date = () => new Date()): BlobS
       return [...blobs.entries()].map(([key, v]) => ({ key, modifiedAt: v.modifiedAt }));
     },
   };
+}
+
+export interface S3BlobStoreConfig {
+  endpoint: string;
+  bucket: string;
+  /** Conventional value for MinIO/Garage, which do not route by region. */
+  region?: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+  /** MinIO/Garage need path-style (`endpoint/bucket/key`); real S3 supports
+   *  virtual-hosted style too. Default true (the two ADR-023 targets). */
+  forcePathStyle?: boolean;
+}
+
+function isNotFound(err: unknown): boolean {
+  const e = err as { name?: string; $metadata?: { httpStatusCode?: number } };
+  return e?.name === 'NoSuchKey' || e?.$metadata?.httpStatusCode === 404;
+}
+
+/**
+ * S3-compatible driver (ADR-023): any client speaking the S3 API (MinIO,
+ * Garage, S3 itself) behind the same `BlobStore` interface as the fs driver.
+ * Object key = sha256 directly — the fs driver's two-level fan-out exists
+ * only to keep filesystem directories small, which does not apply to an
+ * object store at MVP volumes. `put` needs no temp-file dance: a `PutObject`
+ * is already atomic at the object level, so a concurrent `get` never
+ * observes partial bytes.
+ */
+export function createS3BlobStore(config: S3BlobStoreConfig): BlobStore {
+  const client = new S3Client({
+    endpoint: config.endpoint,
+    region: config.region ?? 'us-east-1',
+    forcePathStyle: config.forcePathStyle ?? true,
+    credentials: {
+      accessKeyId: config.accessKeyId,
+      secretAccessKey: config.secretAccessKey,
+    },
+  });
+  const bucket = config.bucket;
+
+  return {
+    async get(key) {
+      if (!KEY_RE.test(key)) throw new Error(`blob store: malformed key ${key}`);
+      try {
+        const res = await client.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+        const bytes = await res.Body?.transformToByteArray();
+        return bytes ? Buffer.from(bytes) : null;
+      } catch (err) {
+        if (isNotFound(err)) return null;
+        throw err;
+      }
+    },
+    async put(key, bytes) {
+      if (!KEY_RE.test(key)) throw new Error(`blob store: malformed key ${key}`);
+      await client.send(new PutObjectCommand({ Bucket: bucket, Key: key, Body: bytes }));
+    },
+    async delete(key) {
+      if (!KEY_RE.test(key)) throw new Error(`blob store: malformed key ${key}`);
+      await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
+    },
+    async list() {
+      const entries: BlobEntry[] = [];
+      let continuationToken: string | undefined;
+      do {
+        const res = await client.send(
+          new ListObjectsV2Command({ Bucket: bucket, ContinuationToken: continuationToken }),
+        );
+        for (const obj of res.Contents ?? []) {
+          if (!obj.Key || !obj.LastModified || !KEY_RE.test(obj.Key)) continue;
+          entries.push({ key: obj.Key, modifiedAt: obj.LastModified });
+        }
+        continuationToken = res.NextContinuationToken;
+      } while (continuationToken);
+      return entries;
+    },
+  };
+}
+
+function requireEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(`blob store: ${name} is required when PHOTO_STORAGE_DRIVER=s3`);
+  }
+  return value;
+}
+
+/**
+ * Picks the driver from config (ADR-023): `PHOTO_STORAGE_DRIVER` defaults to
+ * `fs` (ADR-020, unchanged for single-replica deploys). `s3` requires every
+ * `PHOTO_STORAGE_S3_*` credential explicitly — a missing one fails loudly at
+ * startup rather than silently falling back to a driver nobody chose.
+ */
+export function createBlobStoreFromEnv(): BlobStore {
+  const driver = process.env.PHOTO_STORAGE_DRIVER ?? 'fs';
+  if (driver === 'fs') {
+    return createFsBlobStore(process.env.PHOTO_STORAGE_DIR ?? './data/photos');
+  }
+  if (driver === 's3') {
+    return createS3BlobStore({
+      endpoint: requireEnv('PHOTO_STORAGE_S3_ENDPOINT'),
+      bucket: requireEnv('PHOTO_STORAGE_S3_BUCKET'),
+      ...(process.env.PHOTO_STORAGE_S3_REGION !== undefined && {
+        region: process.env.PHOTO_STORAGE_S3_REGION,
+      }),
+      accessKeyId: requireEnv('PHOTO_STORAGE_S3_ACCESS_KEY_ID'),
+      secretAccessKey: requireEnv('PHOTO_STORAGE_S3_SECRET_ACCESS_KEY'),
+      forcePathStyle: process.env.PHOTO_STORAGE_S3_FORCE_PATH_STYLE !== 'false',
+    });
+  }
+  throw new Error(`blob store: unknown PHOTO_STORAGE_DRIVER "${driver}" (expected fs or s3)`);
 }

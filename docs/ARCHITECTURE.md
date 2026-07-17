@@ -198,8 +198,9 @@ documentale di chi ha certificato cosa.
 
 **photos** — `id, shipment_id, custody_event_id?, rejection_id?, kind (content|sealed|
 checkin|checkout|evidence), storage_key, sha256, taken_by, created_at, purge_after`
-(blob content-addressed su filesystem, retention limitata con purge worker —
-ADR-020, RISKS.md §6).
+(blob content-addressed dietro l'interfaccia `BlobStore` — driver filesystem
+di default o S3-compatibile da config, retention limitata con purge worker —
+ADR-020, ADR-023, RISKS.md §6).
 
 **wallet_connections** — `id, user_id, kind (nwc|lnd_rest|fake), connection_secret
 (cifrato), capabilities (hold_invoice bool…), status, created_at`. Il wallet
