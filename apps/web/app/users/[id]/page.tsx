@@ -8,7 +8,6 @@ import { apiFetch, ApiError } from '../../../lib/api/client';
 import type { UserReviews } from '../../../lib/api/endpoints';
 import { RatingStars } from '../../../components/RatingStars';
 import { formatDateTime } from '../../../lib/format';
-import { REVIEW_ROLES } from '@mercurio/shared';
 
 const API_URL = process.env.API_URL ?? 'http://localhost:3001';
 
@@ -51,14 +50,11 @@ export default async function UserProfilePage({
 
       <section className="card stack-sm">
         <h2>{t('ratingsTitle')}</h2>
-        <ul className="list-plain">
-          {REVIEW_ROLES.map((role) => (
-            <li key={role} className="row-between">
-              <span>{tRoles(role)}</span>
-              <RatingStars rating={data.ratings[role]} />
-            </li>
-          ))}
-        </ul>
+        {/* Only the hub is reviewable (ADR-027): one aggregate. */}
+        <div className="row-between">
+          <span>{tRoles('hub')}</span>
+          <RatingStars rating={data.ratings.hub} />
+        </div>
         <p className="hint">{t('ratingsHint')}</p>
       </section>
 

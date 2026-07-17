@@ -225,14 +225,18 @@ export function registerShipmentRoutes(app: App) {
         claimRowsAll.some((c) => c.claimantId === userId);
       if (!isParticipant) return reply.code(404).send({ error: 'not_found' });
 
-      // Per-role ratings of everyone who effectively took part so far
-      // (ADR-017): the participants pick each other here — the sender
-      // watches the carriers and hubs, the claimant sizes up the hub.
+      // Ratings of the effective participants (ADR-017), but ONLY the hubs are
+      // reviewable now (ADR-027): the detail shows hub aggregates only. The
+      // full participant set still decides `viewerCanReview` below — a sender
+      // or carrier is an author (they rate the hubs) even though neither is a
+      // reviewable subject.
       const participants = await effectiveParticipants(app.db, {
         id: s.id,
         senderId: s.senderId,
       });
-      const ratings = await loadRatings(app.db, participants);
+      const viewerCanReview = participants.some((p) => p.userId === userId);
+      const hubParticipants = participants.filter((p) => p.role === 'hub');
+      const ratings = await loadRatings(app.db, hubParticipants);
 
       const currentHubId = bundle.currentStayRow?.hubId ?? null;
       const destHub = bundle.hubById.get(s.destHubId);
@@ -304,12 +308,16 @@ export function registerShipmentRoutes(app: App) {
           hash: e.hash,
           createdAt: e.createdAt.toISOString(),
         })),
-        ratings: participants.map((p) => ({
+        // Hub-only (ADR-027): the reviewable subjects and their aggregates.
+        ratings: hubParticipants.map((p) => ({
           userId: p.userId,
           role: p.role,
           hubId: p.hubId,
           ...ratingOf(ratings, p.userId, p.role),
         })),
+        // Whether the viewer is an effective participant and so may author a
+        // hub review (the web review form gates on this, not on `ratings`).
+        viewerCanReview,
       };
     },
   );

@@ -230,13 +230,11 @@ export const reviewDto = z.object({
   createdAt: z.string(),
 });
 
-/** Response of GET /users/:id/reviews — the future profile page: per-role
- *  aggregates plus the received reviews, newest first. */
+/** Response of GET /users/:id/reviews — the public profile page. Only the hub
+ *  is reviewable (ADR-027), so a single aggregate and hub-role reviews only. */
 export const userReviewsDto = z.object({
   userId: uuidString,
   ratings: z.object({
-    sender: ratingDto,
-    carrier: ratingDto,
     hub: ratingDto,
   }),
   reviews: z.array(reviewDto),
@@ -387,10 +385,13 @@ export const shipmentDetailDto = z.object({
   createdAt: z.string(),
   legs: z.array(legDto),
   custodyChain: z.array(custodyEventDto),
-  /** Per-role ratings of every effective participant (ADR-017): the sender,
-   *  the carriers of funded legs, the hubs that hosted the parcel, a funded
-   *  claimant. Computed from the reviews table on read. */
+  /** Ratings of the reviewable participants — the HUBS that hosted the parcel
+   *  (ADR-027: only hubs are reviewable). Computed from the reviews table on
+   *  read. */
   ratings: z.array(participantRatingDto),
+  /** True when the viewer is an effective participant of this shipment and so
+   *  may author a hub review (the web review form gates on this — ADR-027). */
+  viewerCanReview: z.boolean(),
 });
 
 /** One uploaded photo of a shipment (ADR-020): metadata only — the bytes are
@@ -477,9 +478,9 @@ export const boardCardDto = z.object({
   dims: dimensionsSchema,
   weightG: z.number().int(),
   undeclared: z.boolean(),
-  /** MATCHING.md §3: the card shows the sender's rating and the ratings of
-   *  the hubs involved (the drop options carry their own `hubRating`). */
-  senderRating: ratingDto,
+  /** MATCHING.md §3: the card shows the ratings of the hubs involved — the
+   *  current hub here, each drop option its own `hubRating`. Only hubs are
+   *  reviewable (ADR-027): no sender rating. */
   currentHubRating: ratingDto,
   /** The shipment's FROZEN exchange snapshot (ADR-008): the indicative € on
    *  the card must use the rate that will govern the carrier's payout. */

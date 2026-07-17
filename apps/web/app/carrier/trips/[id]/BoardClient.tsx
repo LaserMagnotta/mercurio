@@ -176,8 +176,7 @@ export function BoardClient({ tripId }: { tripId: string }) {
         {card.undeclared && <span className="badge badge-warning">{t('undeclared')}</span>}
       </p>
       <p className="row small">
-        <span className="muted">{t('senderRating')}:</span>
-        <RatingStars rating={card.senderRating} />
+        {/* Only hubs are reviewable now (ADR-027): no sender rating. */}
         <span className="muted">{t('hubRating')}:</span>
         <RatingStars rating={card.currentHubRating} />
       </p>

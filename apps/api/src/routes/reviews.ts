@@ -8,7 +8,7 @@
 // (shipment, author, subject, role) — the last one enforced by the DB's
 // unique constraint, not by a read-then-write race.
 
-import { desc, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { reviews, users } from '@mercurio/db';
 import { isTerminalState } from '@mercurio/core';
@@ -58,6 +58,11 @@ export function registerReviewRoutes(app: App) {
         return reply.code(403).send({ error: 'not_a_participant' });
       }
       const { subjectId, role, stars, comment } = request.body;
+      // ADR-027: the ONLY reviewable subject is the hub. The enum still carries
+      // sender/carrier (Postgres enums only grow), but the API refuses them.
+      if (role !== 'hub') {
+        return reply.code(422).send({ error: 'subject_not_reviewable' });
+      }
       if (subjectId === authorId) {
         return reply.code(422).send({ error: 'self_review' });
       }
@@ -107,23 +112,20 @@ export function registerReviewRoutes(app: App) {
       .where(eq(users.id, userId));
     if (!user) return reply.code(404).send({ error: 'not_found' });
 
+    // ADR-027: only the hub is reviewable, so the profile shows just the hub
+    // aggregate and only hub-role reviews. Any legacy sender/carrier rows stay
+    // in the table (immutable history) but are excluded from every read.
     const [ratings, received] = await Promise.all([
-      loadRatings(app.db, [
-        { userId, role: 'sender' },
-        { userId, role: 'carrier' },
-        { userId, role: 'hub' },
-      ]),
+      loadRatings(app.db, [{ userId, role: 'hub' }]),
       app.db
         .select()
         .from(reviews)
-        .where(eq(reviews.subjectId, userId))
+        .where(and(eq(reviews.subjectId, userId), eq(reviews.role, 'hub')))
         .orderBy(desc(reviews.createdAt)),
     ]);
     return {
       userId,
       ratings: {
-        sender: ratingOf(ratings, userId, 'sender'),
-        carrier: ratingOf(ratings, userId, 'carrier'),
         hub: ratingOf(ratings, userId, 'hub'),
       },
       reviews: received.map((r) => ({

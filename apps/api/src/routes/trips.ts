@@ -505,15 +505,14 @@ async function buildBoard(app: App, trip: typeof carrierTrips.$inferSelect, carr
     provider,
   );
 
-  // Ratings shown on every card (MATCHING.md §3): the sender's and those of
-  // every hub involved — current hub plus each proposed drop. One grouped
-  // query for the whole board, computed from the reviews table on read.
+  // Ratings shown on every card (MATCHING.md §3): only the hubs' now (ADR-027
+  // — the sender is no longer a reviewable subject). Current hub plus each
+  // proposed drop. One grouped query for the whole board, from the reviews
+  // table on read.
   const ratingSubjects: RatingSubject[] = [];
   for (const c of candidates) {
-    const meta = cardMeta.get(c.shipmentId)!;
-    ratingSubjects.push({ userId: meta.row.senderId, role: 'sender' });
     for (const hubId of [
-      meta.currentHubId,
+      cardMeta.get(c.shipmentId)!.currentHubId,
       c.bestDropHub.hubId,
       ...c.alternatives.map((o) => o.hubId),
     ]) {
@@ -544,7 +543,6 @@ async function buildBoard(app: App, trip: typeof carrierTrips.$inferSelect, carr
       alternatives: c.alternatives.map(option),
       currentHubId: meta.currentHubId,
       currentHubName: hubName(meta.currentHubId),
-      senderRating: ratingOf(ratings, meta.row.senderId, 'sender'),
       currentHubRating: hubRating(meta.currentHubId),
       destHubId: meta.row.destHubId,
       remainingKm: meta.remainingKm,
@@ -559,6 +557,7 @@ async function buildBoard(app: App, trip: typeof carrierTrips.$inferSelect, carr
       undeclared: meta.row.undeclared,
       // The shipment's FROZEN snapshot (ADR-008): the card's indicative €
       // must use the same rate that will govern the carrier's payout.
+      // (No senderRating: only hubs are reviewable now — ADR-027.)
       eurRate: {
         satsPerEur: meta.row.eurRateSnapshot,
         source: meta.row.eurRateSource,

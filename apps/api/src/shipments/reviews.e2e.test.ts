@@ -1,12 +1,15 @@
-// Reviews (CLAUDE.md "Recensioni", ADR-017), end to end over HTTP on pglite.
+// Reviews (CLAUDE.md "Recensioni", ADR-017 as amended by ADR-027), end to end
+// over HTTP on pglite.
 //
-// Reviews move no money, but they weigh on reputation — the only sanction in
-// a system without arbiters (RISKS.md §1) — so every guard is tested one by
-// one: closed shipment, review window, effective-role rules for carriers
-// (funded legs only), hubs (certified check-in only) and claimants (funded
-// claims only, as 'carrier' — ADR-016), self-review, double review. The
-// aggregates are asserted on every surface where a counterparty is chosen:
-// hub list, board card, shipment detail, profile endpoint.
+// Only the HUB is reviewable now (ADR-027): the enum still carries
+// sender/carrier, but the API refuses them and no read surfaces their
+// aggregates. Reviews move no money, but they weigh on reputation — the only
+// sanction in a system without arbiters (RISKS.md §1) — so every guard is
+// tested one by one: closed shipment, review window, author is an effective
+// participant, subject is a HUB that certified a check-in, non-hub subjects
+// refused, self-review, double review. The hub aggregates are asserted on
+// every surface where a hub is chosen: hub list, board card, shipment detail,
+// profile endpoint.
 
 import { describe, expect, it } from 'vitest';
 import { emailOutbox } from '@mercurio/db';
@@ -48,12 +51,13 @@ async function userReviews(world: LifecycleWorld, userId: string) {
   const res = await world.api({ method: 'GET', url: `/users/${userId}/reviews`, expect: 200 });
   return res.json() as {
     userId: string;
-    ratings: { sender: RatingDto; carrier: RatingDto; hub: RatingDto };
+    ratings: { hub: RatingDto };
     reviews: { authorId: string; role: string; stars: number; comment: string | null }[];
   };
 }
 
-/** Canonical delivery (CLAUDE.md flow): Luca A→C, Anna C→B, OTP pickup. */
+/** Canonical delivery (CLAUDE.md flow): Luca A→C, Anna C→B, OTP pickup. All
+ *  three hubs certify a check-in, so all three are reviewable as hubs. */
 async function deliverCanonical(world: LifecycleWorld): Promise<{ id: string }> {
   const { id, qrToken } = await createShipmentAtHub(world);
   const lucaTrip = await declareTrip(world, world.luca, -5, 50);
@@ -116,48 +120,46 @@ async function lastClaimToken(world: LifecycleWorld): Promise<string> {
   return (rows.at(-1)!.payload as { claimToken: string }).claimToken;
 }
 
-describe('reviews (ADR-017)', () => {
-  it('delivered shipment: participants review each other, aggregates surface everywhere', async () => {
+describe('reviews (ADR-017, hub-only per ADR-027)', () => {
+  it('delivered shipment: participants review the hubs, hub aggregates surface everywhere', async () => {
     const world = await createLifecycleWorld();
     const { id } = await deliverCanonical(world);
 
-    // Cross-reviews between effective participants, per role.
+    // Effective participants review the HUBS. carla (hub C) gets two reviews,
+    // mario (hub A) one; the averages are asserted below.
     await postReview(world, world.marco, id, {
-      subjectId: world.luca.id,
-      role: 'carrier',
+      subjectId: world.carla.id,
+      role: 'hub',
       stars: 5,
-      comment: 'puntuale e gentile',
+      comment: 'hub curato e reattivo',
     }, 201);
-    await postReview(world, world.marco, id, { subjectId: world.anna.id, role: 'carrier', stars: 4 }, 201);
-    await postReview(world, world.marco, id, { subjectId: world.carla.id, role: 'hub', stars: 5 }, 201);
-    await postReview(world, world.luca, id, { subjectId: world.mario.id, role: 'hub', stars: 3 }, 201);
-    await postReview(world, world.luca, id, { subjectId: world.marco.id, role: 'sender', stars: 4 }, 201);
-    await postReview(world, world.bruno, id, { subjectId: world.marco.id, role: 'sender', stars: 5 }, 201);
+    await postReview(world, world.luca, id, { subjectId: world.carla.id, role: 'hub', stars: 4 }, 201);
+    await postReview(world, world.marco, id, { subjectId: world.mario.id, role: 'hub', stars: 3 }, 201);
+    // Non-hub subjects are refused now (ADR-027) — the enum still parses, the
+    // API is the judge.
+    await postReview(world, world.marco, id, { subjectId: world.luca.id, role: 'carrier', stars: 5 }, 422);
+    await postReview(world, world.luca, id, { subjectId: world.marco.id, role: 'sender', stars: 4 }, 422);
 
-    // Profile endpoint: per-role aggregates + received list, newest first.
+    // Profile endpoint: a single hub aggregate + the received hub reviews.
+    const carla = await userReviews(world, world.carla.id);
+    expect(carla.ratings.hub).toEqual({ averageStars: 4.5, reviewCount: 2 });
+    expect(carla.reviews).toHaveLength(2);
+    expect(carla.reviews[0]).toMatchObject({ role: 'hub' });
+    // A carrier/sender profile carries no non-hub aggregate anymore.
     const luca = await userReviews(world, world.luca.id);
-    expect(luca.ratings.carrier).toEqual({ averageStars: 5, reviewCount: 1 });
     expect(luca.ratings.hub).toEqual({ averageStars: null, reviewCount: 0 });
-    expect(luca.reviews).toHaveLength(1);
-    expect(luca.reviews[0]).toMatchObject({
-      authorId: world.marco.id,
-      role: 'carrier',
-      stars: 5,
-      comment: 'puntuale e gentile',
-    });
-    const marco = await userReviews(world, world.marco.id);
-    expect(marco.ratings.sender).toEqual({ averageStars: 4.5, reviewCount: 2 });
+    expect(luca.reviews).toHaveLength(0);
 
     // Hub list: the sender picks hubs here — ratings ride along.
     const hubList = (await (
       await world.api({ method: 'GET', url: '/hubs', expect: 200 })
     ).json()) as { hubs: { id: string; rating: RatingDto }[] };
     const hubRating = (hubId: string) => hubList.hubs.find((h) => h.id === hubId)!.rating;
-    expect(hubRating(world.hubC)).toEqual({ averageStars: 5, reviewCount: 1 });
+    expect(hubRating(world.hubC)).toEqual({ averageStars: 4.5, reviewCount: 2 });
     expect(hubRating(world.hubA)).toEqual({ averageStars: 3, reviewCount: 1 });
     expect(hubRating(world.hubB)).toEqual({ averageStars: null, reviewCount: 0 });
 
-    // Shipment detail: per-role ratings of every effective participant.
+    // Shipment detail: hub participants only, plus the viewer's authorship flag.
     const detail = (await (
       await world.api({
         method: 'GET',
@@ -165,24 +167,23 @@ describe('reviews (ADR-017)', () => {
         cookie: world.marco.cookie,
         expect: 200,
       })
-    ).json()) as { ratings: { userId: string; role: string; hubId: string | null }[] };
-    expect(detail.ratings).toContainEqual({
-      userId: world.luca.id,
-      role: 'carrier',
-      hubId: null,
-      averageStars: 5,
-      reviewCount: 1,
-    });
+    ).json()) as {
+      ratings: { userId: string; role: string; hubId: string | null }[];
+      viewerCanReview: boolean;
+    };
+    expect(detail.viewerCanReview).toBe(true);
+    // Every displayed rating is a hub — never a sender or carrier.
+    expect(detail.ratings.every((r) => r.role === 'hub')).toBe(true);
     expect(detail.ratings).toContainEqual({
       userId: world.carla.id,
       role: 'hub',
       hubId: world.hubC,
-      averageStars: 5,
-      reviewCount: 1,
+      averageStars: 4.5,
+      reviewCount: 2,
     });
 
-    // Board card of a NEW shipment by the same sender: senderRating and the
-    // ratings of the hubs involved (MATCHING.md §3).
+    // Board card of a NEW shipment by the same sender: hub ratings only, and
+    // NO senderRating field anymore (MATCHING.md §3, ADR-027).
     await createShipmentAtHub(world);
     const tripId = await declareTrip(world, world.luca, -5, 50);
     const board = (await (
@@ -193,16 +194,15 @@ describe('reviews (ADR-017)', () => {
         expect: 200,
       })
     ).json()) as {
-      cards: {
-        senderRating: RatingDto;
+      cards: (Record<string, unknown> & {
         currentHubRating: RatingDto;
         bestDropHub: { hubId: string; hubRating: RatingDto };
-      }[];
+      })[];
     };
     expect(board.cards).toHaveLength(1);
-    expect(board.cards[0]!.senderRating).toEqual({ averageStars: 4.5, reviewCount: 2 });
+    expect(board.cards[0]!.senderRating).toBeUndefined();
     expect(board.cards[0]!.currentHubRating).toEqual({ averageStars: 3, reviewCount: 1 });
-    expect(board.cards[0]!.bestDropHub.hubRating).toEqual({ averageStars: 5, reviewCount: 1 });
+    expect(board.cards[0]!.bestDropHub.hubRating).toEqual({ averageStars: 4.5, reviewCount: 2 });
   }, 30_000);
 
   it('guards, one by one', async () => {
@@ -210,22 +210,25 @@ describe('reviews (ADR-017)', () => {
     const { id } = await deliverCanonical(world);
 
     // Author must be an effective participant (Rita never claimed).
-    await postReview(world, world.rita, id, { subjectId: world.luca.id, role: 'carrier', stars: 5 }, 403);
-    // No self-reviews.
+    await postReview(world, world.rita, id, { subjectId: world.carla.id, role: 'hub', stars: 5 }, 403);
+    // Non-hub subjects are refused (ADR-027) — before self-review, before the
+    // effective-role check.
+    await postReview(world, world.marco, id, { subjectId: world.luca.id, role: 'carrier', stars: 5 }, 422);
     await postReview(world, world.marco, id, { subjectId: world.marco.id, role: 'sender', stars: 5 }, 422);
-    // The subject must have held THAT role effectively.
+    // A hub owner cannot review their own hub (self-review).
+    await postReview(world, world.mario, id, { subjectId: world.mario.id, role: 'hub', stars: 5 }, 422);
+    // The subject must have held the HUB role effectively (Luca is no hub).
     await postReview(world, world.marco, id, { subjectId: world.luca.id, role: 'hub', stars: 5 }, 422);
-    await postReview(world, world.marco, id, { subjectId: world.rita.id, role: 'carrier', stars: 5 }, 422);
     // One review per (shipment, author, subject, role) — DB unique.
-    await postReview(world, world.marco, id, { subjectId: world.luca.id, role: 'carrier', stars: 5 }, 201);
-    await postReview(world, world.marco, id, { subjectId: world.luca.id, role: 'carrier', stars: 1 }, 409);
+    await postReview(world, world.marco, id, { subjectId: world.carla.id, role: 'hub', stars: 5 }, 201);
+    await postReview(world, world.marco, id, { subjectId: world.carla.id, role: 'hub', stars: 1 }, 409);
     // Stars are 1..5 (zod, then the DB check as backstop).
-    await postReview(world, world.marco, id, { subjectId: world.anna.id, role: 'carrier', stars: 6 }, 400);
-    await postReview(world, world.marco, id, { subjectId: world.anna.id, role: 'carrier', stars: 0 }, 400);
+    await postReview(world, world.marco, id, { subjectId: world.mario.id, role: 'hub', stars: 6 }, 400);
+    await postReview(world, world.marco, id, { subjectId: world.mario.id, role: 'hub', stars: 0 }, 400);
     // Unknown shipment.
     await postReview(world, world.marco, '00000000-0000-4000-8000-000000000000', {
-      subjectId: world.luca.id,
-      role: 'carrier',
+      subjectId: world.carla.id,
+      role: 'hub',
       stars: 5,
     }, 404);
 
@@ -235,14 +238,15 @@ describe('reviews (ADR-017)', () => {
 
     // The window closes REVIEW_WINDOW_DAYS after the closing custody event.
     world.clock.advanceHours(31 * 24);
-    await postReview(world, world.marco, id, { subjectId: world.carla.id, role: 'hub', stars: 5 }, 409);
+    await postReview(world, world.marco, id, { subjectId: world.mario.id, role: 'hub', stars: 5 }, 409);
   }, 30_000);
 
-  it('failure paths: funded engagements are reviewable, dissolved ones are not', async () => {
+  it('failure paths: only hubs that certified a check-in are reviewable', async () => {
     const world = await createLifecycleWorld();
     const { id } = await createShipmentAtHub(world);
 
-    // Anna accepts a leg but never funds it: the acceptance dissolves alone.
+    // Anna accepts a leg but never funds it: the acceptance dissolves alone —
+    // she never becomes a participant.
     const annaTrip = await declareTrip(world, world.anna, -5, 50);
     await world.api({
       method: 'POST',
@@ -255,7 +259,7 @@ describe('reviews (ADR-017)', () => {
     await fireDueTimers(world.app.lifecycle);
 
     // Luca funds his leg and then never shows up: pickup_timeout slashes his
-    // bond — a funded engagement, the one reputation must record.
+    // bond. Hub C was only his (never-reached) arrival hub — it never hosted.
     const lucaTrip = await declareTrip(world, world.luca, -5, 50);
     await world.api({
       method: 'POST',
@@ -281,23 +285,25 @@ describe('reviews (ADR-017)', () => {
     world.clock.advanceMinutes(61);
     await fireDueTimers(world.app.lifecycle);
 
-    // Storage expires (72 h from check-in): the shipment closes FORFEITED —
-    // a terminal state, reviewable like any other closure (ADR-017).
+    // Storage expires (72 h from check-in): the shipment closes FORFEITED — a
+    // terminal state, reviewable like any other closure (ADR-017). Only hub A
+    // (Mario) ever certified a check-in.
     world.clock.advanceHours(72);
     await fireDueTimers(world.app.lifecycle);
 
-    await postReview(world, world.marco, id, { subjectId: world.luca.id, role: 'carrier', stars: 1 }, 201);
+    // The one hosted hub is reviewable.
     await postReview(world, world.marco, id, { subjectId: world.mario.id, role: 'hub', stars: 4 }, 201);
-    await postReview(world, world.luca, id, { subjectId: world.marco.id, role: 'sender', stars: 2 }, 201);
-    // Never-funded engagements never happened, for reviews too.
-    await postReview(world, world.marco, id, { subjectId: world.anna.id, role: 'carrier', stars: 1 }, 422);
-    await postReview(world, world.marco, id, { subjectId: world.rita.id, role: 'carrier', stars: 1 }, 422);
-    // The destination hub never hosted the parcel: no role, in or out.
+    // Non-hub subjects are refused outright (ADR-027).
+    await postReview(world, world.marco, id, { subjectId: world.luca.id, role: 'carrier', stars: 1 }, 422);
+    await postReview(world, world.luca, id, { subjectId: world.marco.id, role: 'sender', stars: 2 }, 422);
+    // A hub that never hosted the parcel has no hub role: not reviewable.
+    await postReview(world, world.marco, id, { subjectId: world.carla.id, role: 'hub', stars: 1 }, 422);
     await postReview(world, world.marco, id, { subjectId: world.bruno.id, role: 'hub', stars: 1 }, 422);
-    await postReview(world, world.anna, id, { subjectId: world.marco.id, role: 'sender', stars: 5 }, 403);
+    // Anna never funded her leg: not a participant, cannot author.
+    await postReview(world, world.anna, id, { subjectId: world.mario.id, role: 'hub', stars: 5 }, 403);
   }, 30_000);
 
-  it('a funded claimant is reviewable as carrier, and can review (ADR-016)', async () => {
+  it('a funded claimant can author hub reviews but is not a reviewable subject (ADR-016/027)', async () => {
     const world = await createLifecycleWorld();
     const { id, qrToken } = await createShipmentAtHub(world);
     const lucaTrip = await declareTrip(world, world.luca, -5, 50);
@@ -338,12 +344,13 @@ describe('reviews (ADR-017)', () => {
       expect: 200,
     });
 
-    // Rita did the residual leg herself (ADR-016): she is a 'carrier' both
-    // as a subject and as an author.
-    await postReview(world, world.carla, id, { subjectId: world.rita.id, role: 'carrier', stars: 5 }, 201);
-    await postReview(world, world.marco, id, { subjectId: world.rita.id, role: 'carrier', stars: 4 }, 201);
+    // Rita (the claimant) is an effective participant: she can AUTHOR a hub
+    // review. She is not a reviewable subject — no one is, except the hubs.
     await postReview(world, world.rita, id, { subjectId: world.carla.id, role: 'hub', stars: 5 }, 201);
-    const rita = await userReviews(world, world.rita.id);
-    expect(rita.ratings.carrier).toEqual({ averageStars: 4.5, reviewCount: 2 });
+    await postReview(world, world.marco, id, { subjectId: world.carla.id, role: 'hub', stars: 4 }, 201);
+    await postReview(world, world.carla, id, { subjectId: world.rita.id, role: 'carrier', stars: 5 }, 422);
+
+    const carla = await userReviews(world, world.carla.id);
+    expect(carla.ratings.hub).toEqual({ averageStars: 4.5, reviewCount: 2 });
   }, 30_000);
 });

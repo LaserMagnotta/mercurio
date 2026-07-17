@@ -109,6 +109,7 @@ acquisto di VPS e dominio; un check di uptime esterno su `/api/health`.
 | [ADR-024](adr/ADR-024-production-deploy.md)         | Deploy: immagini multi-stage, compose su singolo VPS, Caddy unica origin, segreti solo da env |
 | [ADR-025](adr/ADR-025-eur-rate-market-provider.md)  | Cambio EUR→sats reale: mediana di ticker pubblici senza chiave, cache in processo, fisso solo per dev |
 | [ADR-026](adr/ADR-026-storage-in-days.md)           | Giacenza in giorni (cap 7 subito); i 30 giorni via bond a rinnovo rolling, da implementare a parte |
+| [ADR-027](adr/ADR-027-reviews-hub-only.md)          | Recensioni: l'unico soggetto recensibile è l'hub (emenda ADR-017) |
 
 ## Stato delle decisioni
 

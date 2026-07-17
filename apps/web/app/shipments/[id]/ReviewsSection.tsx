@@ -1,10 +1,11 @@
 'use client';
 
-// Review form (CLAUDE.md "Recensioni", ADR-017): shown on CLOSED shipments
-// only, to the effective participants, about the effective participants —
-// the `ratings` array of the detail DTO is exactly that set, so the client
-// offers only legal (subject, role) pairs and the API stays the judge
-// (window, authorship, duplicates → mapped error copy).
+// Review form (CLAUDE.md "Recensioni", ADR-017 as amended by ADR-027): shown
+// on CLOSED shipments only, to the effective participants, about the HUBS
+// only — `detail.ratings` is now the hub set (the only reviewable subjects),
+// and `detail.viewerCanReview` says whether the viewer (sender, carrier or
+// hub) may author. The client offers only legal pairs; the API stays the
+// judge (window, authorship, duplicates → mapped error copy).
 
 import { useMemo, useState, type FormEvent } from 'react';
 import { useTranslations } from 'next-intl';
@@ -34,8 +35,8 @@ export function ReviewsSection({
   const [error, setError] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState<Set<string>>(new Set());
 
-  // (subject, role) pairs this user may review: every effective participant
-  // but themselves. The key encodes both — one user can hold two roles.
+  // Hubs this user may review: every hub of the shipment but one they own
+  // (self-review is refused). `detail.ratings` is already hub-only (ADR-027).
   const subjects = useMemo(
     () =>
       detail.ratings
@@ -49,13 +50,13 @@ export function ReviewsSection({
     [detail.ratings, userId],
   );
 
-  const isAuthor = detail.ratings.some((p) => p.userId === userId);
-  if (!isTerminal(detail.status) || !isAuthor || subjects.length === 0) return null;
+  // Authorship is a property of the viewer, not of the hub list: a sender or
+  // carrier reviews the hubs without being a hub themselves (ADR-027).
+  if (!isTerminal(detail.status) || !detail.viewerCanReview || subjects.length === 0) return null;
 
+  // Always a hub now (ADR-027): show its name.
   const subjectLabel = (s: (typeof subjects)[number]) =>
-    s.hubId
-      ? `${tRoles(s.role)} — ${hubName(s.hubId)}`
-      : `${tRoles(s.role)} — ${s.userId.slice(0, 8)}…`;
+    s.hubId ? hubName(s.hubId) : `${tRoles(s.role)} — ${s.userId.slice(0, 8)}…`;
 
   const submit = (e: FormEvent) => {
     e.preventDefault();

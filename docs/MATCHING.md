@@ -134,9 +134,10 @@ funding del claim scade, il pacco ricompare.
    visibili perché la tariffa minima è una preferenza: il vettore può accettare comunque.
 
 Ogni card mostra: netto in sats (+ € indicativo), deviazione stimata, hub di consegna
-proposto `H*` con alternative, bond richiesto, dimensioni/peso, rating del mittente e
-degli hub coinvolti. Il netto mostrato è quello **congelato all'accettazione**: nessuna
-sorpresa dopo.
+proposto `H*` con alternative, bond richiesto, dimensioni/peso e il rating **degli hub
+coinvolti** (l'hub corrente e ogni hub di consegna proposto — dall'[ADR-027](adr/ADR-027-reviews-hub-only.md)
+il mittente non è più recensibile, quindi la card non ne mostra il rating). Il netto
+mostrato è quello **congelato all'accettazione**: nessuna sorpresa dopo.
 
 Complessità: `O(spedizioni × hub)` a richiesta — irrilevante ai volumi MVP. Quando
 servirà: indice spaziale (PostGIS) e pre-filtro dei candidati con bounding box

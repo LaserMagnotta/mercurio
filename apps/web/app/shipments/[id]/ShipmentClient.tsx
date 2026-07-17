@@ -401,10 +401,8 @@ export function ShipmentClient({
         <ul className="list-plain">
           {detail.ratings.map((p) => (
             <li key={`${p.userId}-${p.role}`} className="row-between">
-              <span>
-                <Link href={`/users/${p.userId}`}>{tRoles(p.role)}</Link>
-                {p.hubId && ` — ${hubName(p.hubId)}`}
-              </span>
+              {/* Hub-only now (ADR-027): the subject is always a hub. */}
+              <Link href={`/users/${p.userId}`}>{p.hubId ? hubName(p.hubId) : tRoles(p.role)}</Link>
               <RatingStars rating={{ averageStars: p.averageStars, reviewCount: p.reviewCount }} />
             </li>
           ))}
