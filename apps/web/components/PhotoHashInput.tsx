@@ -15,9 +15,12 @@ export interface PhotoHashInputProps {
   id: string;
   photos: CapturedPhoto[];
   onChange: (photos: CapturedPhoto[]) => void;
+  /** Overrides the generic "parcel photos" label — the Spedisci form mounts
+   *  two instances that certify different kinds (content/sealed, ADR-022). */
+  label?: string;
 }
 
-export function PhotoHashInput({ id, photos, onChange }: PhotoHashInputProps) {
+export function PhotoHashInput({ id, photos, onChange, label }: PhotoHashInputProps) {
   const t = useTranslations('photos');
   const [hashing, setHashing] = useState(false);
   const [decodeError, setDecodeError] = useState(false);
@@ -52,7 +55,7 @@ export function PhotoHashInput({ id, photos, onChange }: PhotoHashInputProps) {
 
   return (
     <div className="field">
-      <label htmlFor={id}>{t('label')}</label>
+      <label htmlFor={id}>{label ?? t('label')}</label>
       <input
         id={id}
         ref={inputRef}

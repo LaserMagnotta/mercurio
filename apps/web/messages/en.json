@@ -134,6 +134,8 @@
     "contentHint": "Declaring it helps hubs accept the parcel.",
     "undeclaredLabel": "I am not declaring the content",
     "undeclaredHint": "Some hubs do not accept parcels with undeclared content.",
+    "contentPhotosLabel": "Photos of the content (optional)",
+    "sealedPhotosLabel": "Photos of the sealed parcel (optional)",
     "storageLabel": "Max storage per hub (hours)",
     "storageHint": "Once storage expires the parcel becomes releasable to the hub (ToS). Maximum {max} hours.",
     "offerLabel": "Offer (sats)",

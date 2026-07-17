@@ -18,6 +18,7 @@ import {
   getHubs,
   getSuggestedOffer,
   getWallet,
+  uploadShipmentPhotos,
   type Hub,
   type SuggestedOffer,
 } from '../../lib/api/endpoints';
@@ -25,6 +26,8 @@ import { useApiErrorMessage } from '../../lib/api-error-message';
 import { useSession } from '../../lib/session';
 import { formatEurIndicative, formatKm, formatSats, satsToMsat } from '../../lib/format';
 import { HubCard } from '../../components/HubCard';
+import { PhotoHashInput } from '../../components/PhotoHashInput';
+import type { CapturedPhoto } from '../../lib/photo-capture';
 
 const SATS_RE = /^\d{1,15}$/;
 
@@ -81,6 +84,10 @@ export default function SendPage() {
   const [maxStorageHours, setMaxStorageHours] = useState('48');
   const [offerSats, setOfferSats] = useState('');
   const [bondSats, setBondSats] = useState('');
+  // Optional creation photos (ADR-022), hashed on device (ADR-020 §2): the
+  // hashes travel with the creation, the bytes are uploaded right after.
+  const [contentPhotos, setContentPhotos] = useState<CapturedPhoto[]>([]);
+  const [sealedPhotos, setSealedPhotos] = useState<CapturedPhoto[]>([]);
 
   const [suggestion, setSuggestion] = useState<SuggestedOffer | null>(null);
   const [suggestionLoading, setSuggestionLoading] = useState(false);
@@ -182,6 +189,12 @@ export default function SendPage() {
       offerMsat: satsToMsat(BigInt(offerSats)),
       custodyBondMsat: satsToMsat(BigInt(bondSats)),
       maxStorageHours: Number(maxStorageHours),
+      ...(contentPhotos.length > 0 && {
+        contentPhotoSha256: contentPhotos.map((p) => p.sha256),
+      }),
+      ...(sealedPhotos.length > 0 && {
+        sealedPhotoSha256: sealedPhotos.map((p) => p.sha256),
+      }),
     };
     const parsed = createShipmentBody.safeParse(candidate);
     if (!parsed.success) {
@@ -197,7 +210,12 @@ export default function SendPage() {
     setBusy(true);
     try {
       const created = await createShipment(parsed.data);
-      router.push(`/shipments/${created.id}?created=1`);
+      // Certification first, bytes second (ADR-020 §3): a failed upload never
+      // voids the created shipment — the detail page just says so and the
+      // hashes stay retryable server-side truth.
+      const failed = await uploadShipmentPhotos(created.id, [...contentPhotos, ...sealedPhotos]);
+      const failedParam = failed > 0 ? `&photosFailed=${failed}` : '';
+      router.push(`/shipments/${created.id}?created=1${failedParam}`);
     } catch (err) {
       setSubmitError(errorMessage(err));
       setBusy(false);
@@ -364,6 +382,22 @@ export default function SendPage() {
             {t('undeclaredLabel')} <span className="hint">{t('undeclaredHint')}</span>
           </label>
         </div>
+
+        {/* Optional creation photos (ADR-022): documentary protection for the
+            sender — independent from `undeclared`, which only governs which
+            hubs accept the parcel. Only participants ever see them. */}
+        <PhotoHashInput
+          id="content-photos"
+          label={t('contentPhotosLabel')}
+          photos={contentPhotos}
+          onChange={setContentPhotos}
+        />
+        <PhotoHashInput
+          id="sealed-photos"
+          label={t('sealedPhotosLabel')}
+          photos={sealedPhotos}
+          onChange={setSealedPhotos}
+        />
 
         <div className="field">
           <label htmlFor="storage">{t('storageLabel')}</label>

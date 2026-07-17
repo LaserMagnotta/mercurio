@@ -134,6 +134,8 @@
     "contentHint": "Dichiararlo aiuta gli hub ad accettare il pacco.",
     "undeclaredLabel": "Non dichiaro il contenuto",
     "undeclaredHint": "Alcuni hub non accettano pacchi con contenuto non dichiarato.",
+    "contentPhotosLabel": "Foto del contenuto (facoltative)",
+    "sealedPhotosLabel": "Foto del pacco sigillato (facoltative)",
     "storageLabel": "Giacenza massima per hub (ore)",
     "storageHint": "Scaduta la giacenza il pacco diventa svincolabile a favore dell'hub (ToS). Massimo {max} ore.",
     "offerLabel": "Offerta (sats)",

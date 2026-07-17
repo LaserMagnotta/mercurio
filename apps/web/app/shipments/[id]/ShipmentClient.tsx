@@ -25,6 +25,7 @@ import { formatDateTime, formatKm, formatSatsPerEur, satsToMsat } from '../../..
 import {
   CUSTODY_EVENT_TYPES,
   SENDER_ACTIONS,
+  custodyEventPhotoHashes,
   statusDescriptionKey,
 } from '../../../lib/shipment-status';
 import { Amount } from '../../../components/Amount';
@@ -40,12 +41,23 @@ const KNOWN_CUSTODY = new Set<string>(CUSTODY_EVENT_TYPES);
 
 type ActionPanel = 'boost' | 'reroute' | 'cancel' | null;
 
-export function ShipmentClient({ id, justCreated }: { id: string; justCreated: boolean }) {
+export function ShipmentClient({
+  id,
+  justCreated,
+  photosFailed = 0,
+}: {
+  id: string;
+  justCreated: boolean;
+  /** Creation photos whose byte upload failed right after create (ADR-022):
+   *  the certification stands, the banner just says so. */
+  photosFailed?: number;
+}) {
   const t = useTranslations('shipment');
   const tStatuses = useTranslations('statuses');
   const tCustody = useTranslations('custody');
   const tRoles = useTranslations('roles');
   const tCommon = useTranslations('common');
+  const tPhotos = useTranslations('photos');
   const locale = useLocale();
   const { user, loading: sessionLoading } = useSession();
   const errorMessage = useApiErrorMessage();
@@ -174,6 +186,11 @@ export function ShipmentClient({ id, justCreated }: { id: string; justCreated: b
         <div className="alert alert-success">
           <strong>{t('createdTitle')}</strong>{' '}
           {detail.status === 'DRAFT' ? t('createdNotAccepted') : t('createdAccepted')}
+        </div>
+      )}
+      {justCreated && photosFailed > 0 && (
+        <div className="alert alert-warning" role="status">
+          {tPhotos('uploadFailed', { failed: photosFailed })}
         </div>
       )}
 
@@ -353,15 +370,15 @@ export function ShipmentClient({ id, justCreated }: { id: string; justCreated: b
         <h2>{t('custodyTitle')}</h2>
         <ol className="timeline">
           {detail.custodyChain.map((event, i) => {
-            const eventHashes = (event.payload as { photoSha256?: unknown }).photoSha256;
+            const eventHashes = custodyEventPhotoHashes(event.payload);
             return (
               <li key={`${event.hash}-${i}`}>
                 <div>{KNOWN_CUSTODY.has(event.type) ? tCustody(event.type) : event.type}</div>
                 <div className="muted small">{formatDateTime(event.createdAt, locale)}</div>
-                {Array.isArray(eventHashes) && (
+                {eventHashes.length > 0 && (
                   <PhotoStrip
                     shipmentId={detail.id}
-                    hashes={eventHashes as string[]}
+                    hashes={eventHashes}
                     available={availablePhotos}
                   />
                 )}

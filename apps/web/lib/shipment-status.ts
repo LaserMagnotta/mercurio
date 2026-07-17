@@ -84,5 +84,15 @@ export const CUSTODY_EVENT_TYPES = [
   'recipient_claimed',
 ] as const;
 
+/** Every photo hash certified by one custody event's payload: the shared
+ *  `photoSha256` of the handoff events, plus the two kind-specific keys of
+ *  the genesis `created` event (sender's creation photos, ADR-022). */
+export function custodyEventPhotoHashes(payload: Record<string, unknown>): string[] {
+  const lists = [payload.photoSha256, payload.contentPhotoSha256, payload.sealedPhotoSha256];
+  return lists.flatMap((list) =>
+    Array.isArray(list) ? list.filter((h): h is string => typeof h === 'string') : [],
+  );
+}
+
 export { SHIPMENT_STATES };
 export type { ShipmentState };

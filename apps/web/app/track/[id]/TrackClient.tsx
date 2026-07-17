@@ -25,7 +25,11 @@ import {
 import { useApiErrorMessage } from '../../../lib/api-error-message';
 import { useSession } from '../../../lib/session';
 import { formatDateTime } from '../../../lib/format';
-import { CUSTODY_EVENT_TYPES, statusDescriptionKey } from '../../../lib/shipment-status';
+import {
+  CUSTODY_EVENT_TYPES,
+  custodyEventPhotoHashes,
+  statusDescriptionKey,
+} from '../../../lib/shipment-status';
 import { Amount } from '../../../components/Amount';
 import { PhotoStrip } from '../../../components/PhotoStrip';
 import { QrCode } from '../../../components/QrCode';
@@ -299,15 +303,15 @@ export function TrackClient({ id }: { id: string }) {
         <h2>{t('historyTitle')}</h2>
         <ol className="timeline">
           {detail.custodyChain.map((event, i) => {
-            const eventHashes = (event.payload as { photoSha256?: unknown }).photoSha256;
+            const eventHashes = custodyEventPhotoHashes(event.payload);
             return (
               <li key={`${event.hash}-${i}`}>
                 <div>{KNOWN_CUSTODY.has(event.type) ? tCustody(event.type) : event.type}</div>
                 <div className="muted small">{formatDateTime(event.createdAt, locale)}</div>
-                {Array.isArray(eventHashes) && (
+                {eventHashes.length > 0 && (
                   <PhotoStrip
                     shipmentId={detail.id}
-                    hashes={eventHashes as string[]}
+                    hashes={eventHashes}
                     available={availablePhotos}
                   />
                 )}
