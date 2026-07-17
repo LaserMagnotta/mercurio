@@ -1,0 +1,32 @@
+# Build context for the production images (ADR-024). Everything the build
+# needs is source + lockfile: the images install and compile from scratch.
+
+# Dependencies and build outputs: reinstalled/rebuilt inside the image, and
+# host artifacts would be the wrong platform (native binaries) anyway.
+**/node_modules
+**/dist
+**/.next
+**/.turbo
+**/*.tsbuildinfo
+
+# Secrets — never in a build context: an image layer is not a secret store,
+# and anyone who can pull the image can read it (ADR-024 §5).
+**/.env
+**/.env.*
+!**/.env.example
+
+# Runtime data of the dev Lightning fixture: LND macaroons, wallet and channel
+# databases (infra/docker/ is development only, never deployed).
+infra/docker/volumes
+
+# Locally stored photo blobs (PHOTO_STORAGE_DIR default, ADR-020): user data,
+# and in production a volume — never baked into an image.
+**/data
+
+# Repo and tooling noise.
+.git
+.github
+.claude
+**/*.log
+.DS_Store
+Thumbs.db

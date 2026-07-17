@@ -1,0 +1,25 @@
+# Mercurio — the single public origin (ADR-024 §3, §4).
+#
+# MERCURIO_DOMAIN is the site address, and it decides TLS by itself:
+#   mercurio.example        → automatic Let's Encrypt certificate, HTTP→HTTPS
+#   http://localhost        → plain HTTP, no ACME (local smoke test)
+#
+# One origin serves both the web app and the API. That is what keeps the
+# session cookie same-origin with no CORS anywhere (ADR-018): `/api/*` is the
+# same contract the Next rewrite provides in development, served here by the
+# proxy instead — so the public API stays reachable even while the web app is
+# restarting, and no deployment address is baked into the web image.
+
+{$MERCURIO_DOMAIN} {
+	encode zstd gzip
+
+	# handle_path strips the prefix: /api/health → api:3001/health, matching
+	# the dev rewrite's `/api/:path*` → `${API_URL}/:path*` exactly.
+	handle_path /api/* {
+		reverse_proxy api:3001
+	}
+
+	handle {
+		reverse_proxy web:3000
+	}
+}

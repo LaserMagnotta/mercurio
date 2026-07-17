@@ -38,6 +38,39 @@ jobs:
       - run: pnpm build
       - run: pnpm test
 
+  # The production images (ADR-024) are built on every push, never published:
+  # there is no registry and no host to deploy to — the deploy is a `git pull`
+  # plus `compose up -d --build` on the VPS, and this job exists so that a
+  # broken Dockerfile is found here instead of there. The build is also the
+  # only check that the monorepo still resolves through dist/ outside a
+  # workspace install.
+  images:
+    name: Production images
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build the API image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/production/api.Dockerfile
+          push: false
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,mode=max,scope=api
+
+      - name: Build the web image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/production/web.Dockerfile
+          push: false
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,mode=max,scope=web
+
   integration:
     name: Lightning integration (regtest)
     runs-on: ubuntu-latest
