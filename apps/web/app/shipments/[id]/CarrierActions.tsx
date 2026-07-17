@@ -18,6 +18,7 @@ import {
 import { useApiErrorMessage } from '../../../lib/api-error-message';
 import { parseQrInput } from '../../../lib/qr-input';
 import { PhotoHashInput } from '../../../components/PhotoHashInput';
+import { QrScanInput } from '../../../components/QrScanInput';
 import type { CapturedPhoto } from '../../../lib/photo-capture';
 
 export function CarrierActions({
@@ -105,17 +106,14 @@ export function CarrierActions({
       )}
 
       <form onSubmit={submitCheckout} className="stack-sm">
-        <div className="field">
-          <label htmlFor="carrier-qr">{t('qrLabel')}</label>
-          <input
-            id="carrier-qr"
-            type="text"
-            autoComplete="off"
-            value={qrRaw}
-            onChange={(e) => setQrRaw(e.target.value)}
-          />
-          <span className="hint">{t('qrHint')}</span>
-        </div>
+        {/* ADR-021: text field + in-page scanner; parseQrInput stays the judge. */}
+        <QrScanInput
+          id="carrier-qr"
+          label={t('qrLabel')}
+          hint={t('qrHint')}
+          value={qrRaw}
+          onChange={setQrRaw}
+        />
         <button className="btn btn-primary" disabled={busy || qrToken === ''}>
           {t('checkoutCta')}
         </button>

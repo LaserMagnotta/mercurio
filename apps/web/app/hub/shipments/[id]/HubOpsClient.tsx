@@ -36,6 +36,7 @@ import { formatDateTime } from '../../../../lib/format';
 import { statusDescriptionKey } from '../../../../lib/shipment-status';
 import { Amount } from '../../../../components/Amount';
 import { PhotoHashInput } from '../../../../components/PhotoHashInput';
+import { QrScanInput } from '../../../../components/QrScanInput';
 import { StatusBadge } from '../../../../components/StatusBadge';
 import type { CapturedPhoto } from '../../../../lib/photo-capture';
 
@@ -161,18 +162,17 @@ export function HubOpsClient({ id }: { id: string }) {
   const photoHashes = photos.map((p) => p.sha256);
   const rejectHashes = rejectPhotos.map((p) => p.sha256);
 
+  // Parcel QR (ADR-021): the same tolerant text field as before, now with an
+  // in-page camera scanner where the browser supports it. QrScanInput fills the
+  // field with the raw scanned string; parseQrInput below stays the judge.
   const qrField = (
-    <div className="field">
-      <label htmlFor="ops-qr">{t('qrLabel')}</label>
-      <input
-        id="ops-qr"
-        type="text"
-        autoComplete="off"
-        value={qrRaw}
-        onChange={(e) => setQrRaw(e.target.value)}
-      />
-      <span className="hint">{t('qrHint')}</span>
-    </div>
+    <QrScanInput
+      id="ops-qr"
+      label={t('qrLabel')}
+      hint={t('qrHint')}
+      value={qrRaw}
+      onChange={setQrRaw}
+    />
   );
 
   const panel = (title: string, intro: string, form: ReactNode) => (
@@ -352,17 +352,15 @@ export function HubOpsClient({ id }: { id: string }) {
       t('claimedIntro'),
       <form onSubmit={submit} className="stack-sm">
         {qrField}
-        <div className="field">
-          <label htmlFor="ops-claim-token">{t('claimTokenLabel')}</label>
-          <input
-            id="ops-claim-token"
-            type="text"
-            autoComplete="off"
-            value={claimToken}
-            onChange={(e) => setClaimToken(e.target.value)}
-          />
-          <span className="hint">{t('claimTokenHint')}</span>
-        </div>
+        {/* The recipient shows the claim token as a QR of the bare token
+            (ADR-016): scanning it fills the field with the token itself. */}
+        <QrScanInput
+          id="ops-claim-token"
+          label={t('claimTokenLabel')}
+          hint={t('claimTokenHint')}
+          value={claimToken}
+          onChange={setClaimToken}
+        />
         <button
           className="btn btn-primary"
           disabled={busy || qrToken === '' || claimToken.trim() === ''}
