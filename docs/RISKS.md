@@ -168,8 +168,12 @@ Stato: **chiuso by design; resta solo la verifica PISP ⚖️**.
 - **Email del destinatario inserita dal mittente** (dato di terzo): base = legittimo
   interesse, uso strettamente transazionale, informativa al primo contatto e link di
   opposizione in ogni mail. ⚖️ Da validare.
-- **Foto**: retention limitata (`purge_after`: chiusura spedizione + 30 giorni),
-  niente volti richiesti dal flusso.
+- **Foto**: retention limitata (`purge_after`: chiusura spedizione + 30 giorni,
+  con tetto di 90 giorni dall'upload — implementata dal purge worker di
+  ADR-020 §5), niente volti richiesti dal flusso; metadati EXIF (geotag)
+  rimossi sul dispositivo prima dell'hash e rifiutati dal server (ADR-020 §2);
+  alla cancellazione account le foto scattate dall'utente per spedizioni
+  chiuse sono eliminate subito (ADR-020 §6).
 - **Cancellazione account**: anonimizzazione — il ledger e la catena di custodia
   restano (obbligo contabile e integrità del sistema) ma scollegati dai dati personali.
 - **Export dei propri dati**: endpoint dedicato (requisito CLAUDE.md).

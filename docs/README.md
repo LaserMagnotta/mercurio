@@ -3,7 +3,7 @@
 > Regola dal CLAUDE.md: leggere `/docs` prima di ogni task; se manca una decisione,
 > proporla e aggiornare `/docs`.
 
-Stato attuale (2026-07-14): architettura approvata; implementati db+ledger,
+Stato attuale (2026-07-17): architettura approvata; implementati db+ledger,
 auth/API di base, motore economico, matching, macchina a stati, coordinatore
 escrow non custodiale, premio di finalizzazione (ADR-014), **API del ciclo
 di vita delle spedizioni** (executor degli effetti, bacheca del viaggio,
@@ -13,17 +13,22 @@ destinatario** (ADR-016: token di tracking, claim con hold P2P, stato
 `CLAIMED`), **recensioni con aggregati per ruolo** (ADR-017: guardie sui
 ruoli effettivi, rating su bacheca/hub/dettaglio/profilo), la **mappa del
 vettore completa** (ADR-015: `orderRouteWaypoints`, `GET /trips/:id/route`
-con export Google Maps, vista Leaflet in `apps/web`) e la **web UI parte 1**
+con export Google Maps, vista Leaflet in `apps/web`), la **web UI parte 1**
 (ADR-018: fondamenta i18n it/en, client tipizzato sugli schemi condivisi,
 flusso mittente — hub, form Spedisci con QR stampabile, tracking con
 boost/reroute/cancel — e flusso vettore — viaggio, bacheca, accettazione
-tratta, vista viaggio) e la **web UI parte 2** (ADR-018 §6: registrazione e
+tratta, vista viaggio), la **web UI parte 2** (ADR-018 §6: registrazione e
 dashboard hub, operazioni di passaggio di mano via QR con foto hashate sul
 dispositivo, check-out a doppia conferma, ritiro OTP, pagina
 tracking/claim del destinatario linkata dalle email, recensioni con profilo
-pubblico, export/cancellazione GDPR in UI). **Da implementare**: adapter NWC
-reale, `GET /me/shipments`/`GET /me/trips` (oggi supplisce il localStorage),
-blob storage foto, scanner QR in pagina, app mobile.
+pubblico, export/cancellazione GDPR in UI), le **liste account**
+(`GET /me/shipments`/`GET /me/trips`, ADR-018 §5 — il localStorage è stato
+rimosso), l'**adapter NWC reale** (ADR-019: probe delle capability al
+collegamento, interop verificata su regtest con relay nostr + Alby Hub) e il
+**blob storage delle foto** (ADR-020: upload verificato contro l'hash
+certificato, EXIF rimosso sul dispositivo, download solo via API con authz
+di sessione, purge worker con retention GDPR). **Da implementare**: scanner
+QR in pagina, driver blob S3-compatibile, app mobile.
 
 ## Documenti
 
@@ -57,6 +62,8 @@ blob storage foto, scanner QR in pagina, app mobile.
 | [ADR-016](adr/ADR-016-recipient-claim.md)           | Ritiro anticipato del destinatario: claim con token bearer, pool residuo + Π_v        |
 | [ADR-017](adr/ADR-017-reviews.md)                   | Recensioni: ruoli effettivi, tutte le chiusure recensibili, finestra 30 giorni        |
 | [ADR-018](adr/ADR-018-web-ui-platform.md)           | Web UI: proxy same-origin (niente CORS), importi sats-first solo dall'API, i18n a cookie |
+| [ADR-019](adr/ADR-019-nwc-adapter.md)               | Adapter NWC reale: probe delle capability, interop verificata su regtest              |
+| [ADR-020](adr/ADR-020-photo-blob-storage.md)        | Foto: blob storage fs content-addressed, EXIF strip sul dispositivo, accesso solo via API |
 
 ## Stato delle decisioni
 

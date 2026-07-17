@@ -96,6 +96,13 @@ ADR-013). Runtime deployments must set `COORDINATOR_KEY` to 32 random bytes
 in hex — generate one with `openssl rand -hex 32`. Tests generate their own
 throwaway keys.
 
+### Photo blob storage
+
+Certified handoff photos are uploaded to the API and stored content-addressed
+(key = sha256) on the local filesystem under `PHOTO_STORAGE_DIR` (default
+`./data/photos`, gitignored). Download is session-authorized only — no public
+URLs. Retention is enforced by a nightly purge worker (ADR-020).
+
 ### Auth (magic link)
 
 - `POST /auth/request-link { email }` — queues a sign-in email (outbox

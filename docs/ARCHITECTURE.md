@@ -198,7 +198,8 @@ documentale di chi ha certificato cosa.
 
 **photos** — `id, shipment_id, custody_event_id?, rejection_id?, kind (content|sealed|
 checkin|checkout|evidence), storage_key, sha256, taken_by, created_at, purge_after`
-(retention limitata, GDPR — RISKS.md).
+(blob content-addressed su filesystem, retention limitata con purge worker —
+ADR-020, RISKS.md §6).
 
 **wallet_connections** — `id, user_id, kind (nwc|lnd_rest|fake), connection_secret
 (cifrato), capabilities (hold_invoice bool…), status, created_at`. Il wallet
@@ -537,10 +538,14 @@ registrate:
 11. **Boost idempotente**: la rotta esige una `idempotencyKey` del client,
     registrata nel payload dell'evento di custodia come metadato di
     trasporto (mai PII) — un retry di rete non raddoppia l'impegno.
-12. **Foto come hash dichiarati**: l'MVP dell'API accetta sha256 calcolati
-    dal client (niente blob storage); l'hash entra nella catena di custodia
-    come certificazione. La web UI calcola gli hash sul dispositivo con
-    WebCrypto (ADR-018 §6); il blob storage resta lavoro futuro.
+12. **Foto come hash dichiarati**: l'API accetta sha256 calcolati dal
+    client; l'hash entra nella catena di custodia come certificazione. La
+    web UI ripulisce la foto dai metadati e la ri-encoda sul dispositivo,
+    POI calcola l'hash con WebCrypto (ADR-018 §6, ADR-020 §2). I byte si
+    caricano DOPO la certificazione su `POST /shipments/:id/photos/:sha256`
+    (il server verifica hash, formato e assenza di GPS EXIF — mai
+    ri-encoda) e si scaricano solo via API con authz di sessione; retention
+    e purge in ADR-020 §5.
 13. **Auto-accettazione dell'hub di origine**: se `auto_accept` e vincoli
     rispettati, `origin_hub_accept` parte nella stessa richiesta di
     `POST /shipments` (transazione separata: un fallimento lascia DRAFT e

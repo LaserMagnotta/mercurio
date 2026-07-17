@@ -22,8 +22,11 @@ checkout + reject on the shipment page, the recipient tracking/claim page
 (`/track/:id`, linked from the lifecycle emails — ADR-016), reviews on
 closed shipments + the public profile (`/users/:id`, ADR-017) and the GDPR
 account page (`/account`: export + erasure). Photos are certified by
-client-computed sha256 (WebCrypto) — they never leave the device; QR fields
-accept the scanned `/p/<token>` URL or the bare token.
+client-computed sha256 (WebCrypto) and, since ADR-020, uploaded: the file is
+re-encoded on device (EXIF stripped, max 2048 px) BEFORE hashing, the bytes
+are pushed after the transition, and participants see the thumbnails in the
+custody timelines and the hub ops gallery. QR fields accept the scanned
+`/p/<token>` URL or the bare token.
 
 Also closed the same day (ADR-018 §5): the home page and `/carrier` now read
 a user's own shipments and declared trips from the account (`GET
@@ -138,7 +141,8 @@ the GDPR consent on first login, connect a fake wallet from _Wallet_):
   `./infra/docker/bootstrap.sh`, then `pnpm test:integration`.
 - The suggested-offer "forbice" is qualitative copy: the API does not expose
   historical percentiles yet.
-- Photos remain client-declared hashes (no blob storage): the certification
-  is tamper-evident but the image itself is only on the taker's device.
+- Photo blobs are stored on the API host's filesystem (ADR-020,
+  `PHOTO_STORAGE_DIR`); an S3-compatible driver is future work — the
+  `BlobStore` interface is the boundary.
 - QR scanning uses the device camera app / a scanner into the text field;
   there is no in-page camera scanner yet.
