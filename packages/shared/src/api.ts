@@ -16,6 +16,7 @@ import {
   DEFAULT_LIST_LIMIT,
   MAX_LIST_LIMIT,
   MAX_STORAGE_HOURS,
+  PHOTO_KINDS,
   REVIEW_ROLES,
   SHIPMENT_STATES,
 } from './protocol';
@@ -31,9 +32,9 @@ export const msatString = z
 
 export const uuidString = z.string().uuid();
 
-/** SHA-256 of a photo the client took; the API stores hashes, not blobs
- *  (blob storage is out of the MVP API — the hash lands in the custody
- *  chain as the tamper-evident certification). */
+/** SHA-256 of a photo the client took ON DEVICE (ADR-018 §6): the hash lands
+ *  in the custody chain as the tamper-evident certification, and it is the
+ *  content-addressed key of the optional blob upload (ADR-020). */
 export const sha256String = z.string().regex(/^[0-9a-f]{64}$/, 'lowercase hex sha256');
 
 export const photoHashesSchema = z.array(sha256String).min(1).max(10);
@@ -364,6 +365,31 @@ export const shipmentDetailDto = z.object({
   ratings: z.array(participantRatingDto),
 });
 
+/** One uploaded photo of a shipment (ADR-020): metadata only — the bytes are
+ *  served by GET /shipments/:id/photos/:sha256 with the same session authz.
+ *  `custodyEventId` is null only for a checkout photo uploaded while the
+ *  double confirmation is still pending. */
+export const shipmentPhotoDto = z.object({
+  sha256: sha256String,
+  kind: z.enum(PHOTO_KINDS),
+  custodyEventId: uuidString.nullable(),
+  takenBy: uuidString,
+  createdAt: z.string(),
+});
+
+export const shipmentPhotosDto = z.object({
+  photos: z.array(shipmentPhotoDto),
+});
+
+/** Response of POST /shipments/:id/photos/:sha256 (ADR-020): `duplicated` is
+ *  true when the same hash was already uploaded for this shipment (the
+ *  content-addressed store makes the retry a no-op). */
+export const photoUploadedDto = z.object({
+  sha256: sha256String,
+  kind: z.enum(PHOTO_KINDS),
+  duplicated: z.boolean(),
+});
+
 /** Response of POST /shipments/:id/claim (ADR-016): the frozen claim amounts
  *  and the funding window the sender's wallet must honor. */
 export const claimCreatedDto = z.object({
@@ -499,3 +525,5 @@ export type MeShipmentDto = z.infer<typeof meShipmentDto>;
 export type MeShipmentsDto = z.infer<typeof meShipmentsDto>;
 export type MeTripDto = z.infer<typeof meTripDto>;
 export type MeTripsDto = z.infer<typeof meTripsDto>;
+export type ShipmentPhotoDto = z.infer<typeof shipmentPhotoDto>;
+export type ShipmentPhotosDto = z.infer<typeof shipmentPhotosDto>;

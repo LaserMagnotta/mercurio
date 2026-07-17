@@ -68,3 +68,23 @@ export type CarrierTripStatus = (typeof CARRIER_TRIP_STATUSES)[number];
  *  trips, not the device). */
 export const DEFAULT_LIST_LIMIT = 20;
 export const MAX_LIST_LIMIT = 100;
+
+/** Photo blob upload cap in bytes (ADR-020). The first-party client
+ *  re-encodes on-device (max 2048 px, JPEG) so real uploads sit well below
+ *  this; the cap bounds what a third-party API client can push. */
+export const PHOTO_MAX_BYTES = 5 * 1024 * 1024;
+
+/** Retention window after the shipment's closure (RISKS.md §6: "chiusura
+ *  spedizione + 30 giorni") — the purge worker tightens each photo's
+ *  `purge_after` to closure + this once the shipment is terminal (ADR-020). */
+export const PHOTO_RETENTION_DAYS_AFTER_CLOSURE = 30;
+
+/** Hard ceiling from upload time, covering shipments that never close:
+ *  `purge_after` is born at upload + this many days (ADR-020 §5). */
+export const PHOTO_MAX_RETENTION_DAYS = 90;
+
+/** Photo kinds (mirrors the Postgres enum `photo_kind`). `content`/`sealed`
+ *  are reserved for the sender's creation photos — no capture UI yet
+ *  (ADR-020 §3). */
+export const PHOTO_KINDS = ['content', 'sealed', 'checkin', 'checkout', 'evidence'] as const;
+export type PhotoKind = (typeof PHOTO_KINDS)[number];
