@@ -92,7 +92,7 @@ const HUB_DEFAULTS = {
   maxWeightG: 15_000,
   acceptsUndeclared: true,
   feePercent: '10.00',
-  maxStorageHours: 168,
+  maxStorageDays: 7,
   autoAccept: true,
   active: true,
 };
@@ -259,7 +259,7 @@ export const CANONICAL_CREATE_BODY = {
   undeclared: false,
   offerMsat: OFFER_MSAT.toString(),
   custodyBondMsat: BOND_MSAT.toString(),
-  maxStorageHours: 72,
+  maxStorageDays: 3,
 };
 
 /** Create the canonical shipment (auto-accepted by hub A) and check it in:

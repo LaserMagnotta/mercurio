@@ -121,7 +121,7 @@ export function HubDashboard() {
                         g: req.weightG,
                       })}
                       {' · '}
-                      {t('storageLine', { hours: req.maxStorageHours })}
+                      {t('storageLine', { days: req.maxStorageDays })}
                       {' · '}
                       {formatDateTime(req.createdAt, locale)}
                     </p>

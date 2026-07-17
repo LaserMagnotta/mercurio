@@ -45,7 +45,7 @@ export function registerHubRoutes(app: App) {
         maxDims: { lengthCm: h.maxDimCmL, widthCm: h.maxDimCmW, heightCm: h.maxDimCmH },
         maxWeightG: h.maxWeightG,
         acceptsUndeclared: h.acceptsUndeclared,
-        maxStorageHours: h.maxStorageHours,
+        maxStorageDays: h.maxStorageDays,
         autoAccept: h.autoAccept,
         walletConnected: connected.has(h.userId),
         rating: ratingOf(ratings, h.userId, 'hub'),
@@ -83,7 +83,7 @@ export function registerHubRoutes(app: App) {
         weightG: s.weightG,
         undeclared: s.undeclared,
         custodyBondMsat: msat(s.custodyBondMsat),
-        maxStorageHours: s.maxStorageHours,
+        maxStorageDays: s.maxStorageDays,
         createdAt: s.createdAt.toISOString(),
       })),
       stays: stays.map(({ stay, shipment }) => ({

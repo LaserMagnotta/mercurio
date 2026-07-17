@@ -35,9 +35,11 @@ export const CONDITIONAL_PAYMENT_STATES = [
 ] as const;
 export type ConditionalPaymentState = (typeof CONDITIONAL_PAYMENT_STATES)[number];
 
-/** MVP cap: max storage per hub stay, bounded by the CLTV budget of the
- *  hub-bond hold invoice (ESCROW.md §4). */
-export const MAX_STORAGE_HOURS = 7 * 24;
+/** MVP cap: max storage per hub stay, in DAYS (ADR-026). Bounded at 7 by the
+ *  CLTV budget of the hub-bond hold invoice (ESCROW.md §4): a single HTLC in
+ *  flight for the whole stay cannot safely span longer. ADR-026 Parte 2 raises
+ *  this to 30 once the bond renews rolling — a change to the escrow, not here. */
+export const MAX_STORAGE_DAYS = 7;
 
 /** Canonical shape of a shipment codename: "Animale-Aggettivo-123" (Fase 1
  *  punto 1). Both lists are pure ASCII, so a codename is always URL/email safe.

@@ -68,7 +68,7 @@ describe('storage-expiry warnings', () => {
       cookie: world.marco.cookie,
       body: {
         ...CANONICAL_CREATE_BODY,
-        maxStorageHours: 12, // shorter than the 24h rung
+        maxStorageDays: 1, // whole 24h window already within the 24h rung (min unit is a day, ADR-026)
         originHubId: world.hubA,
         destHubId: world.hubB,
       },

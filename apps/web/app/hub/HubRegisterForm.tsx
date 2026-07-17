@@ -8,6 +8,7 @@
 
 import { useState, type FormEvent } from 'react';
 import { useTranslations } from 'next-intl';
+import { MAX_STORAGE_DAYS } from '@mercurio/shared';
 import { registerHubRole } from '../../lib/api/endpoints';
 import { useApiErrorMessage } from '../../lib/api-error-message';
 
@@ -15,7 +16,7 @@ const DAY_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const;
 
 /** Mirrors the API route's zod bounds (apps/api/routes/me.ts `hubBody`). */
 const FEE_MAX = 30;
-const STORAGE_MAX_HOURS = 168;
+const STORAGE_MAX_DAYS = MAX_STORAGE_DAYS;
 
 const isPosInt = (v: string) => /^\d{1,7}$/.test(v) && Number(v) > 0;
 
@@ -34,7 +35,7 @@ export function HubRegisterForm({ onRegistered }: { onRegistered: () => Promise<
   const [weightG, setWeightG] = useState('');
   const [acceptsUndeclared, setAcceptsUndeclared] = useState(false);
   const [feePercent, setFeePercent] = useState('10');
-  const [maxStorageHours, setMaxStorageHours] = useState('48');
+  const [maxStorageDays, setMaxStorageDays] = useState('2');
   const [autoAccept, setAutoAccept] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -46,7 +47,7 @@ export function HubRegisterForm({ onRegistered }: { onRegistered: () => Promise<
     const latNum = Number(lat);
     const lngNum = Number(lng);
     const feeNum = Number(feePercent.replace(',', '.'));
-    const storageNum = Number(maxStorageHours);
+    const storageNum = Number(maxStorageDays);
     const openingHours = Object.fromEntries(
       DAY_KEYS.map((day) => [day, (hours[day] ?? '').trim()]).filter(([, v]) => v !== ''),
     );
@@ -59,8 +60,8 @@ export function HubRegisterForm({ onRegistered }: { onRegistered: () => Promise<
     if (!Number.isFinite(feeNum) || feeNum < 0 || feeNum > FEE_MAX) {
       return setError(t('validation.fee', { max: FEE_MAX }));
     }
-    if (!Number.isInteger(storageNum) || storageNum < 1 || storageNum > STORAGE_MAX_HOURS) {
-      return setError(t('validation.storage', { max: STORAGE_MAX_HOURS }));
+    if (!Number.isInteger(storageNum) || storageNum < 1 || storageNum > STORAGE_MAX_DAYS) {
+      return setError(t('validation.storage', { max: STORAGE_MAX_DAYS }));
     }
 
     setBusy(true);
@@ -77,7 +78,7 @@ export function HubRegisterForm({ onRegistered }: { onRegistered: () => Promise<
         maxWeightG: Number(weightG),
         acceptsUndeclared,
         feePercent: feeNum,
-        maxStorageHours: storageNum,
+        maxStorageDays: storageNum,
         autoAccept,
       });
       await onRegistered();
@@ -202,12 +203,12 @@ export function HubRegisterForm({ onRegistered }: { onRegistered: () => Promise<
               id="hub-storage"
               type="number"
               min="1"
-              max={STORAGE_MAX_HOURS}
+              max={STORAGE_MAX_DAYS}
               inputMode="numeric"
-              value={maxStorageHours}
-              onChange={(e) => setMaxStorageHours(e.target.value)}
+              value={maxStorageDays}
+              onChange={(e) => setMaxStorageDays(e.target.value)}
             />
-            <span className="hint">{t('storageHint', { max: STORAGE_MAX_HOURS })}</span>
+            <span className="hint">{t('storageHint', { max: STORAGE_MAX_DAYS })}</span>
           </div>
           <div className="checkbox-row">
             <input

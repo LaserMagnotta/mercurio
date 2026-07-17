@@ -47,7 +47,7 @@ describe('GDPR: data export', () => {
       maxWeightG: 1000,
       acceptsUndeclared: false,
       feePercent: '10.00',
-      maxStorageHours: 24,
+      maxStorageDays: 1,
       autoAccept: true,
       active: true,
     });
@@ -93,7 +93,7 @@ describe('GDPR: account deletion (anonymization)', () => {
         maxWeightG: 1000,
         acceptsUndeclared: false,
         feePercent: '10.00',
-        maxStorageHours: 24,
+        maxStorageDays: 1,
         autoAccept: true,
         active: true,
       })

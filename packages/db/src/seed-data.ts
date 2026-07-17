@@ -53,7 +53,7 @@ export async function seedDemoData(db: Db) {
       maxWeightG: 20000,
       acceptsUndeclared: true,
       feePercent: '10.00',
-      maxStorageHours: 72,
+      maxStorageDays: 3,
       autoAccept: true,
       active: true,
     })
@@ -74,7 +74,7 @@ export async function seedDemoData(db: Db) {
       maxWeightG: 15000,
       acceptsUndeclared: true,
       feePercent: '10.00',
-      maxStorageHours: 72,
+      maxStorageDays: 3,
       autoAccept: true,
       active: true,
     })
@@ -95,7 +95,7 @@ export async function seedDemoData(db: Db) {
       maxWeightG: 15000,
       acceptsUndeclared: false,
       feePercent: '10.00',
-      maxStorageHours: 48,
+      maxStorageDays: 2,
       autoAccept: true,
       active: true,
     })
@@ -126,7 +126,7 @@ export async function seedDemoData(db: Db) {
     undeclared: false,
     offerMsat: msatFor(5n),
     custodyBondMsat: msatFor(15n),
-    maxStorageHours: 48,
+    maxStorageDays: 2,
     eurRateSnapshot: DEMO_SAT_PER_EUR.toString(),
     eurRateSource: 'demo-seed',
     eurRateAt: new Date(),

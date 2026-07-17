@@ -55,6 +55,10 @@ const params = z.object({ id: z.string().uuid() });
 
 const hoursFromNow = (now: Date, hours: number) =>
   new Date(now.getTime() + hours * 60 * 60 * 1000);
+// Storage is chosen in DAYS (ADR-026) but the timer is armed at an absolute
+// instant, and the 72/24 h warnings still count in hours — so a stay's window
+// is just days × 24 h.
+const daysFromNow = (now: Date, days: number) => hoursFromNow(now, days * 24);
 const minutesFromNow = (now: Date, minutes: number) =>
   new Date(now.getTime() + minutes * 60 * 1000);
 
@@ -94,7 +98,7 @@ export function registerShipmentLifecycleRoutes(app: App) {
       }
       const s = bundle.shipment;
       const problem =
-        parcelFitsHub(s, originHub) ?? storageFitsHub(s.maxStorageHours, originHub);
+        parcelFitsHub(s, originHub) ?? storageFitsHub(s.maxStorageDays, originHub);
       if (problem) return reply.code(422).send({ error: problem });
       try {
         await executeShipmentTransition(deps(), {
@@ -134,7 +138,7 @@ export function registerShipmentLifecycleRoutes(app: App) {
           event: {
             type: 'origin_checkin',
             photoSha256: request.body.photoSha256,
-            storageDeadlineAt: hoursFromNow(now, bundle.shipment.maxStorageHours).toISOString(),
+            storageDeadlineAt: daysFromNow(now, bundle.shipment.maxStorageDays).toISOString(),
           },
         });
       } catch (err) {
@@ -180,7 +184,7 @@ export function registerShipmentLifecycleRoutes(app: App) {
       ) {
         return reply.code(422).send({ error: 'self_payment_impossible' });
       }
-      const problem = parcelFitsHub(s, toHub) ?? storageFitsHub(s.maxStorageHours, toHub);
+      const problem = parcelFitsHub(s, toHub) ?? storageFitsHub(s.maxStorageDays, toHub);
       if (problem) return reply.code(422).send({ error: problem, hubId: toHub.id });
 
       const destHub = bundle.hubById.get(s.destHubId)!;
@@ -363,7 +367,7 @@ export function registerShipmentLifecycleRoutes(app: App) {
             hubId: toHub.id,
             integrityConfirmed: request.body.integrityConfirmed,
             photoSha256: request.body.photoSha256,
-            storageDeadlineAt: hoursFromNow(now, bundle.shipment.maxStorageHours).toISOString(),
+            storageDeadlineAt: daysFromNow(now, bundle.shipment.maxStorageDays).toISOString(),
           },
         });
       } catch (err) {
@@ -401,7 +405,7 @@ export function registerShipmentLifecycleRoutes(app: App) {
             hubId: fromHub.id,
             returnHubStayId: randomUUID(),
             photoSha256: request.body.photoSha256,
-            storageDeadlineAt: hoursFromNow(now, bundle.shipment.maxStorageHours).toISOString(),
+            storageDeadlineAt: daysFromNow(now, bundle.shipment.maxStorageDays).toISOString(),
           },
         });
       } catch (err) {
@@ -700,7 +704,7 @@ export function registerShipmentLifecycleRoutes(app: App) {
         if (newDest.userId === s.senderId) {
           return reply.code(422).send({ error: 'sender_owns_hub' });
         }
-        const problem = parcelFitsHub(s, newDest) ?? storageFitsHub(s.maxStorageHours, newDest);
+        const problem = parcelFitsHub(s, newDest) ?? storageFitsHub(s.maxStorageDays, newDest);
         if (problem) return reply.code(422).send({ error: problem, hubId: newDest.id });
         const newRemainingKm = d(
           { lat: currentHub.lat, lng: currentHub.lng },

@@ -142,7 +142,7 @@ erDiagram
 (cancellazione = anonimizzazione: il ledger non si cancella, si scollega — vedi RISKS §GDPR).
 
 **hubs** — `id, user_id, name, address, lat, lng, opening_hours (jsonb), max_dim_cm (l/w/h),
-max_weight_g, accepts_undeclared (bool), fee_percent (numeric), max_storage_hours,
+max_weight_g, accepts_undeclared (bool), fee_percent (numeric), max_storage_days,
 auto_accept (bool), active`. `fee_percent` è la percentuale configurabile dall'hub,
 applicata al **lordo delle tratte adiacenti** (ECONOMICS.md §2); `auto_accept` abilita l'accettazione automatica dei depositi che
 rispettano i vincoli dichiarati (necessaria perché l'hub di arrivo di una tratta
@@ -159,8 +159,9 @@ recipient_pickup_otp_hash, recipient_claim_token_hash (credenziale bearer del
 ritiro anticipato, coniata all'origin_checkin e ruotata dal reroute che cambia
 destinatario — ADR-016), qr_token (random 128 bit), dims, weight_g,
 declared_content?, undeclared (bool), offer_msat (impegno di spesa, pagato per
-tratta — ADR-013), custody_bond_msat, max_storage_hours (≤ 7 giorni nell'MVP,
-vincolo CLTV dei bond — ESCROW §4), eur_rate_snapshot (numeric + source + ts,
+tratta — ADR-013), custody_bond_msat, max_storage_days (1–7 nell'MVP, in
+giorni — ADR-026; il tetto 7 è il vincolo CLTV dei bond, ESCROW §4),
+eur_rate_snapshot (numeric + source + ts,
 congelato alla creazione), status, distance_km (D: distanza origine→destinazione
 calcolata alla creazione e congelata), created_at`.
 `custody_bond_msat` è l'unico bond richiesto a chiunque prenda in custodia il pacco,
@@ -531,8 +532,9 @@ registrate:
    mittente, vettore della tratta e proprietari degli hub coinvolti devono
    essere utenti diversi — rifiuto esplicito (`self_payment_impossible`)
    prima di toccare i wallet; la bacheca esclude gli hub del vettore.
-9. **Vincolo di giacenza dell'hub d'arrivo**: `hub.max_storage_hours ≥`
-   giacenza scelta dal mittente, validato ad accept/leg_accept/reroute — un
+9. **Vincolo di giacenza dell'hub d'arrivo**: `hub.max_storage_days ≥`
+   giacenza scelta dal mittente (in giorni, ADR-026), validato ad
+   accept/leg_accept/reroute — un
    tetto più corto svincolerebbe il pacco prima di quanto il mittente ha
    accettato (mai restringere in silenzio la sua finestra).
 10. **Doppia conferma di check-out** come metadato sulla riga della tratta

@@ -29,7 +29,8 @@ export const hubs = pgTable('hubs', {
   acceptsUndeclared: boolean('accepts_undeclared').notNull().default(false),
   // Percentage the hub retains from the gross of each adjacent leg (ECONOMICS.md sec.2), not from the shipment offer.
   feePercent: numeric('fee_percent', { precision: 5, scale: 2 }).notNull(),
-  maxStorageHours: integer('max_storage_hours').notNull(),
+  maxStorageDays: integer('max_storage_days').notNull(), // ADR-026: storage window in days
+
   // Required so a leg's arrival hub can accept a bond hold without a human in the loop (ARCHITECTURE.md sec.4).
   autoAccept: boolean('auto_accept').notNull().default(true),
   active: boolean('active').notNull().default(true),

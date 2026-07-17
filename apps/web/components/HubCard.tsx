@@ -25,7 +25,7 @@ export function HubCard({ hub }: { hub: Hub }) {
           h: hub.maxDims.heightCm,
         })}{' '}
         {t('maxWeight', { kg: hub.maxWeightG / 1000 })} ·{' '}
-        {t('maxStorage', { hours: hub.maxStorageHours })}
+        {t('maxStorage', { days: hub.maxStorageDays })}
       </p>
       <p className="row small">
         <span className={`badge ${hub.acceptsUndeclared ? 'badge-success' : 'badge-neutral'}`}>

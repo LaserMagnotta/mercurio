@@ -93,7 +93,7 @@ describe('auth + account HTTP flow', () => {
       maxWeightG: 15000,
       acceptsUndeclared: true,
       feePercent: 10,
-      maxStorageHours: 72,
+      maxStorageDays: 3,
       autoAccept: true,
     };
     const hubRes = await app.inject({
@@ -159,7 +159,7 @@ describe('auth + account HTTP flow', () => {
         maxWeightG: 1000,
         acceptsUndeclared: false,
         feePercent: 50, // above the 30% cap
-        maxStorageHours: 24,
+        maxStorageDays: 1,
         autoAccept: true,
       },
     });

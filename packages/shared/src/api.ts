@@ -16,7 +16,7 @@ import {
   CODENAME_PATTERN,
   DEFAULT_LIST_LIMIT,
   MAX_LIST_LIMIT,
-  MAX_STORAGE_HOURS,
+  MAX_STORAGE_DAYS,
   PHOTO_KINDS,
   REVIEW_ROLES,
   SHIPMENT_STATES,
@@ -82,8 +82,9 @@ export const createShipmentBody = z.object({
   offerMsat: msatString,
   /** The single custody bond required from whoever holds the parcel (§6). */
   custodyBondMsat: msatString,
-  /** Max storage per hub stay; capped by the CLTV budget (ESCROW.md §4). */
-  maxStorageHours: z.number().int().min(1).max(MAX_STORAGE_HOURS),
+  /** Max storage per hub stay, in DAYS; capped by the CLTV budget (ESCROW.md
+   *  §4, ADR-026). */
+  maxStorageDays: z.number().int().min(1).max(MAX_STORAGE_DAYS),
   /** Optional sender photos at creation (ADR-022), certified by the
    *  `created` custody event. Distinct keys because one event certifies two
    *  photo kinds; both follow the ADR-020 §2 contract spelled out below. */
@@ -379,7 +380,7 @@ export const shipmentDetailDto = z.object({
   /** Remaining work pool at the current position (notional — ADR-013). */
   remainingPoolMsat: msatString,
   custodyBondMsat: msatString,
-  maxStorageHours: z.number().int(),
+  maxStorageDays: z.number().int(),
   distanceKm: z.number(),
   remainingKm: z.number().nullable(),
   eurRate: eurRateDto,
@@ -538,7 +539,7 @@ export const hubDto = z.object({
   maxDims: dimensionsSchema,
   maxWeightG: z.number().int(),
   acceptsUndeclared: z.boolean(),
-  maxStorageHours: z.number().int(),
+  maxStorageDays: z.number().int(),
   autoAccept: z.boolean(),
   walletConnected: z.boolean(),
   /** Hub-role rating of the owner — the sender picks hubs here. */

@@ -12,7 +12,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import type { ZodIssue } from 'zod';
-import { createShipmentBody, MAX_STORAGE_HOURS } from '@mercurio/shared';
+import { createShipmentBody, MAX_STORAGE_DAYS } from '@mercurio/shared';
 import {
   createShipment,
   getHubs,
@@ -41,7 +41,7 @@ type FieldKey =
   | 'weightG'
   | 'offerMsat'
   | 'custodyBondMsat'
-  | 'maxStorageHours';
+  | 'maxStorageDays';
 
 /** Zod issue → per-field message key under send.validation. */
 function issueMessageKey(issue: ZodIssue): string {
@@ -81,7 +81,7 @@ export default function SendPage() {
   const [weightG, setWeightG] = useState('');
   const [declaredContent, setDeclaredContent] = useState('');
   const [undeclared, setUndeclared] = useState(false);
-  const [maxStorageHours, setMaxStorageHours] = useState('48');
+  const [maxStorageDays, setMaxStorageDays] = useState('2');
   const [offerSats, setOfferSats] = useState('');
   const [bondSats, setBondSats] = useState('');
   // Optional creation photos (ADR-022), hashed on device (ADR-020 §2): the
@@ -130,9 +130,9 @@ export default function SendPage() {
   const originHub = useMemo(() => hubs.find((h) => h.id === originHubId), [hubs, originHubId]);
   const destHub = useMemo(() => hubs.find((h) => h.id === destHubId), [hubs, destHubId]);
   const storageCap = Math.min(
-    MAX_STORAGE_HOURS,
-    originHub?.maxStorageHours ?? MAX_STORAGE_HOURS,
-    destHub?.maxStorageHours ?? MAX_STORAGE_HOURS,
+    MAX_STORAGE_DAYS,
+    originHub?.maxStorageDays ?? MAX_STORAGE_DAYS,
+    destHub?.maxStorageDays ?? MAX_STORAGE_DAYS,
   );
   /** Current indicative rate for the sats inputs (from the suggestion). */
   const inputRate = suggestion?.eurRate.satsPerEur ?? null;
@@ -188,7 +188,7 @@ export default function SendPage() {
       undeclared,
       offerMsat: satsToMsat(BigInt(offerSats)),
       custodyBondMsat: satsToMsat(BigInt(bondSats)),
-      maxStorageHours: Number(maxStorageHours),
+      maxStorageDays: Number(maxStorageDays),
       ...(contentPhotos.length > 0 && {
         contentPhotoSha256: contentPhotos.map((p) => p.sha256),
       }),
@@ -407,12 +407,12 @@ export default function SendPage() {
             min="1"
             max={storageCap}
             inputMode="numeric"
-            value={maxStorageHours}
-            onChange={(e) => setMaxStorageHours(e.target.value)}
-            aria-invalid={fieldErrors.maxStorageHours !== undefined}
+            value={maxStorageDays}
+            onChange={(e) => setMaxStorageDays(e.target.value)}
+            aria-invalid={fieldErrors.maxStorageDays !== undefined}
           />
           <span className="hint">{t('storageHint', { max: storageCap })}</span>
-          {fieldError('maxStorageHours')}
+          {fieldError('maxStorageDays')}
         </div>
 
         <div className="field">

@@ -64,7 +64,7 @@ export function registerShipmentRoutes(app: App) {
         undeclared: b.undeclared,
       };
       for (const hub of [originHub, destHub]) {
-        const problem = parcelFitsHub(parcel, hub) ?? storageFitsHub(b.maxStorageHours, hub);
+        const problem = parcelFitsHub(parcel, hub) ?? storageFitsHub(b.maxStorageDays, hub);
         if (problem) return reply.code(422).send({ error: problem, hubId: hub.id });
       }
 
@@ -148,7 +148,7 @@ export function registerShipmentRoutes(app: App) {
               offerMsat,
               segmentWorkMsat,
               custodyBondMsat,
-              maxStorageHours: b.maxStorageHours,
+              maxStorageDays: b.maxStorageDays,
               eurRateSnapshot: rate.satsPerEur,
               eurRateSource: rate.source,
               eurRateAt: rate.at,
@@ -267,7 +267,7 @@ export function registerShipmentRoutes(app: App) {
             ? msat(remainingWorkPool(bundle, remainingKm))
             : msat(0n),
         custodyBondMsat: msat(s.custodyBondMsat),
-        maxStorageHours: s.maxStorageHours,
+        maxStorageDays: s.maxStorageDays,
         distanceKm: s.distanceKm,
         remainingKm,
         eurRate: {

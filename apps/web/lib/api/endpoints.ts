@@ -96,7 +96,7 @@ export interface RegisterHubInput {
   maxWeightG: number;
   acceptsUndeclared: boolean;
   feePercent: number;
-  maxStorageHours: number;
+  maxStorageDays: number;
   autoAccept: boolean;
 }
 
@@ -149,7 +149,7 @@ export interface HubAcceptRequest {
   weightG: number;
   undeclared: boolean;
   custodyBondMsat: string;
-  maxStorageHours: number;
+  maxStorageDays: number;
   createdAt: string;
 }
 

@@ -62,7 +62,7 @@ export const shipments = pgTable('shipments', {
     .notNull()
     .default(sql`0`),
   custodyBondMsat: bigint('custody_bond_msat', { mode: 'bigint' }).notNull(),
-  maxStorageHours: integer('max_storage_hours').notNull(), // <= 168h in MVP (ESCROW.md sec.4, CLTV budget)
+  maxStorageDays: integer('max_storage_days').notNull(), // <= 7 in MVP (ESCROW.md sec.4, CLTV budget; ADR-026)
 
   // Frozen at creation and used for the shipment's whole life (ADR-008): no
   // recalculation against a live rate mid-journey.

@@ -2,7 +2,7 @@ import { count, desc, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import type { App } from '../app.js';
 import { carrierTrips, hubs, shipments, users } from '@mercurio/db';
-import { listQuery } from '@mercurio/shared';
+import { listQuery, MAX_STORAGE_DAYS } from '@mercurio/shared';
 import { requireAuth } from '../plugins/auth-guard.js';
 import { activateCarrierRole, deleteAccount, exportUserData, getRoles } from '../lib/account.js';
 import { msat } from '../lib/serialize.js';
@@ -21,7 +21,7 @@ const hubBody = z.object({
   // Cap on hub fees (ECONOMICS.md sec.5, "tetto di validazione sulle fee hub"):
   // above this an hub is never worth the matching surplus for a carrier.
   feePercent: z.number().min(0).max(30),
-  maxStorageHours: z.number().int().positive().max(168), // ESCROW.md sec.4 CLTV budget
+  maxStorageDays: z.number().int().positive().max(MAX_STORAGE_DAYS), // ESCROW.md sec.4 CLTV budget (ADR-026)
   autoAccept: z.boolean().default(true),
 });
 
@@ -70,7 +70,7 @@ export function registerMeRoutes(app: App) {
           maxWeightG: b.maxWeightG,
           acceptsUndeclared: b.acceptsUndeclared,
           feePercent: b.feePercent.toFixed(2),
-          maxStorageHours: b.maxStorageHours,
+          maxStorageDays: b.maxStorageDays,
           autoAccept: b.autoAccept,
           active: true,
         })

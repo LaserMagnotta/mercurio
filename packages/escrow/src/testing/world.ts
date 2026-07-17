@@ -33,7 +33,7 @@ export async function createEscrowWorld(): Promise<EscrowWorld> {
     maxWeightG: 15000,
     acceptsUndeclared: true,
     feePercent: '10.00',
-    maxStorageHours: 72,
+    maxStorageDays: 3,
     autoAccept: true,
     active: true,
   };
@@ -61,7 +61,7 @@ export async function createEscrowWorld(): Promise<EscrowWorld> {
       weightG: 200,
       offerMsat: 7_500_000n,
       custodyBondMsat: 22_500_000n,
-      maxStorageHours: 48,
+      maxStorageDays: 2,
       eurRateSnapshot: '1500',
       eurRateSource: 'test-fixture',
       eurRateAt: new Date(),

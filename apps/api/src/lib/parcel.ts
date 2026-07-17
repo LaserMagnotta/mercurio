@@ -25,7 +25,8 @@ export function parcelFitsHub(parcel: ParcelShape, hub: HubRow): string | null {
 
 /** The stay the shipment would open at this hub must fit the hub's own
  *  storage ceiling — a shorter ceiling would forfeit the parcel earlier than
- *  the sender agreed to (never silently shrink the sender's window). */
-export function storageFitsHub(maxStorageHours: number, hub: HubRow): string | null {
-  return maxStorageHours <= hub.maxStorageHours ? null : 'hub_storage_too_short';
+ *  the sender agreed to (never silently shrink the sender's window). In days
+ *  (ADR-026). */
+export function storageFitsHub(maxStorageDays: number, hub: HubRow): string | null {
+  return maxStorageDays <= hub.maxStorageDays ? null : 'hub_storage_too_short';
 }
