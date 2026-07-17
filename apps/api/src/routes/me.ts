@@ -186,7 +186,7 @@ export function registerMeRoutes(app: App) {
   });
 
   app.delete('/me', { preHandler: requireAuth }, async (request, reply) => {
-    await deleteAccount(app.db, request.userId!);
+    await deleteAccount(app.db, request.userId!, app.blobStore);
     reply.clearCookie('mercurio_session', { path: '/' });
     return { ok: true };
   });

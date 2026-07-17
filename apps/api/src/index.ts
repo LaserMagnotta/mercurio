@@ -28,6 +28,7 @@ app
       await startWorkers({
         lifecycle: app.lifecycle,
         sendMail: app.sendMail,
+        blobStore: app.blobStore,
         connectionString:
           process.env.DATABASE_URL ?? 'postgres://mercurio:mercurio@localhost:5432/mercurio',
       });

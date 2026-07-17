@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm';
 import { createTestDb } from '@mercurio/db/test-helpers';
 import { hubs, users } from '@mercurio/db';
 import { activateCarrierRole, deleteAccount, exportUserData, getRoles } from './account';
+import { createMemoryBlobStore } from './blob-store';
 import { createSession, getSessionUserId } from './session';
 
 async function makeUser(db: Awaited<ReturnType<typeof createTestDb>>, email: string) {
@@ -65,7 +66,7 @@ describe('GDPR: account deletion (anonymization)', () => {
     const user = await makeUser(db, 'deleteme@example.com');
     const { token } = await createSession(db, user.id);
 
-    await deleteAccount(db, user.id);
+    await deleteAccount(db, user.id, createMemoryBlobStore());
 
     const [row] = await db.select().from(users).where(eq(users.id, user.id));
     expect(row?.email).not.toBe('deleteme@example.com');
@@ -99,7 +100,7 @@ describe('GDPR: account deletion (anonymization)', () => {
       .returning();
     if (!hub) throw new Error('setup failed');
 
-    await deleteAccount(db, user.id);
+    await deleteAccount(db, user.id, createMemoryBlobStore());
 
     const [row] = await db.select().from(hubs).where(eq(hubs.id, hub.id));
     expect(row).toBeDefined(); // still exists (referential integrity for past shipments)

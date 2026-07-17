@@ -8,16 +8,19 @@
 // tick delays a timeout, never loses it.
 
 import PgBoss from 'pg-boss';
+import type { BlobStore } from './lib/blob-store';
 import type { SendMail } from './lib/mailer';
 import type { LifecycleDeps } from './shipments/executor';
 import { fireDueTimers } from './shipments/timers';
 import { pumpWalletEvents } from './shipments/pump';
 import { dispatchEmailOutbox } from './shipments/outbox';
+import { purgeExpiredPhotos } from './shipments/photo-purge';
 import { reconcile, retryEscrowIntents } from './shipments/reconcile';
 
 export interface WorkerOptions {
   lifecycle: LifecycleDeps;
   sendMail: SendMail;
+  blobStore: BlobStore;
   connectionString: string;
 }
 
@@ -27,6 +30,7 @@ const QUEUES = {
   outbox: 'mercurio-outbox-dispatch',
   intents: 'mercurio-escrow-intents',
   reconcile: 'mercurio-reconcile',
+  photoPurge: 'mercurio-photo-purge',
 } as const;
 
 export async function startWorkers(opts: WorkerOptions): Promise<PgBoss> {
@@ -45,6 +49,7 @@ export async function startWorkers(opts: WorkerOptions): Promise<PgBoss> {
   await boss.schedule(QUEUES.outbox, '* * * * *');
   await boss.schedule(QUEUES.intents, '*/5 * * * *');
   await boss.schedule(QUEUES.reconcile, '0 3 * * *'); // nightly (invariant 6)
+  await boss.schedule(QUEUES.photoPurge, '30 3 * * *'); // nightly (ADR-020 §5)
 
   await boss.work(QUEUES.timers, async () => {
     await fireDueTimers(opts.lifecycle);
@@ -61,6 +66,19 @@ export async function startWorkers(opts: WorkerOptions): Promise<PgBoss> {
   });
   await boss.work(QUEUES.intents, async () => {
     await retryEscrowIntents(opts.lifecycle);
+  });
+  await boss.work(QUEUES.photoPurge, async () => {
+    const report = await purgeExpiredPhotos({
+      db: opts.lifecycle.db,
+      blobStore: opts.blobStore,
+      now: opts.lifecycle.now,
+    });
+    if (report.purgedRows > 0 || report.orphanBlobsDeleted > 0) {
+      console.warn(
+        `photo purge: ${report.purgedRows} rows, ${report.deletedBlobs} blobs, ` +
+          `${report.orphanBlobsDeleted} orphans (${report.tightened} deadlines tightened)`,
+      );
+    }
   });
   await boss.work(QUEUES.reconcile, async () => {
     const report = await reconcile(opts.lifecycle);
