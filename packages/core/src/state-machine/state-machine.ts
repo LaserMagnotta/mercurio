@@ -353,6 +353,16 @@ export function transition(
             destHubId: ctx.destHubId,
             offerMsat: ctx.offerMsat,
             custodyBondMsat: ctx.custodyBondMsat,
+            // Sender's optional creation photos (ADR-022): the genesis event
+            // is the shipment's certification record, so the declared hashes
+            // land here — keys present only when non-empty, keeping photo-less
+            // payloads byte-identical to the pre-ADR-022 shape.
+            ...(event.contentPhotoSha256 && event.contentPhotoSha256.length > 0
+              ? { contentPhotoSha256: event.contentPhotoSha256 }
+              : {}),
+            ...(event.sealedPhotoSha256 && event.sealedPhotoSha256.length > 0
+              ? { sealedPhotoSha256: event.sealedPhotoSha256 }
+              : {}),
           },
         },
       ]);

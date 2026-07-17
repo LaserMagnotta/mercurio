@@ -67,6 +67,32 @@ describe('create', () => {
     ]);
   });
 
+  it('creation-photo hashes land in the created payload, empty lists leave it untouched (ADR-022)', () => {
+    const content = ['a'.repeat(64)];
+    const sealed = ['b'.repeat(64)];
+    const withPhotos = transition(
+      null,
+      { type: 'create', contentPhotoSha256: content, sealedPhotoSha256: sealed },
+      baseCtx(),
+    );
+    expectOk(withPhotos);
+    expect(withPhotos.effects[0]).toMatchObject({
+      payload: { contentPhotoSha256: content, sealedPhotoSha256: sealed },
+    });
+
+    // Empty/absent lists must keep the payload byte-identical to the
+    // pre-ADR-022 shape: no keys at all.
+    const withEmpty = transition(
+      null,
+      { type: 'create', contentPhotoSha256: [], sealedPhotoSha256: [] },
+      baseCtx(),
+    );
+    expectOk(withEmpty);
+    const payload = (withEmpty.effects[0] as { payload: Record<string, unknown> }).payload;
+    expect('contentPhotoSha256' in payload).toBe(false);
+    expect('sealedPhotoSha256' in payload).toBe(false);
+  });
+
   it('guard: sender wallet must be connected', () => {
     expectRejected(
       transition(null, { type: 'create' }, { ...baseCtx(), senderWalletConnected: false }),

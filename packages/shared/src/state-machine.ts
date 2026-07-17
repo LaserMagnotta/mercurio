@@ -281,7 +281,10 @@ export interface ShipmentContext {
  * clock.
  */
 export type ShipmentEvent =
-  | { type: 'create' }
+  // The sender's optional creation photos (ADR-022): hashed on device like
+  // every other photo (ADR-020 §2), certified by the `created` chain event.
+  // Two distinct keys because one event certifies two kinds (content/sealed).
+  | { type: 'create'; contentPhotoSha256?: string[]; sealedPhotoSha256?: string[] }
   | { type: 'origin_hub_accept'; hubStayId: string; hubWalletConnected: boolean }
   | { type: 'origin_checkin'; photoSha256: string[]; storageDeadlineAt: string }
   | {
