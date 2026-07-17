@@ -572,10 +572,23 @@
   },
   "photos": {
     "label": "Parcel photos",
-    "hint": "Photos never leave your device: only the sha256 fingerprint is sent, certifying what you photographed. Maximum {max}.",
-    "hashing": "Computing the fingerprint…",
+    "hint": "Photos are stripped of metadata (location, device) on your device before sending: the sha256 fingerprint certifies exactly the uploaded bytes. Maximum {max}.",
+    "hashing": "Preparing photos…",
     "ready": "{count, plural, one {1 photo certified} other {# photos certified}}",
-    "clear": "Remove"
+    "clear": "Remove",
+    "decodeError": "One of the photos could not be processed: try a different file.",
+    "uploadFailed": "{failed, plural, one {1 photo was not uploaded} other {# photos were not uploaded}} — the certification still stands.",
+    "open": "Open photo",
+    "thumbAlt": "Certified parcel photo",
+    "galleryTitle": "Certified photos",
+    "galleryIntro": "Photos uploaded at handoffs: compare the parcel's state before accepting it."
+  },
+  "photoKinds": {
+    "content": "Content",
+    "sealed": "Sealed parcel",
+    "checkin": "Check-in",
+    "checkout": "Check-out",
+    "evidence": "Rejection evidence"
   },
   "apiErrors": {
     "fallback": "Operation rejected ({code}).",
@@ -633,6 +646,12 @@
     "not_a_participant": "Only participants of the shipment can write reviews.",
     "self_review": "You cannot review yourself.",
     "subject_role_not_effective": "This user did not hold that role in the shipment.",
-    "already_reviewed": "You already reviewed this user in this role."
+    "already_reviewed": "You already reviewed this user in this role.",
+    "photo_not_certified": "This photo does not match any certified fingerprint of the shipment.",
+    "photo_not_photographer": "Only the user who certified the photo can upload it.",
+    "photo_hash_mismatch": "The uploaded bytes do not match the declared fingerprint.",
+    "photo_format_unsupported": "Unsupported format: only JPEG is accepted.",
+    "photo_exif_gps": "The photo carries GPS coordinates in its metadata: strip them and retry.",
+    "http_413": "File too large."
   }
 }

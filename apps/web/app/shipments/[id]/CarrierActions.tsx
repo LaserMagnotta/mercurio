@@ -12,11 +12,13 @@ import { useTranslations } from 'next-intl';
 import {
   confirmCheckout,
   rejectHandoff,
+  uploadShipmentPhotos,
   type ShipmentDetail,
 } from '../../../lib/api/endpoints';
 import { useApiErrorMessage } from '../../../lib/api-error-message';
 import { parseQrInput } from '../../../lib/qr-input';
 import { PhotoHashInput } from '../../../components/PhotoHashInput';
+import type { CapturedPhoto } from '../../../lib/photo-capture';
 
 export function CarrierActions({
   detail,
@@ -29,12 +31,13 @@ export function CarrierActions({
 }) {
   const t = useTranslations('carrierOps');
   const tCommon = useTranslations('common');
+  const tPhotos = useTranslations('photos');
   const errorMessage = useApiErrorMessage();
 
   const [qrRaw, setQrRaw] = useState('');
   const [showReject, setShowReject] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
-  const [rejectHashes, setRejectHashes] = useState<string[]>([]);
+  const [rejectPhotos, setRejectPhotos] = useState<CapturedPhoto[]>([]);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -53,7 +56,7 @@ export function CarrierActions({
       setQrRaw('');
       setShowReject(false);
       setRejectReason('');
-      setRejectHashes([]);
+      setRejectPhotos([]);
       await onDone();
     } catch (err) {
       setError(errorMessage(err));
@@ -76,9 +79,12 @@ export function CarrierActions({
       await rejectHandoff(detail.id, {
         stage: 'pickup_checkout',
         reason: rejectReason.trim(),
-        photoSha256: rejectHashes,
+        photoSha256: rejectPhotos.map((p) => p.sha256),
       });
-      return t('rejectDone');
+      // Certification first, bytes second (ADR-020 §3): a failed upload
+      // never voids the filed rejection.
+      const failed = await uploadShipmentPhotos(detail.id, rejectPhotos);
+      return t('rejectDone') + (failed > 0 ? ` ${tPhotos('uploadFailed', { failed })}` : '');
     });
   };
 
@@ -135,12 +141,12 @@ export function CarrierActions({
           </div>
           <PhotoHashInput
             id="carrier-reject-photos"
-            hashes={rejectHashes}
-            onChange={setRejectHashes}
+            photos={rejectPhotos}
+            onChange={setRejectPhotos}
           />
           <button
             className="btn btn-danger"
-            disabled={busy || rejectReason.trim().length < 3 || rejectHashes.length === 0}
+            disabled={busy || rejectReason.trim().length < 3 || rejectPhotos.length === 0}
           >
             {t('rejectCta')}
           </button>

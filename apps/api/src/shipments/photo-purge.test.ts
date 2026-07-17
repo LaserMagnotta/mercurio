@@ -99,7 +99,7 @@ describe('photo purge worker (ADR-020 §5)', () => {
     // Same bytes certified and uploaded on two different shipments.
     const jpeg = buildJpeg('shared');
     const hash = sha256Hex(jpeg);
-    for (const _ of [0, 1]) {
+    for (let i = 0; i < 2; i++) {
       const created = await world.api({
         method: 'POST',
         url: '/shipments',

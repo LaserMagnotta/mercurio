@@ -59,4 +59,11 @@ export const KNOWN_API_ERROR_CODES = [
   'self_review',
   'subject_role_not_effective',
   'already_reviewed',
+  // Photo blobs (ADR-020).
+  'photo_not_certified',
+  'photo_not_photographer',
+  'photo_hash_mismatch',
+  'photo_format_unsupported',
+  'photo_exif_gps',
+  'http_413',
 ] as const;

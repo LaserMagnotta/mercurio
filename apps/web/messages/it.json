@@ -572,10 +572,23 @@
   },
   "photos": {
     "label": "Foto del pacco",
-    "hint": "Le foto restano sul tuo dispositivo: viene inviata solo l'impronta sha256, che certifica cosa hai fotografato. Massimo {max}.",
-    "hashing": "Calcolo dell'impronta…",
+    "hint": "Le foto vengono ripulite dai metadati (posizione, dispositivo) sul tuo dispositivo prima dell'invio: l'impronta sha256 certifica esattamente i byte caricati. Massimo {max}.",
+    "hashing": "Preparazione delle foto…",
     "ready": "{count, plural, one {1 foto certificata} other {# foto certificate}}",
-    "clear": "Rimuovi"
+    "clear": "Rimuovi",
+    "decodeError": "Impossibile elaborare una delle foto: riprova con un altro file.",
+    "uploadFailed": "{failed, plural, one {1 foto non è stata caricata} other {# foto non sono state caricate}} — la certificazione resta comunque valida.",
+    "open": "Apri la foto",
+    "thumbAlt": "Foto certificata del pacco",
+    "galleryTitle": "Foto certificate",
+    "galleryIntro": "Le foto caricate ai passaggi di mano: confronta lo stato del pacco prima di accettarlo."
+  },
+  "photoKinds": {
+    "content": "Contenuto",
+    "sealed": "Pacco sigillato",
+    "checkin": "Check-in",
+    "checkout": "Check-out",
+    "evidence": "Prova del rifiuto"
   },
   "apiErrors": {
     "fallback": "Operazione rifiutata ({code}).",
@@ -633,6 +646,12 @@
     "not_a_participant": "Solo chi ha partecipato alla spedizione può recensire.",
     "self_review": "Non puoi recensire te stesso.",
     "subject_role_not_effective": "Questo utente non ha avuto quel ruolo nella spedizione.",
-    "already_reviewed": "Hai già recensito questo utente in questo ruolo."
+    "already_reviewed": "Hai già recensito questo utente in questo ruolo.",
+    "photo_not_certified": "Questa foto non corrisponde a nessuna impronta certificata della spedizione.",
+    "photo_not_photographer": "Solo chi ha certificato la foto può caricarla.",
+    "photo_hash_mismatch": "I byte caricati non corrispondono all'impronta dichiarata.",
+    "photo_format_unsupported": "Formato non supportato: è accettato solo JPEG.",
+    "photo_exif_gps": "La foto contiene coordinate GPS nei metadati: rimuovile e riprova.",
+    "http_413": "File troppo grande."
   }
 }

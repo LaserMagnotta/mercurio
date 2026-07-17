@@ -71,3 +71,33 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
   }
   return payload as T;
 }
+
+/** Binary upload variant of apiFetch (ADR-020: photo blobs travel as raw
+ *  image/jpeg bodies, not JSON) — same origin, same cookie, same ApiError
+ *  normalization. */
+export async function apiUploadJpeg<T>(path: string, blob: Blob): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(`/api${path}`, {
+      method: 'POST',
+      headers: { 'content-type': 'image/jpeg' },
+      body: blob,
+      credentials: 'same-origin',
+      cache: 'no-store',
+    });
+  } catch {
+    throw new ApiError(0, 'network_error');
+  }
+  const isJson = response.headers.get('content-type')?.includes('application/json') ?? false;
+  const payload = isJson ? ((await response.json()) as unknown) : undefined;
+  if (!response.ok) {
+    const errorBody = (payload ?? {}) as ApiErrorBody;
+    throw new ApiError(
+      response.status,
+      typeof errorBody.error === 'string' ? errorBody.error : `http_${response.status}`,
+      typeof errorBody.message === 'string' ? errorBody.message : undefined,
+      errorBody,
+    );
+  }
+  return payload as T;
+}

@@ -15,6 +15,7 @@ import { ApiError } from '../../../lib/api/client';
 import {
   getHubs,
   getShipment,
+  getShipmentPhotos,
   getWallet,
   recipientClaim,
   type ClaimCreated,
@@ -26,6 +27,7 @@ import { useSession } from '../../../lib/session';
 import { formatDateTime } from '../../../lib/format';
 import { CUSTODY_EVENT_TYPES, statusDescriptionKey } from '../../../lib/shipment-status';
 import { Amount } from '../../../components/Amount';
+import { PhotoStrip } from '../../../components/PhotoStrip';
 import { QrCode } from '../../../components/QrCode';
 import { StatusBadge } from '../../../components/StatusBadge';
 
@@ -67,6 +69,7 @@ export function TrackClient({ id }: { id: string }) {
   const errorMessage = useApiErrorMessage();
 
   const [detail, setDetail] = useState<ShipmentDetail | null>(null);
+  const [availablePhotos, setAvailablePhotos] = useState<ReadonlySet<string>>(new Set());
   const [isParticipant, setIsParticipant] = useState<boolean | null>(null);
   const [walletConnected, setWalletConnected] = useState<boolean | null>(null);
   const [hubs, setHubs] = useState<Hub[]>([]);
@@ -80,6 +83,11 @@ export function TrackClient({ id }: { id: string }) {
     try {
       setDetail(await getShipment(id));
       setIsParticipant(true);
+      // Photos become visible with the claim (ADR-020 §4): before it this
+      // very request is a 404, exactly like the detail above.
+      getShipmentPhotos(id)
+        .then((res) => setAvailablePhotos(new Set(res.photos.map((p) => p.sha256))))
+        .catch(() => setAvailablePhotos(new Set()));
     } catch (err) {
       if (err instanceof ApiError && err.status === 404) {
         setIsParticipant(false);
@@ -290,12 +298,22 @@ export function TrackClient({ id }: { id: string }) {
       <section className="card">
         <h2>{t('historyTitle')}</h2>
         <ol className="timeline">
-          {detail.custodyChain.map((event, i) => (
-            <li key={`${event.hash}-${i}`}>
-              <div>{KNOWN_CUSTODY.has(event.type) ? tCustody(event.type) : event.type}</div>
-              <div className="muted small">{formatDateTime(event.createdAt, locale)}</div>
-            </li>
-          ))}
+          {detail.custodyChain.map((event, i) => {
+            const eventHashes = (event.payload as { photoSha256?: unknown }).photoSha256;
+            return (
+              <li key={`${event.hash}-${i}`}>
+                <div>{KNOWN_CUSTODY.has(event.type) ? tCustody(event.type) : event.type}</div>
+                <div className="muted small">{formatDateTime(event.createdAt, locale)}</div>
+                {Array.isArray(eventHashes) && (
+                  <PhotoStrip
+                    shipmentId={detail.id}
+                    hashes={eventHashes as string[]}
+                    available={availablePhotos}
+                  />
+                )}
+              </li>
+            );
+          })}
         </ol>
       </section>
     </div>

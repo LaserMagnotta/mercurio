@@ -14,6 +14,7 @@ import {
   cancelShipment,
   getHubs,
   getShipment,
+  getShipmentPhotos,
   rerouteShipment,
   type Hub,
   type ShipmentDetail,
@@ -30,6 +31,7 @@ import { Amount } from '../../../components/Amount';
 import { StatusBadge } from '../../../components/StatusBadge';
 import { RatingStars } from '../../../components/RatingStars';
 import { QrCode } from '../../../components/QrCode';
+import { PhotoStrip } from '../../../components/PhotoStrip';
 import { CarrierActions } from './CarrierActions';
 import { ReviewsSection } from './ReviewsSection';
 
@@ -50,6 +52,7 @@ export function ShipmentClient({ id, justCreated }: { id: string; justCreated: b
 
   const [detail, setDetail] = useState<ShipmentDetail | null>(null);
   const [hubs, setHubs] = useState<Hub[]>([]);
+  const [availablePhotos, setAvailablePhotos] = useState<ReadonlySet<string>>(new Set());
   const [loadError, setLoadError] = useState<string | null>(null);
   const [showQr, setShowQr] = useState(justCreated);
   const [qrOrigin, setQrOrigin] = useState('');
@@ -65,6 +68,11 @@ export function ShipmentClient({ id, justCreated }: { id: string; justCreated: b
     try {
       setDetail(await getShipment(id));
       setLoadError(null);
+      // Best-effort (ADR-020): the chain shows hashes regardless; only the
+      // thumbnails need this listing.
+      getShipmentPhotos(id)
+        .then((res) => setAvailablePhotos(new Set(res.photos.map((p) => p.sha256))))
+        .catch(() => setAvailablePhotos(new Set()));
     } catch (err) {
       setLoadError(errorMessage(err));
     }
@@ -344,12 +352,22 @@ export function ShipmentClient({ id, justCreated }: { id: string; justCreated: b
       <section className="card">
         <h2>{t('custodyTitle')}</h2>
         <ol className="timeline">
-          {detail.custodyChain.map((event, i) => (
-            <li key={`${event.hash}-${i}`}>
-              <div>{KNOWN_CUSTODY.has(event.type) ? tCustody(event.type) : event.type}</div>
-              <div className="muted small">{formatDateTime(event.createdAt, locale)}</div>
-            </li>
-          ))}
+          {detail.custodyChain.map((event, i) => {
+            const eventHashes = (event.payload as { photoSha256?: unknown }).photoSha256;
+            return (
+              <li key={`${event.hash}-${i}`}>
+                <div>{KNOWN_CUSTODY.has(event.type) ? tCustody(event.type) : event.type}</div>
+                <div className="muted small">{formatDateTime(event.createdAt, locale)}</div>
+                {Array.isArray(eventHashes) && (
+                  <PhotoStrip
+                    shipmentId={detail.id}
+                    hashes={eventHashes as string[]}
+                    available={availablePhotos}
+                  />
+                )}
+              </li>
+            );
+          })}
         </ol>
       </section>
 

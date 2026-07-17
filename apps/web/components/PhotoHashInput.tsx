@@ -1,35 +1,44 @@
 'use client';
 
-// Photo certification input: the operator shoots/picks up to 10 photos, the
-// component hashes them with WebCrypto and hands the sha256 list to the
-// parent form. The photos NEVER leave the device (ARCHITECTURE.md §5
-// precisazione 12): only the declared hashes reach the API, entering the
-// custody chain as the certification.
+// Photo certification input (ADR-018 §6 + ADR-020): the operator shoots or
+// picks up to 10 photos; each is re-encoded ON DEVICE (EXIF stripped — no
+// geotag ever leaves the phone) and hashed with WebCrypto. The parent form
+// declares the sha256 list to the API as the certification, then uploads the
+// exact hashed bytes so the counterparties can SEE what was certified.
 
 import { useRef, useState, type ChangeEvent } from 'react';
 import { useTranslations } from 'next-intl';
-import { MAX_PHOTO_HASHES, sha256HexOfFile } from '../lib/photo-hash';
+import { MAX_PHOTO_HASHES } from '../lib/photo-hash';
+import { capturePhoto, type CapturedPhoto } from '../lib/photo-capture';
 
 export interface PhotoHashInputProps {
   id: string;
-  hashes: string[];
-  onChange: (hashes: string[]) => void;
+  photos: CapturedPhoto[];
+  onChange: (photos: CapturedPhoto[]) => void;
 }
 
-export function PhotoHashInput({ id, hashes, onChange }: PhotoHashInputProps) {
+export function PhotoHashInput({ id, photos, onChange }: PhotoHashInputProps) {
   const t = useTranslations('photos');
   const [hashing, setHashing] = useState(false);
+  const [decodeError, setDecodeError] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const pick = async (e: ChangeEvent<HTMLInputElement>) => {
     const files = [...(e.target.files ?? [])].slice(0, MAX_PHOTO_HASHES);
+    setDecodeError(false);
     if (files.length === 0) {
       onChange([]);
       return;
     }
     setHashing(true);
     try {
-      onChange(await Promise.all(files.map(sha256HexOfFile)));
+      onChange(await Promise.all(files.map(capturePhoto)));
+    } catch {
+      // One undecodable file rejects the whole pick: silently skipping it
+      // would certify fewer photos than the operator believes they took.
+      if (inputRef.current) inputRef.current.value = '';
+      onChange([]);
+      setDecodeError(true);
     } finally {
       setHashing(false);
     }
@@ -37,6 +46,7 @@ export function PhotoHashInput({ id, hashes, onChange }: PhotoHashInputProps) {
 
   const clear = () => {
     if (inputRef.current) inputRef.current.value = '';
+    setDecodeError(false);
     onChange([]);
   };
 
@@ -54,9 +64,14 @@ export function PhotoHashInput({ id, hashes, onChange }: PhotoHashInputProps) {
       />
       <span className="hint">{t('hint', { max: MAX_PHOTO_HASHES })}</span>
       {hashing && <span className="hint">{t('hashing')}</span>}
-      {hashes.length > 0 && (
+      {decodeError && (
+        <span className="field-error" role="alert">
+          {t('decodeError')}
+        </span>
+      )}
+      {photos.length > 0 && (
         <span className="row small">
-          <span className="badge badge-success">{t('ready', { count: hashes.length })}</span>
+          <span className="badge badge-success">{t('ready', { count: photos.length })}</span>
           <button type="button" className="link-button" onClick={clear}>
             {t('clear')}
           </button>

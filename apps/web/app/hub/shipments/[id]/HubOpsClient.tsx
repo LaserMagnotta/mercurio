@@ -16,14 +16,18 @@ import {
   getHubs,
   getMyHubRequests,
   getShipment,
+  getShipmentPhotos,
   legCheckin,
   legReturn,
   originAccept,
   originCheckin,
   recipientPickup,
   rejectHandoff,
+  shipmentPhotoUrl,
+  uploadShipmentPhotos,
   type Hub,
   type ShipmentDetail,
+  type ShipmentPhoto,
 } from '../../../../lib/api/endpoints';
 import { useApiErrorMessage } from '../../../../lib/api-error-message';
 import { useSession } from '../../../../lib/session';
@@ -33,6 +37,7 @@ import { statusDescriptionKey } from '../../../../lib/shipment-status';
 import { Amount } from '../../../../components/Amount';
 import { PhotoHashInput } from '../../../../components/PhotoHashInput';
 import { StatusBadge } from '../../../../components/StatusBadge';
+import type { CapturedPhoto } from '../../../../lib/photo-capture';
 
 type RejectStage = 'hub_checkin' | 'recipient_pickup';
 
@@ -40,6 +45,8 @@ export function HubOpsClient({ id }: { id: string }) {
   const t = useTranslations('hubOps');
   const tCommon = useTranslations('common');
   const tStatuses = useTranslations('statuses');
+  const tPhotos = useTranslations('photos');
+  const tKinds = useTranslations('photoKinds');
   const locale = useLocale();
   const { user, loading: sessionLoading } = useSession();
   const errorMessage = useApiErrorMessage();
@@ -47,16 +54,17 @@ export function HubOpsClient({ id }: { id: string }) {
   const [detail, setDetail] = useState<ShipmentDetail | null>(null);
   const [myHubId, setMyHubId] = useState<string | null>(null);
   const [hubs, setHubs] = useState<Hub[]>([]);
+  const [shipmentPhotos, setShipmentPhotos] = useState<ShipmentPhoto[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [qrRaw, setQrRaw] = useState('');
-  const [photoHashes, setPhotoHashes] = useState<string[]>([]);
+  const [photos, setPhotos] = useState<CapturedPhoto[]>([]);
   const [otp, setOtp] = useState('');
   const [claimToken, setClaimToken] = useState('');
   const [integrityOk, setIntegrityOk] = useState(false);
   const [showReject, setShowReject] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
-  const [rejectHashes, setRejectHashes] = useState<string[]>([]);
+  const [rejectPhotos, setRejectPhotos] = useState<CapturedPhoto[]>([]);
 
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -68,6 +76,10 @@ export function HubOpsClient({ id }: { id: string }) {
       setDetail(d);
       setMyHubId(dash.hubId);
       setLoadError(null);
+      // Best-effort: a photo listing failure must not hide the operations.
+      getShipmentPhotos(id)
+        .then((res) => setShipmentPhotos(res.photos))
+        .catch(() => setShipmentPhotos([]));
     } catch (err) {
       setLoadError(errorMessage(err));
     }
@@ -124,13 +136,13 @@ export function HubOpsClient({ id }: { id: string }) {
     try {
       setNotice(await fn());
       setQrRaw('');
-      setPhotoHashes([]);
+      setPhotos([]);
       setOtp('');
       setClaimToken('');
       setIntegrityOk(false);
       setShowReject(false);
       setRejectReason('');
-      setRejectHashes([]);
+      setRejectPhotos([]);
       await load();
     } catch (err) {
       setActionError(errorMessage(err));
@@ -138,6 +150,16 @@ export function HubOpsClient({ id }: { id: string }) {
       setBusy(false);
     }
   };
+
+  /** Uploads the certified bytes AFTER the transition landed (ADR-020 §3):
+   *  a failure never voids the certification, the notice just says so. */
+  const uploadCertified = async (list: CapturedPhoto[]): Promise<string> => {
+    const failed = await uploadShipmentPhotos(id, list);
+    return failed > 0 ? ` ${tPhotos('uploadFailed', { failed })}` : '';
+  };
+
+  const photoHashes = photos.map((p) => p.sha256);
+  const rejectHashes = rejectPhotos.map((p) => p.sha256);
 
   const qrField = (
     <div className="field">
@@ -187,7 +209,7 @@ export function HubOpsClient({ id }: { id: string }) {
       e.preventDefault();
       void run(async () => {
         await originCheckin(detail.id, qrToken, photoHashes);
-        return t('checkinDone');
+        return t('checkinDone') + (await uploadCertified(photos));
       });
     };
     action = panel(
@@ -195,10 +217,10 @@ export function HubOpsClient({ id }: { id: string }) {
       t('checkinIntro'),
       <form onSubmit={submit} className="stack-sm">
         {qrField}
-        <PhotoHashInput id="ops-photos" hashes={photoHashes} onChange={setPhotoHashes} />
+        <PhotoHashInput id="ops-photos" photos={photos} onChange={setPhotos} />
         <button
           className="btn btn-primary"
-          disabled={busy || qrToken === '' || photoHashes.length === 0}
+          disabled={busy || qrToken === '' || photos.length === 0}
         >
           {t('checkinCta')}
         </button>
@@ -209,7 +231,10 @@ export function HubOpsClient({ id }: { id: string }) {
       e.preventDefault();
       void run(async () => {
         const res = await confirmCheckout(detail.id, qrToken, photoHashes);
-        return res.complete ? t('checkoutComplete') : t('checkoutWaitingCarrier');
+        const base = res.complete ? t('checkoutComplete') : t('checkoutWaitingCarrier');
+        // The checkout hashes are certifiable even while the double
+        // confirmation is pending (ADR-020 §3): upload right away.
+        return base + (await uploadCertified(photos));
       });
     };
     action = panel(
@@ -217,10 +242,10 @@ export function HubOpsClient({ id }: { id: string }) {
       t('checkoutIntro'),
       <form onSubmit={submit} className="stack-sm">
         {qrField}
-        <PhotoHashInput id="ops-photos" hashes={photoHashes} onChange={setPhotoHashes} />
+        <PhotoHashInput id="ops-photos" photos={photos} onChange={setPhotos} />
         <button
           className="btn btn-primary"
-          disabled={busy || qrToken === '' || photoHashes.length === 0}
+          disabled={busy || qrToken === '' || photos.length === 0}
         >
           {t('checkoutCta')}
         </button>
@@ -231,7 +256,7 @@ export function HubOpsClient({ id }: { id: string }) {
       e.preventDefault();
       void run(async () => {
         await legCheckin(detail.id, qrToken, photoHashes);
-        return t('arrivalDone');
+        return t('arrivalDone') + (await uploadCertified(photos));
       });
     };
     action = panel(
@@ -239,7 +264,7 @@ export function HubOpsClient({ id }: { id: string }) {
       t('arrivalIntro'),
       <form onSubmit={submit} className="stack-sm">
         {qrField}
-        <PhotoHashInput id="ops-photos" hashes={photoHashes} onChange={setPhotoHashes} />
+        <PhotoHashInput id="ops-photos" photos={photos} onChange={setPhotos} />
         <div className="checkbox-row">
           <input
             id="ops-integrity"
@@ -253,7 +278,7 @@ export function HubOpsClient({ id }: { id: string }) {
         </div>
         <button
           className="btn btn-primary"
-          disabled={busy || qrToken === '' || photoHashes.length === 0 || !integrityOk}
+          disabled={busy || qrToken === '' || photos.length === 0 || !integrityOk}
         >
           {t('arrivalCta')}
         </button>
@@ -264,7 +289,7 @@ export function HubOpsClient({ id }: { id: string }) {
       e.preventDefault();
       void run(async () => {
         await legReturn(detail.id, qrToken, photoHashes);
-        return t('returnDone');
+        return t('returnDone') + (await uploadCertified(photos));
       });
     };
     action = panel(
@@ -272,10 +297,10 @@ export function HubOpsClient({ id }: { id: string }) {
       t('returnIntro'),
       <form onSubmit={submit} className="stack-sm">
         {qrField}
-        <PhotoHashInput id="ops-photos" hashes={photoHashes} onChange={setPhotoHashes} />
+        <PhotoHashInput id="ops-photos" photos={photos} onChange={setPhotos} />
         <button
           className="btn btn-primary"
-          disabled={busy || qrToken === '' || photoHashes.length === 0}
+          disabled={busy || qrToken === '' || photos.length === 0}
         >
           {t('returnCta')}
         </button>
@@ -371,7 +396,7 @@ export function HubOpsClient({ id }: { id: string }) {
         reason: rejectReason.trim(),
         photoSha256: rejectHashes,
       });
-      return t('rejectDone');
+      return t('rejectDone') + (await uploadCertified(rejectPhotos));
     });
   };
 
@@ -425,6 +450,33 @@ export function HubOpsClient({ id }: { id: string }) {
         </section>
       )}
 
+      {shipmentPhotos.length > 0 && (
+        <section className="card stack-sm">
+          <h2>{tPhotos('galleryTitle')}</h2>
+          <p className="muted small">{tPhotos('galleryIntro')}</p>
+          <div className="photo-strip">
+            {shipmentPhotos.map((photo) => (
+              <a
+                key={photo.sha256}
+                className="photo-cell"
+                href={shipmentPhotoUrl(detail.id, photo.sha256)}
+                target="_blank"
+                rel="noreferrer"
+                title={tPhotos('open')}
+              >
+                <img
+                  className="photo-thumb"
+                  src={shipmentPhotoUrl(detail.id, photo.sha256)}
+                  alt={tKinds(photo.kind)}
+                  loading="lazy"
+                />
+                <span className="badge badge-neutral">{tKinds(photo.kind)}</span>
+              </a>
+            ))}
+          </div>
+        </section>
+      )}
+
       {rejectStage && (
         <section className="card stack-sm">
           <div className="row-between">
@@ -445,10 +497,10 @@ export function HubOpsClient({ id }: { id: string }) {
                   maxLength={500}
                 />
               </div>
-              <PhotoHashInput id="ops-reject-photos" hashes={rejectHashes} onChange={setRejectHashes} />
+              <PhotoHashInput id="ops-reject-photos" photos={rejectPhotos} onChange={setRejectPhotos} />
               <button
                 className="btn btn-danger"
-                disabled={busy || rejectReason.trim().length < 3 || rejectHashes.length === 0}
+                disabled={busy || rejectReason.trim().length < 3 || rejectPhotos.length === 0}
               >
                 {t('rejectCta')}
               </button>

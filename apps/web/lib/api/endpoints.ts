@@ -14,15 +14,19 @@ import type {
   hubDto,
   meShipmentsDto,
   meTripsDto,
+  photoUploadedDto,
   shipmentCreatedDto,
   shipmentDetailDto,
+  shipmentPhotoDto,
+  shipmentPhotosDto,
   shipmentPublicDto,
   suggestedOfferDto,
   suggestedRateDto,
   tripRouteDto,
   userReviewsDto,
 } from '@mercurio/shared';
-import { apiFetch } from './client';
+import type { CapturedPhoto } from '../photo-capture';
+import { apiFetch, apiUploadJpeg } from './client';
 
 export type Hub = z.infer<typeof hubDto>;
 export type MeShipments = z.infer<typeof meShipmentsDto>;
@@ -40,6 +44,9 @@ export type ClaimCreated = z.infer<typeof claimCreatedDto>;
 export type CreateReviewInput = z.infer<typeof createReviewBody>;
 export type UserReviews = z.infer<typeof userReviewsDto>;
 export type HandoffRejectInput = z.infer<typeof handoffRejectBody>;
+export type ShipmentPhoto = z.infer<typeof shipmentPhotoDto>;
+export type ShipmentPhotos = z.infer<typeof shipmentPhotosDto>;
+export type PhotoUploaded = z.infer<typeof photoUploadedDto>;
 
 // --------------------------------------------------------------------- auth
 
@@ -252,6 +259,40 @@ export const claimedPickup = (id: string, qrToken: string, claimToken: string) =
 
 export const rejectHandoff = (id: string, body: HandoffRejectInput) =>
   apiFetch<{ status: string }>(`/shipments/${id}/reject`, { method: 'POST', body });
+
+// ------------------------------------------------------------------- photos
+// ADR-020: hashes certify (custody chain), blobs document. The upload sends
+// the EXACT bytes the hash was computed on; the API verifies and refuses
+// anything else. Download URLs point at the same-origin proxy so the session
+// cookie authorizes every request — no public URLs exist.
+
+export const uploadShipmentPhoto = (shipmentId: string, photo: CapturedPhoto) =>
+  apiUploadJpeg<PhotoUploaded>(`/shipments/${shipmentId}/photos/${photo.sha256}`, photo.blob);
+
+/** Best-effort upload of every certified photo AFTER the transition landed
+ *  (ADR-020 §3: certification first, bytes second). Returns how many failed —
+ *  a failure never voids the certification, the UI just says so. */
+export async function uploadShipmentPhotos(
+  shipmentId: string,
+  photos: CapturedPhoto[],
+): Promise<number> {
+  let failed = 0;
+  for (const photo of photos) {
+    try {
+      await uploadShipmentPhoto(shipmentId, photo);
+    } catch {
+      failed += 1;
+    }
+  }
+  return failed;
+}
+
+export const getShipmentPhotos = (shipmentId: string) =>
+  apiFetch<ShipmentPhotos>(`/shipments/${shipmentId}/photos`);
+
+/** Same-origin URL of one photo's bytes (usable in <img src>). */
+export const shipmentPhotoUrl = (shipmentId: string, sha256: string) =>
+  `/api/shipments/${shipmentId}/photos/${sha256}`;
 
 // ------------------------------------------------------------------ reviews
 
