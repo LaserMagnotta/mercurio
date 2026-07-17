@@ -84,7 +84,7 @@ export const PHOTO_RETENTION_DAYS_AFTER_CLOSURE = 30;
 export const PHOTO_MAX_RETENTION_DAYS = 90;
 
 /** Photo kinds (mirrors the Postgres enum `photo_kind`). `content`/`sealed`
- *  are reserved for the sender's creation photos — no capture UI yet
- *  (ADR-020 §3). */
+ *  are the sender's creation photos, certified by the `created` custody
+ *  event (ADR-022); the rest map from handoff events (ADR-020 §3). */
 export const PHOTO_KINDS = ['content', 'sealed', 'checkin', 'checkout', 'evidence'] as const;
 export type PhotoKind = (typeof PHOTO_KINDS)[number];

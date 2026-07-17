@@ -108,7 +108,14 @@ export function registerShipmentRoutes(app: App) {
       try {
         await executeShipmentTransition(deps, {
           shipmentId,
-          event: { type: 'create' },
+          // The optional creation-photo hashes ride the event into the
+          // `created` payload — the shipment's certification record (ADR-022);
+          // the bytes arrive later through POST /shipments/:id/photos/:sha256.
+          event: {
+            type: 'create',
+            ...(b.contentPhotoSha256 && { contentPhotoSha256: b.contentPhotoSha256 }),
+            ...(b.sealedPhotoSha256 && { sealedPhotoSha256: b.sealedPhotoSha256 }),
+          },
           createCtx,
           persistBefore: async (tx) => {
             await tx.insert(shipments).values({

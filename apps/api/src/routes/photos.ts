@@ -1,9 +1,10 @@
 // Photo blob endpoints (ADR-020). The custody chain stays the only source of
 // certification: an upload is accepted ONLY for a sha256 already declared in
-// the shipment's certification record (chain payloads, or the active leg's
-// pending checkout confirmation), by the user who declared it, and only when
-// the received bytes hash to exactly that value. Download is session-authz'd
-// per request — never public or signed URLs (ADR-020 §4).
+// the shipment's certification record (chain payloads — the genesis `created`
+// event included, ADR-022 — or the active leg's pending checkout
+// confirmation), by the user who declared it, and only when the received
+// bytes hash to exactly that value. Download is session-authz'd per request —
+// never public or signed URLs (ADR-020 §4).
 
 import { and, asc, eq } from 'drizzle-orm';
 import { z } from 'zod';
@@ -39,6 +40,8 @@ interface PhotoCertification {
  * declared by the departure hub with its confirmation (ARCHITECTURE.md §7).
  * A hub-confirmed checkout whose double confirmation is still pending has no
  * custody event yet: its hashes live on the leg row and link to no event.
+ * The genesis `created` event carries the sender's creation photos under two
+ * kind-specific keys (ADR-022) — one event, two kinds.
  */
 async function findCertification(
   db: Db,
@@ -46,6 +49,24 @@ async function findCertification(
   sha256: string,
 ): Promise<PhotoCertification | null> {
   for (const event of bundle.chain) {
+    if (event.type === 'created') {
+      const payload = event.payload as {
+        contentPhotoSha256?: unknown;
+        sealedPhotoSha256?: unknown;
+      };
+      // Same hash in both lists: first match wins — the kind is display
+      // metadata, authz and retention do not depend on it (ADR-022 §2).
+      for (const [key, kind] of [
+        ['contentPhotoSha256', 'content'],
+        ['sealedPhotoSha256', 'sealed'],
+      ] as const) {
+        const declared = Array.isArray(payload[key]) ? (payload[key] as unknown[]) : [];
+        if (declared.includes(sha256) && event.actorUserId) {
+          return { kind, custodyEventId: event.id, photographerId: event.actorUserId };
+        }
+      }
+      continue;
+    }
     const payload = event.payload as { photoSha256?: unknown };
     const declared = Array.isArray(payload.photoSha256) ? payload.photoSha256 : [];
     if (!declared.includes(sha256)) continue;
@@ -97,7 +118,19 @@ export function registerPhotoRoutes(app: App) {
   app.post(
     '/shipments/:id/photos/:sha256',
     {
-      schema: { params: photoParams },
+      schema: {
+        params: photoParams,
+        // The public contract third-party clients must honor (ADR-020 §2,
+        // ADR-022 §6): the server verifies, it never re-encodes.
+        description:
+          'Uploads the bytes of an ALREADY CERTIFIED photo (raw image/jpeg body). ' +
+          'The :sha256 must have been declared beforehand — in a custody-event ' +
+          'payload, in the pending checkout confirmation, or in the creation ' +
+          'photo fields of POST /shipments — by the caller, and the bytes must ' +
+          'hash to exactly that value. Clients MUST strip EXIF metadata ' +
+          '(re-encode) on the device BEFORE hashing: the server refuses JPEGs ' +
+          'carrying a GPS EXIF block (photo_exif_gps) and never rewrites bytes.',
+      },
       preHandler: requireAuth,
       bodyLimit: PHOTO_MAX_BYTES,
     },

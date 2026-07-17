@@ -275,6 +275,89 @@ describe('photo upload → download (ADR-020)', () => {
     });
   });
 
+  it('sender creation photos (ADR-022): declared at create, uploaded by the sender, seen by counterparties', async () => {
+    const world = await createLifecycleWorld();
+    const contentJpeg = buildJpeg('creation-content');
+    const sealedJpeg = buildJpeg('creation-sealed');
+    const contentHash = sha256Hex(contentJpeg);
+    const sealedHash = sha256Hex(sealedJpeg);
+
+    const created = await world.api({
+      method: 'POST',
+      url: '/shipments',
+      cookie: world.marco.cookie,
+      body: {
+        ...CANONICAL_CREATE_BODY,
+        originHubId: world.hubA,
+        destHubId: world.hubB,
+        contentPhotoSha256: [contentHash],
+        sealedPhotoSha256: [sealedHash],
+      },
+      expect: 201,
+    });
+    const { id } = created.json() as { id: string };
+
+    // The certification is public to participants from moment zero: the
+    // hashes sit in the genesis `created` payload of the custody chain.
+    const detail = await world.api({
+      method: 'GET',
+      url: `/shipments/${id}`,
+      cookie: world.marco.cookie,
+      expect: 200,
+    });
+    const chain = (detail.json() as { custodyChain: { type: string; payload: unknown }[] })
+      .custodyChain;
+    expect(chain[0]).toMatchObject({
+      type: 'created',
+      payload: { contentPhotoSha256: [contentHash], sealedPhotoSha256: [sealedHash] },
+    });
+
+    // The sender uploads both kinds; each row links to the genesis event.
+    const content = await upload(world, world.marco, id, contentHash, contentJpeg);
+    expect(content.status).toBe(201);
+    expect(content.json()).toMatchObject({ kind: 'content', duplicated: false });
+    const sealed = await upload(world, world.marco, id, sealedHash, sealedJpeg);
+    expect(sealed.status).toBe(201);
+    expect(sealed.json()).toMatchObject({ kind: 'sealed', duplicated: false });
+    for (const row of await world.db.select().from(photos)) {
+      expect(row.custodyEventId).not.toBeNull();
+      expect(row.takenBy).toBe(world.marco.id);
+    }
+
+    // Idempotent retry, exactly like every other kind.
+    const again = await upload(world, world.marco, id, contentHash, contentJpeg);
+    expect(again.status).toBe(200);
+    expect(again.json()).toMatchObject({ duplicated: true });
+    expect(await world.db.select().from(photos)).toHaveLength(2);
+
+    // The origin hub owner (counterparty) SEES the certified bytes…
+    const seen = await download(world, world.mario, id, sealedHash);
+    expect(seen.statusCode).toBe(200);
+    expect(Buffer.from(seen.rawPayload).equals(sealedJpeg)).toBe(true);
+    // …but cannot upload them: the photographer of content/sealed is the
+    // sender (403), and a stranger never learns the shipment exists (404).
+    expect((await upload(world, world.mario, id, sealedHash, sealedJpeg)).status).toBe(403);
+    expect((await upload(world, world.anna, id, sealedHash, sealedJpeg)).status).toBe(404);
+  });
+
+  it('creation photos not declared at create are not uploadable, even by the sender', async () => {
+    const world = await createLifecycleWorld();
+    const created = await world.api({
+      method: 'POST',
+      url: '/shipments',
+      cookie: world.marco.cookie,
+      body: { ...CANONICAL_CREATE_BODY, originHubId: world.hubA, destHubId: world.hubB },
+      expect: 201,
+    });
+    const { id } = created.json() as { id: string };
+
+    const stray = buildJpeg('undeclared-creation');
+    const refused = await upload(world, world.marco, id, sha256Hex(stray), stray);
+    expect(refused.status).toBe(422);
+    expect(refused.json()).toMatchObject({ error: 'photo_not_certified' });
+    expect(await world.db.select().from(photos)).toHaveLength(0);
+  });
+
   it('GDPR erasure: closed-shipment photos die with the account, in-flight ones survive', async () => {
     const world = await createLifecycleWorld();
     const jpeg = buildJpeg('gdpr');

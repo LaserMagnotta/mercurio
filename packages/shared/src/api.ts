@@ -75,6 +75,22 @@ export const createShipmentBody = z.object({
   custodyBondMsat: msatString,
   /** Max storage per hub stay; capped by the CLTV budget (ESCROW.md §4). */
   maxStorageHours: z.number().int().min(1).max(MAX_STORAGE_HOURS),
+  /** Optional sender photos at creation (ADR-022), certified by the
+   *  `created` custody event. Distinct keys because one event certifies two
+   *  photo kinds; both follow the ADR-020 §2 contract spelled out below. */
+  contentPhotoSha256: photoHashesSchema
+    .optional()
+    .describe(
+      'sha256 of the photos of the parcel CONTENT, hashed on the client. ' +
+        'The client MUST strip EXIF (re-encode) BEFORE hashing: the later ' +
+        'byte upload is refused if a GPS EXIF block is present (photo_exif_gps).',
+    ),
+  sealedPhotoSha256: photoHashesSchema
+    .optional()
+    .describe(
+      'sha256 of the photos of the SEALED parcel, hashed on the client. ' +
+        'Same contract as contentPhotoSha256: EXIF strip on device, before hashing.',
+    ),
 });
 
 export const originCheckinBody = z.object({
