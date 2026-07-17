@@ -1,6 +1,6 @@
 import { bigint, doublePrecision, pgTable, timestamp, uuid } from 'drizzle-orm/pg-core';
-import { carrierTripStatusEnum } from './enums';
-import { users } from './users';
+import { carrierTripStatusEnum } from './enums.js';
+import { users } from './users.js';
 
 // A carrier's declared real trip, consulted before browsing the board
 // (MATCHING.md sec.1). Origin is implicit - where they are now / their

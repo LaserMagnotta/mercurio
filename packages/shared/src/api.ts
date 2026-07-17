@@ -19,7 +19,7 @@ import {
   PHOTO_KINDS,
   REVIEW_ROLES,
   SHIPMENT_STATES,
-} from './protocol';
+} from './protocol.js';
 
 // ---------------------------------------------------------------------------
 // Scalars

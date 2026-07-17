@@ -10,8 +10,8 @@ import {
   shipments,
   users,
 } from '@mercurio/db';
-import type { BlobStore } from './blob-store';
-import { revokeAllSessions } from './session';
+import type { BlobStore } from './blob-store.js';
+import { revokeAllSessions } from './session.js';
 
 export async function activateCarrierRole(db: Db, userId: string): Promise<void> {
   await db.insert(carrierProfiles).values({ userId }).onConflictDoNothing({

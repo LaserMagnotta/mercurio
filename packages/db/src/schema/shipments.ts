@@ -10,9 +10,9 @@ import {
   timestamp,
   uuid,
 } from 'drizzle-orm/pg-core';
-import { shipmentStatusEnum } from './enums';
-import { hubs } from './hubs';
-import { users } from './users';
+import { shipmentStatusEnum } from './enums.js';
+import { hubs } from './hubs.js';
+import { users } from './users.js';
 
 // A shipment (ARCHITECTURE.md sec.4). `offerMsat` is a SPENDING COMMITMENT,
 // not a prefunded pot: money moves leg by leg via direct P2P hold invoices

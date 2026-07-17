@@ -35,21 +35,21 @@ import {
   rerouteBody,
   TRANSIT_WINDOW_HOURS,
 } from '@mercurio/shared';
-import type { App } from '../app';
-import { requireAuth } from '../plugins/auth-guard';
-import { hashToken } from '../lib/tokens';
-import { hasConnectedWallet } from '../lib/wallets';
-import { parcelFitsHub, storageFitsHub } from '../lib/parcel';
-import { msat } from '../lib/serialize';
+import type { App } from '../app.js';
+import { requireAuth } from '../plugins/auth-guard.js';
+import { hashToken } from '../lib/tokens.js';
+import { hasConnectedWallet } from '../lib/wallets.js';
+import { parcelFitsHub, storageFitsHub } from '../lib/parcel.js';
+import { msat } from '../lib/serialize.js';
 import {
   loadShipmentBundle,
   remainingWorkPool,
   type HubRow,
   type ShipmentBundle,
-} from '../shipments/context';
-import { executeShipmentTransition } from '../shipments/executor';
-import { ConflictError } from '../shipments/errors';
-import { replyLifecycleError } from './lifecycle-errors';
+} from '../shipments/context.js';
+import { executeShipmentTransition } from '../shipments/executor.js';
+import { ConflictError } from '../shipments/errors.js';
+import { replyLifecycleError } from './lifecycle-errors.js';
 
 const params = z.object({ id: z.string().uuid() });
 

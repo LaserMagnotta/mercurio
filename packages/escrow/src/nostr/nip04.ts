@@ -4,7 +4,7 @@
 // (ADR-019).
 
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
-import { sharedX } from './ecdh';
+import { sharedX } from './ecdh.js';
 
 function sharedKey(privkeyHex: string, pubkeyHex: string): Buffer {
   return Buffer.from(sharedX(privkeyHex, pubkeyHex));

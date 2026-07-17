@@ -6,7 +6,7 @@
 import { eq } from 'drizzle-orm';
 import type { Db } from '@mercurio/db';
 import { legs, shipmentClaims } from '@mercurio/db';
-import type { ShipmentBundle } from './context';
+import type { ShipmentBundle } from './context.js';
 
 export async function isShipmentParticipant(
   db: Db,

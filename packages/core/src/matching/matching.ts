@@ -19,8 +19,8 @@ import type {
   ShipmentAtHub,
 } from '@mercurio/shared';
 import { MAX_ALTERNATIVE_DROP_HUBS, MIN_LEG_PROGRESS_KM } from '@mercurio/shared';
-import { EconomicsError, priceLeg } from '../economics/economics';
-import type { DistanceProvider } from './distance';
+import { EconomicsError, priceLeg } from '../economics/economics.js';
+import type { DistanceProvider } from './distance.js';
 
 const kmToMeters = (km: number): number => Math.round(km * 1000);
 

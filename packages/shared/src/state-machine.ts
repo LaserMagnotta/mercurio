@@ -3,8 +3,8 @@
 // The engine itself lives in @mercurio/core/state-machine — pure functions
 // only, and the ONLY source of money movements (ARCHITECTURE.md §5).
 
-import type { LegPricing } from './economics';
-import type { Msat, ShipmentState } from './index';
+import type { LegPricing } from './economics.js';
+import type { Msat, ShipmentState } from './index.js';
 
 /** Funding window for the three per-leg hold invoices (ARCHITECTURE.md §5 row 5). */
 export const LEG_FUNDING_WINDOW_MINUTES = 60;

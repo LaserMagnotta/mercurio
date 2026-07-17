@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
-import type { Db } from './client';
-import { hubs, shipments, users } from './schema/index';
+import type { Db } from './client.js';
+import { hubs, shipments, users } from './schema/index.js';
 
 /**
  * Demo dataset: 3 users, 3 hubs, 1 shipment - mirrors the canonical example

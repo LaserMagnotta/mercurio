@@ -5,8 +5,8 @@
 
 import type { FastifyReply } from 'fastify';
 import { EconomicsError } from '@mercurio/core';
-import { ConflictError, PaymentExecutionError, TransitionRejectedError } from '../shipments/errors';
-import { WalletCapabilityError, WalletUnavailableError } from '../lib/wallets';
+import { ConflictError, PaymentExecutionError, TransitionRejectedError } from '../shipments/errors.js';
+import { WalletCapabilityError, WalletUnavailableError } from '../lib/wallets.js';
 
 export async function replyLifecycleError(reply: FastifyReply, err: unknown): Promise<boolean> {
   if (err instanceof TransitionRejectedError) {

@@ -1,8 +1,8 @@
 import { integer, pgTable, timestamp, uuid } from 'drizzle-orm/pg-core';
-import { hubStayStatusEnum } from './enums';
-import { hubs } from './hubs';
-import { shipments } from './shipments';
-import { conditionalPayments } from './conditional-payments';
+import { hubStayStatusEnum } from './enums.js';
+import { hubs } from './hubs.js';
+import { shipments } from './shipments.js';
+import { conditionalPayments } from './conditional-payments.js';
 
 // One stay of a shipment at a hub (ARCHITECTURE.md sec.4). The hub's
 // earnings are tracked on the adjacent legs (`arrHubFeeMsat` of the incoming

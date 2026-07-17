@@ -1,7 +1,7 @@
 import { bigint, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
-import { instantPaymentReasonEnum, instantPaymentStateEnum } from './enums';
-import { shipments } from './shipments';
-import { users } from './users';
+import { instantPaymentReasonEnum, instantPaymentStateEnum } from './enums.js';
+import { shipments } from './shipments.js';
+import { users } from './users.js';
 
 // On-the-spot instant payments (ESCROW.md sec.3): hub fees at the physical
 // handoffs and the sender's cancellation compensation. A normal invoice

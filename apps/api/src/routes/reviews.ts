@@ -13,10 +13,10 @@ import { z } from 'zod';
 import { reviews, users } from '@mercurio/db';
 import { isTerminalState } from '@mercurio/core';
 import { createReviewBody, REVIEW_WINDOW_DAYS } from '@mercurio/shared';
-import type { App } from '../app';
-import { requireAuth } from '../plugins/auth-guard';
-import { effectiveParticipants, loadRatings, ratingOf } from '../lib/reviews';
-import { loadShipmentBundle } from '../shipments/context';
+import type { App } from '../app.js';
+import { requireAuth } from '../plugins/auth-guard.js';
+import { effectiveParticipants, loadRatings, ratingOf } from '../lib/reviews.js';
+import { loadShipmentBundle } from '../shipments/context.js';
 
 const shipmentParams = z.object({ id: z.string().uuid() });
 const userParams = z.object({ id: z.string().uuid() });

@@ -13,8 +13,8 @@ import {
   doubleConfirmCheckout,
   sha,
   type LifecycleWorld,
-} from './test-world';
-import { pumpWalletEvents } from './pump';
+} from './test-world.js';
+import { pumpWalletEvents } from './pump.js';
 
 interface RouteStopDto {
   hubId: string;

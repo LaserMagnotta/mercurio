@@ -6,7 +6,7 @@ import {
   encryptPreimage,
   generatePreimage,
   loadCoordinatorKey,
-} from './crypto';
+} from './crypto.js';
 
 describe('preimage vault crypto (AES-256-GCM, ADR-013)', () => {
   const key = randomBytes(32);

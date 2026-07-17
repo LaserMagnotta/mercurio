@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ShipmentEvent, ShipmentEventType, ShipmentState, TransitionResult } from '@mercurio/shared';
 import { SHIPMENT_STATES } from '@mercurio/shared';
-import { transition } from './state-machine';
+import { transition } from './state-machine.js';
 import {
   BOND_MSAT,
   CARRIER_BONUS_MSAT,
@@ -29,7 +29,7 @@ import {
   pendingFinalLeg,
   pendingLeg,
   validEvent,
-} from './fixtures';
+} from './fixtures.js';
 
 function expectOk(result: TransitionResult): asserts result is Extract<TransitionResult, { ok: true }> {
   if (!result.ok) {

@@ -11,9 +11,9 @@ import {
   createLifecycleWorld,
   createShipmentAtHub,
   type LifecycleWorld,
-} from './test-world';
-import { enqueueStorageWarnings } from './storage-warnings';
-import { dispatchEmailOutbox } from './outbox';
+} from './test-world.js';
+import { enqueueStorageWarnings } from './storage-warnings.js';
+import { dispatchEmailOutbox } from './outbox.js';
 
 describe('storage-expiry warnings', () => {
   let world: LifecycleWorld;

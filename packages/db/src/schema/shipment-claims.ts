@@ -1,9 +1,9 @@
 import { bigint, pgTable, timestamp, uuid } from 'drizzle-orm/pg-core';
-import { shipmentClaimStatusEnum } from './enums';
-import { shipments } from './shipments';
-import { users } from './users';
-import { hubStays } from './hub-stays';
-import { conditionalPayments } from './conditional-payments';
+import { shipmentClaimStatusEnum } from './enums.js';
+import { shipments } from './shipments.js';
+import { users } from './users.js';
+import { hubStays } from './hub-stays.js';
+import { conditionalPayments } from './conditional-payments.js';
 
 // One recipient claim (ADR-016): the history of who claimed what, where, for
 // how much. Amounts are frozen at the request (ECONOMICS.md §5-ter) exactly

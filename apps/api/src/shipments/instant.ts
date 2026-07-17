@@ -16,7 +16,7 @@ import type { Db } from '@mercurio/db';
 import { instantPayments } from '@mercurio/db';
 import type { WalletResolver } from '@mercurio/escrow';
 import type { ShipmentEffect } from '@mercurio/shared';
-import { PaymentExecutionError } from './errors';
+import { PaymentExecutionError } from './errors.js';
 
 type InstantEffect = Extract<ShipmentEffect, { kind: 'request_instant_payment' }>;
 type InstantRow = typeof instantPayments.$inferSelect;

@@ -10,7 +10,7 @@ import {
   createShipmentAtHub,
   declareTrip,
   OFFER_MSAT,
-} from './test-world';
+} from './test-world.js';
 
 describe('GET /me/shipments', () => {
   it("returns the sender's own shipments, newest first, with hub names", async () => {

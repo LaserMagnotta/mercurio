@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm';
 import type { Db } from '@mercurio/db';
 import { sessions } from '@mercurio/db';
-import { generateToken, hashToken } from './tokens';
+import { generateToken, hashToken } from './tokens.js';
 
 export const SESSION_COOKIE = 'mercurio_session';
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days

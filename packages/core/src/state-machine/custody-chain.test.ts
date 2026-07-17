@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { CustodyEventInput } from './custody-chain';
-import { canonicalJson, custodyEventHash, verifyCustodyChain } from './custody-chain';
+import type { CustodyEventInput } from './custody-chain.js';
+import { canonicalJson, custodyEventHash, verifyCustodyChain } from './custody-chain.js';
 
 const baseEvent: CustodyEventInput = {
   shipmentId: 'ship-1',

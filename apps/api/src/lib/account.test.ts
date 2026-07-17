@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { createTestDb } from '@mercurio/db/test-helpers';
 import { hubs, users } from '@mercurio/db';
-import { activateCarrierRole, deleteAccount, exportUserData, getRoles } from './account';
-import { createMemoryBlobStore } from './blob-store';
-import { createSession, getSessionUserId } from './session';
+import { activateCarrierRole, deleteAccount, exportUserData, getRoles } from './account.js';
+import { createMemoryBlobStore } from './blob-store.js';
+import { createSession, getSessionUserId } from './session.js';
 
 async function makeUser(db: Awaited<ReturnType<typeof createTestDb>>, email: string) {
   const [user] = await db.insert(users).values({ email }).returning();

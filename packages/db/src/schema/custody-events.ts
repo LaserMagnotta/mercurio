@@ -1,9 +1,9 @@
 import { jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
-import { custodyEventTypeEnum } from './enums';
-import { shipments } from './shipments';
-import { users } from './users';
-import { legs } from './legs';
-import { hubStays } from './hub-stays';
+import { custodyEventTypeEnum } from './enums.js';
+import { shipments } from './shipments.js';
+import { users } from './users.js';
+import { legs } from './legs.js';
+import { hubStays } from './hub-stays.js';
 
 // Append-only, hash-chained custody chain (ARCHITECTURE.md sec.4, RISKS.md
 // sec.1): the documentary evidence of who certified what, used in place of

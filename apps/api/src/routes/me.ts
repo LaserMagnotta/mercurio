@@ -1,11 +1,11 @@
 import { count, desc, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
-import type { App } from '../app';
+import type { App } from '../app.js';
 import { carrierTrips, hubs, shipments, users } from '@mercurio/db';
 import { listQuery } from '@mercurio/shared';
-import { requireAuth } from '../plugins/auth-guard';
-import { activateCarrierRole, deleteAccount, exportUserData, getRoles } from '../lib/account';
-import { msat } from '../lib/serialize';
+import { requireAuth } from '../plugins/auth-guard.js';
+import { activateCarrierRole, deleteAccount, exportUserData, getRoles } from '../lib/account.js';
+import { msat } from '../lib/serialize.js';
 
 const hubBody = z.object({
   name: z.string().min(1).max(200),

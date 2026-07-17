@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { createTestDb } from '@mercurio/db/test-helpers';
 import { emailOutbox } from '@mercurio/db';
 import { eq } from 'drizzle-orm';
-import { buildApp } from './app';
+import { buildApp } from './app.js';
 
 const CONSENT = { tosVersion: '2026-01-01', privacyVersion: '2026-01-01' };
 

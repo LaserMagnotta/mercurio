@@ -66,15 +66,15 @@ import {
   type ShipmentEvent,
   type ShipmentState,
 } from '@mercurio/shared';
-import { generateToken, hashToken } from '../lib/tokens';
+import { generateToken, hashToken } from '../lib/tokens.js';
 import {
   loadShipmentBundle,
   stateToDbStatus,
   type LegRow,
   type ShipmentBundle,
-} from './context';
-import { ConflictError, PaymentExecutionError, TransitionRejectedError } from './errors';
-import { settleInstantPayment } from './instant';
+} from './context.js';
+import { ConflictError, PaymentExecutionError, TransitionRejectedError } from './errors.js';
+import { settleInstantPayment } from './instant.js';
 
 export interface LifecycleDeps {
   db: Db;

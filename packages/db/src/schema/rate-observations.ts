@@ -1,5 +1,5 @@
 import { bigint, doublePrecision, numeric, pgTable, timestamp, uuid } from 'drizzle-orm/pg-core';
-import { legs } from './legs';
+import { legs } from './legs.js';
 
 // Feeds the suggested-rate calculation (MATCHING.md sec.4): only legs that
 // were actually accepted and completed land here.

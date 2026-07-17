@@ -70,7 +70,7 @@ import type {
   ShipmentState,
   TransitionResult,
 } from '@mercurio/shared';
-import { cancellationCompensation, splitCommitment } from '../economics/economics';
+import { cancellationCompensation, splitCommitment } from '../economics/economics.js';
 
 const TERMINAL_STATES: readonly ShipmentState[] = ['DELIVERED', 'CANCELLED', 'FORFEITED', 'LOST'];
 

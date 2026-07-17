@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { schnorr } from '@noble/curves/secp256k1.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
-import { getPublicKeyHex, signEvent, verifyEvent } from './event';
+import { getPublicKeyHex, signEvent, verifyEvent } from './event.js';
 
 describe('nostr event signing', () => {
   it('signs an event that verifies', () => {

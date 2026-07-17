@@ -10,8 +10,8 @@
 
 import { describe, expect, it } from 'vitest';
 import { emailOutbox } from '@mercurio/db';
-import { pumpWalletEvents } from './pump';
-import { fireDueTimers } from './timers';
+import { pumpWalletEvents } from './pump.js';
+import { fireDueTimers } from './timers.js';
 import {
   createLifecycleWorld,
   createShipmentAtHub,
@@ -20,7 +20,7 @@ import {
   sha,
   type LifecycleWorld,
   type Persona,
-} from './test-world';
+} from './test-world.js';
 
 interface RatingDto {
   averageStars: number | null;

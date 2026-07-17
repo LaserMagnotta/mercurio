@@ -31,12 +31,12 @@ import {
   tripRouteQuery,
 } from '@mercurio/shared';
 import { z } from 'zod';
-import type { App } from '../app';
-import { requireAuth } from '../plugins/auth-guard';
-import { loadShipmentBundle, remainingWorkPool } from '../shipments/context';
-import { msat } from '../lib/serialize';
-import { eurFloatToMsat, msatPerEur } from '../lib/eur-rate';
-import { loadRatings, ratingOf, type RatingSubject } from '../lib/reviews';
+import type { App } from '../app.js';
+import { requireAuth } from '../plugins/auth-guard.js';
+import { loadShipmentBundle, remainingWorkPool } from '../shipments/context.js';
+import { msat } from '../lib/serialize.js';
+import { eurFloatToMsat, msatPerEur } from '../lib/eur-rate.js';
+import { loadRatings, ratingOf, type RatingSubject } from '../lib/reviews.js';
 
 const tripParams = z.object({ id: z.string().uuid() });
 

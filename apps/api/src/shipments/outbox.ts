@@ -7,7 +7,7 @@
 import { and, eq, inArray, lt, sql } from 'drizzle-orm';
 import type { Db } from '@mercurio/db';
 import { emailOutbox, hubs } from '@mercurio/db';
-import type { SendMail } from '../lib/mailer';
+import type { SendMail } from '../lib/mailer.js';
 
 const LIFECYCLE_TEMPLATES = [
   'parcel_tracking',

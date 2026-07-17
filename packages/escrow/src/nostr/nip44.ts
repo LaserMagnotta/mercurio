@@ -14,7 +14,7 @@ import { extract, expand } from '@noble/hashes/hkdf.js';
 import { hmac } from '@noble/hashes/hmac.js';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { concatBytes, utf8ToBytes } from '@noble/hashes/utils.js';
-import { sharedX } from './ecdh';
+import { sharedX } from './ecdh.js';
 
 const MIN_PLAINTEXT_BYTES = 1;
 const MAX_PLAINTEXT_BYTES = 0xffff;

@@ -3,10 +3,10 @@
 
 import { and, eq, inArray } from 'drizzle-orm';
 import { hubs, hubStays, shipments, walletConnections } from '@mercurio/db';
-import type { App } from '../app';
-import { requireAuth } from '../plugins/auth-guard';
-import { msat } from '../lib/serialize';
-import { loadRatings, ratingOf } from '../lib/reviews';
+import type { App } from '../app.js';
+import { requireAuth } from '../plugins/auth-guard.js';
+import { msat } from '../lib/serialize.js';
+import { loadRatings, ratingOf } from '../lib/reviews.js';
 
 export function registerHubRoutes(app: App) {
   /** Public list of active hubs — the sender picks origin/destination here,

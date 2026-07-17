@@ -8,7 +8,7 @@ import {
   text,
   uuid,
 } from 'drizzle-orm/pg-core';
-import { users } from './users';
+import { users } from './users.js';
 
 // The hub profile (ARCHITECTURE.md sec.4). One per user, opt-in - the hub role.
 export const hubs = pgTable('hubs', {

@@ -13,9 +13,9 @@ import type {
   MatchingHub,
   ShipmentAtHub,
 } from '@mercurio/shared';
-import type { DistanceProvider } from './distance';
-import { createHaversineDistanceProvider, haversineKm } from './distance';
-import { rankBoard } from './matching';
+import type { DistanceProvider } from './distance.js';
+import { createHaversineDistanceProvider, haversineKm } from './distance.js';
+import { rankBoard } from './matching.js';
 
 /** Plane geometry in km: x = lng, y = lat. */
 const pt = (x: number, y: number): GeoPoint => ({ lat: y, lng: x });

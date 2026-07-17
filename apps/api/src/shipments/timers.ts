@@ -8,8 +8,8 @@
 import { asc, eq, lte } from 'drizzle-orm';
 import { shipmentTimers } from '@mercurio/db';
 import type { ShipmentEvent } from '@mercurio/shared';
-import { executeShipmentTransition, type LifecycleDeps } from './executor';
-import { ConflictError, TransitionRejectedError } from './errors';
+import { executeShipmentTransition, type LifecycleDeps } from './executor.js';
+import { ConflictError, TransitionRejectedError } from './errors.js';
 
 type TimerRow = typeof shipmentTimers.$inferSelect;
 

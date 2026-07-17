@@ -7,9 +7,9 @@ import { and, desc, eq } from 'drizzle-orm';
 import { walletConnections } from '@mercurio/db';
 import { connectWalletBody } from '@mercurio/shared';
 import { NwcProbeError, NwcUriError, probeNwcWallet } from '@mercurio/escrow';
-import type { App } from '../app';
-import { requireAuth } from '../plugins/auth-guard';
-import { sealSecret } from '../lib/secret-box';
+import type { App } from '../app.js';
+import { requireAuth } from '../plugins/auth-guard.js';
+import { sealSecret } from '../lib/secret-box.js';
 
 export function registerWalletRoutes(app: App) {
   app.post(

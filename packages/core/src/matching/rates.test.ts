@@ -2,8 +2,8 @@
 // rate 1 EUR = 1_000_000 msat unless a test exercises per-observation rates.
 
 import { describe, expect, it } from 'vitest';
-import type { CarrierRateObservation, DeliveredShipmentObservation } from './rates';
-import { suggestCarrierRateEurPerKm, suggestSenderOfferEur } from './rates';
+import type { CarrierRateObservation, DeliveredShipmentObservation } from './rates.js';
+import { suggestCarrierRateEurPerKm, suggestSenderOfferEur } from './rates.js';
 
 const NOW = new Date('2026-07-12T12:00:00Z');
 const MSAT_PER_EUR = 1_000_000n;

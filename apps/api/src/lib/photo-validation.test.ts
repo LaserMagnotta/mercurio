@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { isJpeg, jpegHasGpsExif } from './photo-validation';
-import { buildJpeg, buildJpegWithExif, PNG_MAGIC } from './photo-test-fixtures';
+import { isJpeg, jpegHasGpsExif } from './photo-validation.js';
+import { buildJpeg, buildJpegWithExif, PNG_MAGIC } from './photo-test-fixtures.js';
 
 describe('isJpeg (magic bytes, not headers)', () => {
   it('accepts SOI + marker', () => {

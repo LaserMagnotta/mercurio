@@ -21,7 +21,7 @@ import {
   priceLeg,
   remainingPool,
   splitCommitment,
-} from './economics';
+} from './economics.js';
 
 const P = 5_000_000n; // the 5.00 € commitment of the canonical example
 const D = 100; // km

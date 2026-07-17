@@ -16,17 +16,17 @@ import {
   MAX_CUSTODY_BOND_EUR,
   type ShipmentContext,
 } from '@mercurio/shared';
-import type { App } from '../app';
-import { requireAuth } from '../plugins/auth-guard';
-import { generateToken } from '../lib/tokens';
-import { eurToMsat } from '../lib/eur-rate';
-import { hasConnectedWallet } from '../lib/wallets';
-import { parcelFitsHub, storageFitsHub } from '../lib/parcel';
-import { msat, isoOrNull } from '../lib/serialize';
-import { executeShipmentTransition } from '../shipments/executor';
-import { loadShipmentBundle, remainingWorkPool } from '../shipments/context';
-import { effectiveParticipants, loadRatings, ratingOf } from '../lib/reviews';
-import { replyLifecycleError } from './lifecycle-errors';
+import type { App } from '../app.js';
+import { requireAuth } from '../plugins/auth-guard.js';
+import { generateToken } from '../lib/tokens.js';
+import { eurToMsat } from '../lib/eur-rate.js';
+import { hasConnectedWallet } from '../lib/wallets.js';
+import { parcelFitsHub, storageFitsHub } from '../lib/parcel.js';
+import { msat, isoOrNull } from '../lib/serialize.js';
+import { executeShipmentTransition } from '../shipments/executor.js';
+import { loadShipmentBundle, remainingWorkPool } from '../shipments/context.js';
+import { effectiveParticipants, loadRatings, ratingOf } from '../lib/reviews.js';
+import { replyLifecycleError } from './lifecycle-errors.js';
 
 const shipmentParams = z.object({ id: z.string().uuid() });
 const qrParams = z.object({ qrToken: z.string().min(1) });

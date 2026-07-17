@@ -15,7 +15,7 @@ import {
   MAX_STORAGE_HOURS,
   meTripDto,
   shipmentStateSchema,
-} from './index';
+} from './index.js';
 
 const validShipment = {
   originHubId: '00000000-0000-4000-8000-000000000001',

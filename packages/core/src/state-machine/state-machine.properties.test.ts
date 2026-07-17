@@ -19,9 +19,9 @@
 
 import { describe, expect, it } from 'vitest';
 import type { ShipmentContext, ShipmentEffect, ShipmentEvent, ShipmentState } from '@mercurio/shared';
-import { custodyEventHash, verifyCustodyChain } from './custody-chain';
-import { transition } from './state-machine';
-import { BOND_MSAT, OFFER_MSAT, T0, baseCtx } from './fixtures';
+import { custodyEventHash, verifyCustodyChain } from './custody-chain.js';
+import { transition } from './state-machine.js';
+import { BOND_MSAT, OFFER_MSAT, T0, baseCtx } from './fixtures.js';
 
 /** mulberry32 — tiny deterministic PRNG; quality is irrelevant, determinism is not. */
 function mulberry32(seed: number): () => number {

@@ -8,12 +8,12 @@ import {
   timestamp,
   uuid,
 } from 'drizzle-orm/pg-core';
-import { legStatusEnum } from './enums';
-import { hubs } from './hubs';
-import { shipments } from './shipments';
-import { carrierTrips } from './carrier-trips';
-import { users } from './users';
-import { conditionalPayments } from './conditional-payments';
+import { legStatusEnum } from './enums.js';
+import { hubs } from './hubs.js';
+import { shipments } from './shipments.js';
+import { carrierTrips } from './carrier-trips.js';
+import { users } from './users.js';
+import { conditionalPayments } from './conditional-payments.js';
 
 // One leg of a multi-hop shipment (ARCHITECTURE.md sec.4, ECONOMICS.md sec.3).
 // Amounts are computed and frozen at `leg_accept`; the two hub fees are

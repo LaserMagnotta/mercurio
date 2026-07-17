@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { createTestDb } from './test-helpers';
-import { seedDemoData } from './seed-data';
-import { hubs, shipments, users } from './schema/index';
+import { createTestDb } from './test-helpers.js';
+import { seedDemoData } from './seed-data.js';
+import { hubs, shipments, users } from './schema/index.js';
 
 describe('seedDemoData', () => {
   it('creates 3 users, 3 hubs and 1 shipment', async () => {

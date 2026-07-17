@@ -6,13 +6,13 @@
 // engine the other adapter tests use. This exercises NwcWallet's entire
 // protocol-handling code path; only the transport is swapped out.
 
-import { getPublicKeyHex, signEvent, verifyEvent, type NostrEvent } from '../nostr/event';
-import { nip04Decrypt, nip04Encrypt } from '../nostr/nip04';
-import { nip44Decrypt, nip44Encrypt } from '../nostr/nip44';
-import { NwcTimeoutError, type NostrFilter, type NwcTransport } from '../nostr/relay';
-import type { FakeLightningNetwork } from '../adapters/fake';
-import { encodeFakeInvoiceForTests, extractPaymentHash } from '../adapters/bolt11';
-import type { NwcEncryption } from '../adapters/nwc';
+import { getPublicKeyHex, signEvent, verifyEvent, type NostrEvent } from '../nostr/event.js';
+import { nip04Decrypt, nip04Encrypt } from '../nostr/nip04.js';
+import { nip44Decrypt, nip44Encrypt } from '../nostr/nip44.js';
+import { NwcTimeoutError, type NostrFilter, type NwcTransport } from '../nostr/relay.js';
+import type { FakeLightningNetwork } from '../adapters/fake.js';
+import { encodeFakeInvoiceForTests, extractPaymentHash } from '../adapters/bolt11.js';
+import type { NwcEncryption } from '../adapters/nwc.js';
 
 const REQUEST_KIND = 23194;
 const RESPONSE_KIND = 23195;

@@ -3,7 +3,7 @@
 // deterministic (ADR-008 — EUR only at input/display, floor to whole sat).
 
 import { describe, expect, it } from 'vitest';
-import { eurFloatToMsat, eurToMsat, msatPerEur } from './eur-rate';
+import { eurFloatToMsat, eurToMsat, msatPerEur } from './eur-rate.js';
 
 describe('eurToMsat (whole EUR, ToS caps)', () => {
   it('converts whole EUR at an integer rate', () => {

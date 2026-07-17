@@ -17,7 +17,7 @@
 
 import { describe, expect, it } from 'vitest';
 import type { PoolBoost } from '@mercurio/shared';
-import { applyReroute, floorToSat, priceLeg, remainingPool, splitCommitment } from './economics';
+import { applyReroute, floorToSat, priceLeg, remainingPool, splitCommitment } from './economics.js';
 
 /** mulberry32 — tiny deterministic PRNG; quality is irrelevant, determinism is not. */
 function mulberry32(seed: number): () => number {

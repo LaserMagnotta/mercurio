@@ -15,7 +15,7 @@
 
 import type { GeoPoint, RouteStop } from '@mercurio/shared';
 import { MAX_ROUTE_WAYPOINTS } from '@mercurio/shared';
-import type { DistanceProvider } from './distance';
+import type { DistanceProvider } from './distance.js';
 
 const kmToMeters = (km: number): number => Math.round(km * 1000);
 

@@ -15,8 +15,8 @@ import {
   InMemoryRelay,
   type NwcTransport,
 } from '@mercurio/escrow';
-import { buildApp, type App } from '../app';
-import { createSession } from '../lib/session';
+import { buildApp, type App } from '../app.js';
+import { createSession } from '../lib/session.js';
 
 async function setUpUser(db: Awaited<ReturnType<typeof createTestDb>>) {
   const [row] = await db

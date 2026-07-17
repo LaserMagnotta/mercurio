@@ -8,15 +8,15 @@
 // tick delays a timeout, never loses it.
 
 import PgBoss from 'pg-boss';
-import type { BlobStore } from './lib/blob-store';
-import type { SendMail } from './lib/mailer';
-import type { LifecycleDeps } from './shipments/executor';
-import { fireDueTimers } from './shipments/timers';
-import { pumpWalletEvents } from './shipments/pump';
-import { dispatchEmailOutbox } from './shipments/outbox';
-import { enqueueStorageWarnings } from './shipments/storage-warnings';
-import { purgeExpiredPhotos } from './shipments/photo-purge';
-import { reconcile, retryEscrowIntents } from './shipments/reconcile';
+import type { BlobStore } from './lib/blob-store.js';
+import type { SendMail } from './lib/mailer.js';
+import type { LifecycleDeps } from './shipments/executor.js';
+import { fireDueTimers } from './shipments/timers.js';
+import { pumpWalletEvents } from './shipments/pump.js';
+import { dispatchEmailOutbox } from './shipments/outbox.js';
+import { enqueueStorageWarnings } from './shipments/storage-warnings.js';
+import { purgeExpiredPhotos } from './shipments/photo-purge.js';
+import { reconcile, retryEscrowIntents } from './shipments/reconcile.js';
 
 export interface WorkerOptions {
   lifecycle: LifecycleDeps;

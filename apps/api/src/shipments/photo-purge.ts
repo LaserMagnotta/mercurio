@@ -16,7 +16,7 @@ import { and, eq, gt, inArray, lt, max } from 'drizzle-orm';
 import type { Db } from '@mercurio/db';
 import { custodyEvents, photos, shipments } from '@mercurio/db';
 import { PHOTO_RETENTION_DAYS_AFTER_CLOSURE } from '@mercurio/shared';
-import type { BlobStore } from '../lib/blob-store';
+import type { BlobStore } from '../lib/blob-store.js';
 
 const TERMINAL_DB_STATUSES = ['delivered', 'cancelled', 'forfeited', 'lost'] as const;
 

@@ -1,7 +1,7 @@
 import { integer, pgTable, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core';
-import { reviewRoleEnum } from './enums';
-import { shipments } from './shipments';
-import { users } from './users';
+import { reviewRoleEnum } from './enums.js';
+import { shipments } from './shipments.js';
+import { users } from './users.js';
 
 // Per-role 5-star reviews (CLAUDE.md: "si puo' essere un ottimo vettore e
 // un pessimo hub"). Ratings are never cached: always computed on read as an

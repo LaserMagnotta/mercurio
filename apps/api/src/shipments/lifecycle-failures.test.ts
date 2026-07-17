@@ -13,9 +13,9 @@ import {
   shipments,
   shipmentTimers,
 } from '@mercurio/db';
-import { pumpWalletEvents } from './pump';
-import { fireDueTimers } from './timers';
-import { reconcile } from './reconcile';
+import { pumpWalletEvents } from './pump.js';
+import { fireDueTimers } from './timers.js';
+import { reconcile } from './reconcile.js';
 import {
   BOND_MSAT,
   createLifecycleWorld,
@@ -25,7 +25,7 @@ import {
   INITIAL_BALANCE_MSAT,
   sha,
   type LifecycleWorld,
-} from './test-world';
+} from './test-world.js';
 
 const LEG1_GROSS = 2_880_000n;
 const LEG1_FEE = 288_000n;

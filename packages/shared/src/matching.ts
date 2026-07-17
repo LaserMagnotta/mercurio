@@ -2,7 +2,7 @@
 // the API (which builds the inputs from DB rows and serves the ranked board).
 // The algorithm itself lives in @mercurio/core/matching — pure functions only.
 
-import type { Msat } from './index';
+import type { Msat } from './index.js';
 
 /** WGS84 coordinates in decimal degrees (DB columns `hubs.lat` / `hubs.lng`). */
 export interface GeoPoint {

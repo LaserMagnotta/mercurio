@@ -7,8 +7,8 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe } from 'vitest';
-import { createFsBlobStore, createMemoryBlobStore } from './blob-store';
-import { runBlobStoreContractTests } from './blob-store.contract';
+import { createFsBlobStore, createMemoryBlobStore } from './blob-store.js';
+import { runBlobStoreContractTests } from './blob-store.contract.js';
 
 runBlobStoreContractTests('memory', () => createMemoryBlobStore());
 

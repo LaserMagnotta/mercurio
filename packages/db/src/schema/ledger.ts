@@ -1,5 +1,5 @@
 import { bigint, index, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
-import { accountKindEnum, accountOwnerTypeEnum } from './enums';
+import { accountKindEnum, accountOwnerTypeEnum } from './enums.js';
 
 // Double-entry SHADOW ledger (ADR-010, ADR-013): it records commitments and
 // settlements observed on users' own wallets. There is deliberately no

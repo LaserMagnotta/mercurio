@@ -1,9 +1,9 @@
 import { pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
-import { photoKindEnum } from './enums';
-import { shipments } from './shipments';
-import { custodyEvents } from './custody-events';
-import { rejections } from './rejections';
-import { users } from './users';
+import { photoKindEnum } from './enums.js';
+import { shipments } from './shipments.js';
+import { custodyEvents } from './custody-events.js';
+import { rejections } from './rejections.js';
+import { users } from './users.js';
 
 // Photo evidence (RISKS.md sec.1). `purgeAfter` enforces limited retention
 // (GDPR minimization, RISKS.md sec.6) - a worker job deletes the blob and

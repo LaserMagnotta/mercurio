@@ -1,6 +1,6 @@
 import { eq, sql } from 'drizzle-orm';
-import type { Db } from './client';
-import { accounts, journalEntries, postings } from './schema/index';
+import type { Db } from './client.js';
+import { accounts, journalEntries, postings } from './schema/index.js';
 
 export interface PostingInput {
   accountId: string;

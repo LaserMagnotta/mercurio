@@ -1,6 +1,6 @@
 import { pgTable, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
-import { shipmentTimerKindEnum } from './enums';
-import { shipments } from './shipments';
+import { shipmentTimerKindEnum } from './enums.js';
+import { shipments } from './shipments.js';
 
 // Timer FACTS for the shipment state machine (ADR-011). A `schedule_timeout`
 // effect inserts a row here in the SAME transaction as its transition ("o

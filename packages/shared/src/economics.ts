@@ -2,7 +2,7 @@
 // API (which freezes these amounts on `legs` rows and exposes them over REST).
 // The math itself lives in @mercurio/core/economics — pure functions only.
 
-import type { Msat } from './index';
+import type { Msat } from './index.js';
 
 /**
  * The five amounts frozen on a leg at acceptance time (ECONOMICS.md, ADR-006,

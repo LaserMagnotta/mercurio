@@ -1,9 +1,9 @@
 import { and, eq, gte, sql } from 'drizzle-orm';
 import type { Db } from '@mercurio/db';
 import { consentEvents, emailOutbox, magicLinkTokens, users } from '@mercurio/db';
-import { AuthError } from './errors';
-import { generateToken, hashToken } from './tokens';
-import { createSession } from './session';
+import { AuthError } from './errors.js';
+import { generateToken, hashToken } from './tokens.js';
+import { createSession } from './session.js';
 
 const MAGIC_LINK_TTL_MS = 15 * 60 * 1000; // 15 minutes
 const MAX_LINKS_PER_EMAIL_PER_HOUR = 5; // anti-abuse (RISKS.md sec.7-adjacent: email bombing)

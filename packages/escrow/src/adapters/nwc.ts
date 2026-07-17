@@ -12,20 +12,20 @@ import {
   signEvent,
   type NostrEvent,
   type UnsignedNostrEvent,
-} from '../nostr/event';
-import { nip04Decrypt, nip04Encrypt } from '../nostr/nip04';
-import { nip44Decrypt, nip44Encrypt } from '../nostr/nip44';
+} from '../nostr/event.js';
+import { nip04Decrypt, nip04Encrypt } from '../nostr/nip04.js';
+import { nip44Decrypt, nip44Encrypt } from '../nostr/nip44.js';
 import {
   NwcRelayError,
   NwcTimeoutError,
   WebSocketNwcTransport,
   type NostrFilter,
   type NwcTransport,
-} from '../nostr/relay';
-import type { Hex, InvoiceState, WalletConnection } from '../types';
+} from '../nostr/relay.js';
+import type { Hex, InvoiceState, WalletConnection } from '../types.js';
 
-export type { NwcTransport } from '../nostr/relay';
-import { extractPaymentHash } from './bolt11';
+export type { NwcTransport } from '../nostr/relay.js';
+import { extractPaymentHash } from './bolt11.js';
 
 const REQUEST_KIND = 23194;
 const RESPONSE_KIND = 23195;

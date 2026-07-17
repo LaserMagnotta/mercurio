@@ -8,7 +8,7 @@
 // Mercurio are lowercase hex, converted at this boundary only.
 
 import { request as httpsRequest, type RequestOptions } from 'node:https';
-import type { Hex, InvoiceState, WalletConnection } from '../types';
+import type { Hex, InvoiceState, WalletConnection } from '../types.js';
 
 export interface LndRestOptions {
   /** e.g. https://127.0.0.1:8081 */

@@ -5,14 +5,14 @@
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { photos, shipments } from '@mercurio/db';
-import { sha256Hex } from '../lib/blob-store';
-import { buildJpeg } from '../lib/photo-test-fixtures';
-import { purgeExpiredPhotos } from './photo-purge';
+import { sha256Hex } from '../lib/blob-store.js';
+import { buildJpeg } from '../lib/photo-test-fixtures.js';
+import { purgeExpiredPhotos } from './photo-purge.js';
 import {
   CANONICAL_CREATE_BODY,
   createLifecycleWorld,
   type LifecycleWorld,
-} from './test-world';
+} from './test-world.js';
 
 const DAY_MINUTES = 24 * 60;
 

@@ -25,10 +25,10 @@ import {
   PreimageCoordinator,
   type FakeWalletConnection,
 } from '@mercurio/escrow';
-import { buildApp, type App } from '../app';
-import { createMemoryBlobStore } from '../lib/blob-store';
-import { createSession } from '../lib/session';
-import { sealSecret } from '../lib/secret-box';
+import { buildApp, type App } from '../app.js';
+import { createMemoryBlobStore } from '../lib/blob-store.js';
+import { createSession } from '../lib/session.js';
+import { sealSecret } from '../lib/secret-box.js';
 
 export const SATS_PER_EUR = '1600';
 export const INITIAL_BALANCE_MSAT = 200_000_000n;
