@@ -42,8 +42,18 @@ artt. 14/21 GDPR) e il **driver S3-compatibile per il blob storage delle
 foto** (ADR-023: stessa interfaccia `BlobStore` di ADR-020, selezione da
 config con `PHOTO_STORAGE_DRIVER` — default filesystem, invariato — MinIO
 nel docker-compose di sviluppo solo per testare il driver stesso, refcount e
-purge invariati). **Da implementare**: app mobile. **Todo umano**: revisione
-dei testi legali da parte di un legale.
+purge invariati) e il **deploy di produzione** (ADR-024: immagini multi-stage
+per api e web, compose su singolo VPS in `infra/production/` con Caddy come
+unica origin pubblica — `/api/*` al proxy, stesso contratto same-origin
+dell'ADR-018 — migrazioni come servizio one-shot, segreti solo da env, backup
+di Postgres e foto; guida in [DEPLOY.md](DEPLOY.md)). Preparando il deploy sono
+emersi e chiusi due difetti che solo la produzione avrebbe rivelato: l'output di
+`tsc` non era eseguibile da Node (import relativi senza estensione — la `dist/`
+non era mai stata eseguita: `pnpm dev` gira su tsx e i test su vitest) e i
+**rate limit anti-abuso erano inerti** (`@fastify/rate-limit` registrato senza
+`await`: nessun limite di RISKS §7 veniva applicato). **Da implementare**: app
+mobile. **Todo umano**: revisione dei testi legali da parte di un legale;
+acquisto di VPS e dominio; un check di uptime esterno su `/api/health`.
 
 ## Documenti
 
@@ -54,6 +64,7 @@ dei testi legali da parte di un legale.
 | [ESCROW.md](ESCROW.md)             | Pagamenti senza custodia: hold invoice dirette P2P, coordinatore per preimage, interfacce `WalletConnection`/`EscrowCoordinator` |
 | [MATCHING.md](MATCHING.md)         | Matching vettore ↔ spedizioni: deviazione, scelta dell'hub, tariffa suggerita, ordinamento bacheca                               |
 | [RISKS.md](RISKS.md)               | Integrità senza arbitro, anti-abuso, identità, svincolo a fine giacenza, GDPR, punti legali ⚖️                                   |
+| [DEPLOY.md](DEPLOY.md)             | Guida al deploy: prerequisiti, env, primo deploy, aggiornamento, backup e ripristino                                            |
 | [legal/TOS.md](legal/TOS.md)       | Termini di servizio: contratto tra pari, esiti deterministici, svincolo marciano — ogni clausola cita la transizione            |
 | [legal/PRIVACY.md](legal/PRIVACY.md) | Informativa privacy (artt. 13-14 GDPR): basi per ruolo, minimizzazione by design, retention foto, export/cancellazione        |
 
@@ -84,6 +95,7 @@ dei testi legali da parte di un legale.
 | [ADR-021](adr/ADR-021-in-page-qr-scanner.md)        | Scanner QR in pagina: BarcodeDetector nativo, campo testo come fallback universale, nessun decoder nel bundle |
 | [ADR-022](adr/ADR-022-sender-creation-photos.md)    | Foto del mittente alla creazione: certificazione nell'evento `created`, upload con le guardie di ADR-020 |
 | [ADR-023](adr/ADR-023-s3-blob-storage-driver.md)    | Driver S3-compatibile per il blob storage delle foto (MinIO/Garage), selezione da config, MinIO dev opt-in |
+| [ADR-024](adr/ADR-024-production-deploy.md)         | Deploy: immagini multi-stage, compose su singolo VPS, Caddy unica origin, segreti solo da env |
 
 ## Stato delle decisioni
 

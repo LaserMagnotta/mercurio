@@ -35,6 +35,7 @@ Confermata la proposta di partenza, con alcune precisazioni. Motivazioni estese 
 | Auth           | Magic link email (obbligatoria) + LNURL-auth opzionale                                                                 | [ADR-009](adr/ADR-009-auth-email-lnurl.md)                                  |
 | Distanze       | Haversine × fattore di circuità 1.3, dietro interfaccia `DistanceProvider`                                             | [ADR-007](adr/ADR-007-haversine-distance.md)                                |
 | Email          | Adapter SMTP; Mailpit in dev; outbox pattern (invii solo post-commit)                                                  | —                                                                           |
+| Deploy         | Immagini multi-stage per api e web; compose su singolo VPS, Caddy unica origin pubblica (niente nodi Lightning)        | [ADR-024](adr/ADR-024-production-deploy.md), [DEPLOY.md](DEPLOY.md)         |
 
 ### Struttura del monorepo
 
@@ -50,7 +51,8 @@ mercurio/
 │   ├── escrow/         # EscrowCoordinator (vault preimage) + WalletConnection (NWC, LND dev, fake per i test)
 │   └── shared/         # Tipi condivisi, schema Zod delle API, costanti
 ├── infra/
-│   └── docker/         # docker-compose: postgres, bitcoind regtest, lnd×3, lnbits, mailpit
+│   ├── docker/         # SVILUPPO: docker-compose con postgres, bitcoind regtest, lnd×3, mailpit
+│   └── production/     # PRODUZIONE: Dockerfile api/web, compose, Caddyfile, backup (ADR-024)
 └── docs/
 ```
 
@@ -603,6 +605,27 @@ In dev i wallet sono collegati con l'adapter `lnd_rest` (stessa interfaccia
 `WalletConnection` dell'adapter NWC di produzione). I test di integrazione della
 logica di denaro — hold pagate, preimage rivelate, annullamenti — girano contro
 questo ambiente in CI.
+
+Questo compose è **solo di sviluppo** e non va riusato in produzione: i nodi
+regtest esistono per simulare i wallet degli utenti, che in produzione sono
+loro (ADR-013).
+
+### 8-bis. Ambiente di produzione (ADR-024)
+
+Stack separato in `infra/production/`, deliberatamente più piccolo: **niente
+Lightning**. Quattro container su un host solo — `caddy` (unica origin
+pubblica, TLS automatico), `web`, `api` (con i worker in-process) e
+`postgres` — più un servizio one-shot `migrate` che l'API attende.
+
+| Aspetto              | Sviluppo (`infra/docker/`)          | Produzione (`infra/production/`)                       |
+| -------------------- | ----------------------------------- | ------------------------------------------------------ |
+| Lightning            | bitcoind regtest + LND×3 + Alby Hub | **nessuno**: i wallet sono degli utenti                |
+| Email                | Mailpit                             | relay SMTP reale (`SMTP_*`)                            |
+| Web → API (browser)  | rewrite `/api/*` di Next            | rotta `/api/*` di Caddy — stesso contratto (ADR-018)   |
+| Dati                 | seed demo                           | nessun dato demo, mai                                  |
+| Foto                 | `./data/photos`                     | volume `photos` (driver `fs`, ADR-020)                 |
+
+Procedura, variabili e ripristino in [DEPLOY.md](DEPLOY.md).
 
 ## 9. Cosa NON è nell'MVP
 
