@@ -26,7 +26,8 @@ client-computed sha256 (WebCrypto) and, since ADR-020, uploaded: the file is
 re-encoded on device (EXIF stripped, max 2048 px) BEFORE hashing, the bytes
 are pushed after the transition, and participants see the thumbnails in the
 custody timelines and the hub ops gallery. QR fields accept the scanned
-`/p/<token>` URL or the bare token.
+`/p/<token>` URL or the bare token, and since ADR-021 they also offer an
+in-page camera scanner where the browser ships the native BarcodeDetector.
 
 Also closed the same day (ADR-018 §5): the home page and `/carrier` now read
 a user's own shipments and declared trips from the account (`GET
@@ -144,5 +145,11 @@ the GDPR consent on first login, connect a fake wallet from _Wallet_):
 - Photo blobs are stored on the API host's filesystem (ADR-020,
   `PHOTO_STORAGE_DIR`); an S3-compatible driver is future work — the
   `BlobStore` interface is the boundary.
-- QR scanning uses the device camera app / a scanner into the text field;
-  there is no in-page camera scanner yet.
+- The in-page QR scanner (ADR-021) decodes with the browser's native
+  BarcodeDetector and ships **no decoding library** in the bundle. It works on
+  Android Chrome/Edge (and ChromeOS/macOS Chrome) — the mobile-first target;
+  on iOS Safari, Firefox and Chrome on Windows/Linux the API is absent, so
+  those fall back to the universal text field (paste from the system camera app
+  or a hardware scanner, or type the token). Adding a JS decoder later is a
+  localized change behind the `QrScanInput` component. The camera stream never
+  leaves the device and no frame is stored.

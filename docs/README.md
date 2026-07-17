@@ -27,8 +27,10 @@ rimosso), l'**adapter NWC reale** (ADR-019: probe delle capability al
 collegamento, interop verificata su regtest con relay nostr + Alby Hub) e il
 **blob storage delle foto** (ADR-020: upload verificato contro l'hash
 certificato, EXIF rimosso sul dispositivo, download solo via API con authz
-di sessione, purge worker con retention GDPR). **Da implementare**: scanner
-QR in pagina, driver blob S3-compatibile, app mobile.
+di sessione, purge worker con retention GDPR) e lo **scanner QR in pagina**
+(ADR-021: BarcodeDetector nativo dove disponibile, campo testo come fallback
+universale, stream fotocamera mai fuori dal dispositivo). **Da implementare**:
+driver blob S3-compatibile, app mobile.
 
 ## Documenti
 
@@ -64,6 +66,7 @@ QR in pagina, driver blob S3-compatibile, app mobile.
 | [ADR-018](adr/ADR-018-web-ui-platform.md)           | Web UI: proxy same-origin (niente CORS), importi sats-first solo dall'API, i18n a cookie |
 | [ADR-019](adr/ADR-019-nwc-adapter.md)               | Adapter NWC reale: probe delle capability, interop verificata su regtest              |
 | [ADR-020](adr/ADR-020-photo-blob-storage.md)        | Foto: blob storage fs content-addressed, EXIF strip sul dispositivo, accesso solo via API |
+| [ADR-021](adr/ADR-021-in-page-qr-scanner.md)        | Scanner QR in pagina: BarcodeDetector nativo, campo testo come fallback universale, nessun decoder nel bundle |
 
 ## Stato delle decisioni
 
