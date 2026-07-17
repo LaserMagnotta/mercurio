@@ -32,8 +32,14 @@ di sessione, purge worker con retention GDPR) e lo **scanner QR in pagina**
 universale, stream fotocamera mai fuori dal dispositivo) e le **foto del
 mittente alla creazione** (ADR-022: hash `content`/`sealed` opzionali
 dichiarati nella `POST /shipments` e certificati dall'evento `created`,
-upload e visibilità con le guardie di ADR-020). **Da implementare**:
-driver blob S3-compatibile, app mobile.
+upload e visibilità con le guardie di ADR-020) e i **testi legali**
+(docs/legal: [TOS.md](legal/TOS.md) e [PRIVACY.md](legal/PRIVACY.md), serviti
+dalle pagine `/tos` e `/privacy` del web con parità it/en, linkate dal footer
+e dal consenso al primo login — che ora registra anche l'approvazione
+specifica ex artt. 1341-1342 c.c.; il worker manda i preavvisi di giacenza a
+72/24 h e ogni mail del ciclo di vita porta il link all'informativa,
+artt. 14/21 GDPR). **Da implementare**: driver blob S3-compatibile, app
+mobile. **Todo umano**: revisione dei testi legali da parte di un legale.
 
 ## Documenti
 
@@ -44,6 +50,8 @@ driver blob S3-compatibile, app mobile.
 | [ESCROW.md](ESCROW.md)             | Pagamenti senza custodia: hold invoice dirette P2P, coordinatore per preimage, interfacce `WalletConnection`/`EscrowCoordinator` |
 | [MATCHING.md](MATCHING.md)         | Matching vettore ↔ spedizioni: deviazione, scelta dell'hub, tariffa suggerita, ordinamento bacheca                               |
 | [RISKS.md](RISKS.md)               | Integrità senza arbitro, anti-abuso, identità, svincolo a fine giacenza, GDPR, punti legali ⚖️                                   |
+| [legal/TOS.md](legal/TOS.md)       | Termini di servizio: contratto tra pari, esiti deterministici, svincolo marciano — ogni clausola cita la transizione            |
+| [legal/PRIVACY.md](legal/PRIVACY.md) | Informativa privacy (artt. 13-14 GDPR): basi per ruolo, minimizzazione by design, retention foto, export/cancellazione        |
 
 ## Architecture Decision Records
 
@@ -82,4 +90,6 @@ contestazione, nessun arbitro (ADR-012), nessun controllo AML preventivo,
 **zero custodia in ogni momento** (ADR-013 — pagamenti diretti P2P, la piattaforma
 non tocca mai fondi), fee piattaforma 0%. I punti legali ⚖️ sono stati chiusi il
 2026-07-17 come decisioni di progetto motivate dalle norme (RISKS.md §2, §4, §5,
-§6): il lavoro residuo è la redazione dei testi — ToS e informative privacy.
+§6); i testi — ToS e informativa privacy — sono redatti lo stesso giorno in
+[docs/legal](legal/TOS.md) e pubblicati su `/tos` e `/privacy`. Resta il todo
+umano della revisione da parte di un legale (RISKS.md §8).

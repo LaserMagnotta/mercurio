@@ -3,8 +3,9 @@
 > Stato: **bozza per revisione** — 2026-07-12; voci ⚖️ chiuse il 2026-07-17.
 > Ogni voce: rischio → proposta → stato. Le voci ⚖️ segnalavano le verifiche
 > normative pre-mainnet: sono chiuse come decisioni di progetto motivate dalle
-> norme (§2, §4, §5, §6) e non bloccano più il mainnet; il lavoro residuo è la
-> redazione dei testi (ToS, informative privacy — §8).
+> norme (§2, §4, §5, §6) e non bloccano più il mainnet; i testi (ToS,
+> informativa privacy) sono redatti in [docs/legal](legal/TOS.md) — resta il
+> todo umano della revisione da parte di un legale (§8).
 
 ## 1. Integrità del pacco — senza arbitri e senza finestra di contestazione
 
@@ -96,7 +97,9 @@ canale per merce illegale, con esposizione di hub e vettori.
 - Niente spedizioni extra-UE nell'MVP (dogana e IVA import = altro pianeta di
   problemi); il tetto a 45 € è comunque già allineato per quando servirà.
 
-Stato: **formulazioni confermate (2026-07-17)**; resta la redazione del testo dei ToS (§8).
+Stato: **formulazioni confermate e redatte (2026-07-17)** — autodichiarazione,
+lista di esclusione e tetto di valore sono i §6 (e §5 per il bond) di
+[legal/TOS.md](legal/TOS.md).
 
 ## 3. Identità degli utenti
 
@@ -172,7 +175,15 @@ custodia e restituzione — artt. 1766 ss. c.c.).
   pagati. Il modello Mercurio aggiunge tutele che quella prassi non ha: tetto
   di valore basso, eccedenza riconosciuta, richiamo sempre possibile.
 
-Stato: **chiuso (2026-07-17)**; la clausola entra nella redazione dei ToS (§8).
+Stato: **chiuso e redatto (2026-07-17)** — la cascata è il §10 di
+[legal/TOS.md](legal/TOS.md). Decisioni prese in redazione (la soluzione più
+semplice coerente con la chiusura qui sopra): la finestra di recupero è
+fissata a **7 giorni** di calendario; la tariffa di giacenza extra è **unica e
+fissata nei ToS** — 1/30 del tetto di valore per giorno iniziato, cioè
+1,50 €/giorno — invece delle tariffe per-hub (pubblicata ex ante per tutti,
+nessun campo nuovo a schema); i preavvisi a 72/24 h sono implementati dal
+worker `storage-warnings` sul timer `storage` armato (mai in contraddizione
+con la macchina: un timer disarmato non esiste più).
 
 ## 5. Perimetro normativo — risolto by design: zero custodia
 
@@ -233,8 +244,11 @@ Stato: **chiuso** — by design (2026-07-12) e per perimetro normativo (2026-07-
 - **Geolocalizzazione dei viaggi vettore**: si salvano solo origine/destinazione
   dichiarate, mai tracking GPS continuo.
 
-Stato: **basi giuridiche confermate (2026-07-17)**; export, cancellazione e
-purge foto sono già implementati; restano da redigere le informative (§8).
+Stato: **basi giuridiche confermate e informativa redatta (2026-07-17)** —
+[legal/PRIVACY.md](legal/PRIVACY.md), pubblicata su `/privacy`. L'informativa
+al primo contatto (art. 14) e il link di opposizione (art. 21) viaggiano nelle
+email del ciclo di vita (outbox worker); export, cancellazione e purge foto
+erano già implementati.
 
 ## 7. Altri rischi operativi (sintesi)
 
@@ -253,7 +267,7 @@ purge foto sono già implementati; restano da redigere le informative (§8).
 | **Token di claim rubato** (ADR-016): chi lo possiede può reclamare il pacco                              | È una credenziale bearer come l'OTP, ma può muovere denaro: hash a DB, plaintext solo nella mail di tracking, rotazione automatica al cambio di destinatario, rate limit sulle rotte. Chi lo usa deve comunque autenticarsi con un account e incassare sul **proprio** wallet: il flusso resta quello previsto dal protocollo (pool residuo al portatore del token, Π_h all'hub) — mai fondi deviati verso terzi arbitrari — e tutto è tracciato in `shipment_claims` e in catena di custodia. Il furto del token equivale al furto della mail del destinatario, che già consente il ritiro OTP a destinazione | Mitigato by design               |
 | **Claim-griefing**: richieste di claim ripetute per togliere il pacco dalla bacheca (finestre da 60 min) | Ogni claim richiede account + wallet connesso e ruoli disgiunti; ogni richiesta è una riga permanente in `shipment_claims` e un evento in catena di custodia (pattern visibile e attribuibile); il rate limit frena la ripetizione. Un claim non finanziato scade da solo e il pacco torna in bacheca; la giacenza intanto continua a correre — il griefer non ferma l'orologio                                                                                              | Mitigato; da monitorare coi dati |
 | **Claim senza ritiro**: il destinatario fa `CLAIMED` e non si presenta                                   | La giacenza non si sospende (ADR-016): alla scadenza il pacco è svincolato all'hub (`FORFEITED`), le hold del claim tornano al mittente e il claimant perde pacco e compenso — autopunitivo. Il costo del mancato ritiro ricade su chi l'ha causato                                                                                          | Mitigato by design               |
-| Nessuna assicurazione sul trasporto                                                                      | Fuori scope MVP: il bond È l'assicurazione peer-to-peer; comunicarlo chiaramente                                                                                                                                                                                                                                                             | Accettato, da esplicitare in ToS |
+| Nessuna assicurazione sul trasporto                                                                      | Fuori scope MVP: il bond È l'assicurazione peer-to-peer; comunicarlo chiaramente                                                                                                                                                                                                                                                             | Esplicitato (TOS.md §8 e §15)    |
 
 ## 8. Decisioni prese e punti ancora aperti
 
@@ -283,7 +297,11 @@ purge foto sono già implementati; restano da redigere le informative (§8).
 - Nessun punto ⚖️ blocca più il mainnet: formulazioni anti-abuso (§2), svincolo
   a fine giacenza in forma marciana (§4), perimetro PSD2/MiCA (§5) e basi GDPR
   (§6) sono stati chiusi il 2026-07-17 come decisioni di progetto motivate
-  dalle norme.
-- Lavoro residuo, editoriale e non bloccante per lo sviluppo: **redazione dei
-  testi** — i ToS (svincolo marciano, lista di esclusione con tetto a 45 €,
-  autodichiarazione del mittente) e le informative privacy (artt. 13-14 GDPR).
+  dalle norme. I testi sono redatti lo stesso giorno:
+  [legal/TOS.md](legal/TOS.md) e [legal/PRIVACY.md](legal/PRIVACY.md),
+  pubblicati su `/tos` e `/privacy` (it/en) e accettati al primo login con
+  approvazione specifica delle clausole onerose (artt. 1341-1342 c.c.).
+- Todo umano, non di sviluppo: **revisione dei testi legali da parte di un
+  legale** prima del mainnet pubblico; al deploy di ogni istanza vanno
+  compilati Gestore/Titolare e fornitore SMTP nelle pagine `/tos` e
+  `/privacy`.
