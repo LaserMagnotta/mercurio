@@ -15,6 +15,9 @@ dist/
 # Runtime data of the dev Lightning environment
 infra/docker/volumes/
 
+# Photo blob storage (ADR-020, PHOTO_STORAGE_DIR default)
+data/
+
 # Logs & OS noise
 *.log
 .DS_Store

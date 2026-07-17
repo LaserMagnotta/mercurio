@@ -28,6 +28,8 @@ import { registerTripRoutes } from './routes/trips';
 import { registerShipmentRoutes } from './routes/shipments';
 import { registerShipmentLifecycleRoutes } from './routes/shipment-lifecycle';
 import { registerReviewRoutes } from './routes/reviews';
+import { registerPhotoRoutes } from './routes/photos';
+import { createFsBlobStore, type BlobStore } from './lib/blob-store';
 import { createMailer, type SendMail } from './lib/mailer';
 import { createDbWalletResolver } from './lib/wallets';
 import { createEnvEurRateProvider, type EurRateProvider } from './lib/eur-rate';
@@ -52,6 +54,7 @@ declare module 'fastify' {
     lifecycle: LifecycleDeps;
     lifecycleConfig: LifecycleConfig;
     eurRate: EurRateProvider;
+    blobStore: BlobStore;
   }
 }
 
@@ -79,6 +82,9 @@ export interface BuildAppOptions {
   /** Injected by tests to shrink the connect-time NWC probe timeout
    *  (production default: probeNwcWallet's own 8s). */
   nwcProbeTimeoutMs?: number;
+  /** Injected by tests (memory store); defaults to the filesystem driver on
+   *  PHOTO_STORAGE_DIR (ADR-020). */
+  blobStore?: BlobStore;
 }
 
 export async function buildApp(options: BuildAppOptions = {}) {
@@ -131,6 +137,18 @@ export async function buildApp(options: BuildAppOptions = {}) {
     }),
   });
   app.decorate('eurRate', options.eurRate ?? createEnvEurRateProvider());
+  // Photo blobs (ADR-020): filesystem driver, content-addressed by sha256.
+  app.decorate(
+    'blobStore',
+    options.blobStore ?? createFsBlobStore(process.env.PHOTO_STORAGE_DIR ?? './data/photos'),
+  );
+
+  // Photo uploads are raw JPEG bodies (ADR-020 §3): parsed as a Buffer, with
+  // the per-route bodyLimit as the size cap. The whitelist itself is decided
+  // on magic bytes in the route, not on this header.
+  app.addContentTypeParser('image/jpeg', { parseAs: 'buffer' }, (_req, body, done) => {
+    done(null, body);
+  });
 
   // Public API contract (ADR-002): OpenAPI generated from the same Zod
   // schemas the routes validate with, served at /docs. Awaited on purpose:
@@ -165,6 +183,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   registerShipmentRoutes(app);
   registerShipmentLifecycleRoutes(app);
   registerReviewRoutes(app);
+  registerPhotoRoutes(app);
 
   return app;
 }

@@ -26,6 +26,7 @@ import {
   type FakeWalletConnection,
 } from '@mercurio/escrow';
 import { buildApp, type App } from '../app';
+import { createMemoryBlobStore } from '../lib/blob-store';
 import { createSession } from '../lib/session';
 import { sealSecret } from '../lib/secret-box';
 
@@ -169,6 +170,8 @@ export async function createLifecycleWorld(): Promise<LifecycleWorld> {
     fakeNetwork: network,
     waitAttempts: 5,
     waitDelayMs: 1,
+    // Photo blobs stay in memory (ADR-020): tests never touch the disk.
+    blobStore: createMemoryBlobStore(now),
   });
   await app.ready();
 
