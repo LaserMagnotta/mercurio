@@ -46,6 +46,7 @@ export function registerHubRoutes(app: App) {
         maxWeightG: h.maxWeightG,
         acceptsUndeclared: h.acceptsUndeclared,
         maxStorageDays: h.maxStorageDays,
+        openingHours: h.openingHours as Record<string, string>,
         autoAccept: h.autoAccept,
         walletConnected: connected.has(h.userId),
         rating: ratingOf(ratings, h.userId, 'hub'),

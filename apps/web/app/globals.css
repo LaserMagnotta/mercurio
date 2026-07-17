@@ -501,6 +501,20 @@ legend {
   color: var(--danger);
 }
 
+/* ---------------------------------------------------------- opening hours */
+/* A hub's declared opening hours as a tight day → time list (Fase 2 punto 5). */
+.opening-hours {
+  list-style: none;
+  margin: var(--space-1) 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0 var(--space-3);
+}
+.opening-hours li {
+  display: contents;
+}
+
 /* --------------------------------------------------------------- codename */
 /* Shipment codename ("Tasso-Ambrato-742"): a human-sayable label, set in a
  * monospace face so its hyphenated parts read as one token and never blur

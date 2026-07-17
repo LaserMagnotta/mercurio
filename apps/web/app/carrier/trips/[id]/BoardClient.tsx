@@ -22,6 +22,7 @@ import { useSession } from '../../../../lib/session';
 import { formatDateTime, formatKm } from '../../../../lib/format';
 import { Amount } from '../../../../components/Amount';
 import { Codename } from '../../../../components/Codename';
+import { OpeningHours } from '../../../../components/OpeningHours';
 import { RatingStars } from '../../../../components/RatingStars';
 
 type DropOption = BoardCard['bestDropHub'];
@@ -128,6 +129,7 @@ export function BoardClient({ tripId }: { tripId: string }) {
         <dt>{t('detour')}</dt>
         <dd>{formatKm(option.detourKm, locale)}</dd>
       </dl>
+      <OpeningHours hours={option.openingHours} compact />
       <div className="row">
         <button
           type="button"

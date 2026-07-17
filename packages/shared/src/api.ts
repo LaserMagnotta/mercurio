@@ -459,6 +459,9 @@ export const shipmentPublicDto = z.object({
 export const dropHubOptionDto = z.object({
   hubId: uuidString,
   hubName: z.string(),
+  /** Opening hours of the drop hub (Fase 2 punto 5): the carrier decides where
+   *  to deposit, so when the hub is open is decision-relevant. */
+  openingHours: z.record(z.string()),
   detourKm: z.number(),
   netMsat: msatString,
   /** The "premio consegna" line, shown separately on the card (ADR-014). */
@@ -547,6 +550,10 @@ export const hubDto = z.object({
   maxWeightG: z.number().int(),
   acceptsUndeclared: z.boolean(),
   maxStorageDays: z.number().int(),
+  /** Opening hours as a day/range → time-range map, e.g. { "mon-sat":
+   *  "08:00-20:00" } (Fase 2 punto 5). Shown so the sender knows when the hub
+   *  is actually reachable — already stored, now surfaced. */
+  openingHours: z.record(z.string()),
   autoAccept: z.boolean(),
   walletConnected: z.boolean(),
   /** Hub-role rating of the owner — the sender picks hubs here. */

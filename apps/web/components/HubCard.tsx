@@ -6,6 +6,7 @@
 
 import { useTranslations } from 'next-intl';
 import type { Hub } from '../lib/api/endpoints';
+import { OpeningHours } from './OpeningHours';
 import { RatingStars } from './RatingStars';
 
 export function HubCard({ hub }: { hub: Hub }) {
@@ -27,6 +28,7 @@ export function HubCard({ hub }: { hub: Hub }) {
         {t('maxWeight', { kg: hub.maxWeightG / 1000 })} ·{' '}
         {t('maxStorage', { days: hub.maxStorageDays })}
       </p>
+      <OpeningHours hours={hub.openingHours} />
       <p className="row small">
         <span className={`badge ${hub.acceptsUndeclared ? 'badge-success' : 'badge-neutral'}`}>
           {hub.acceptsUndeclared ? t('acceptsUndeclared') : t('noUndeclared')}

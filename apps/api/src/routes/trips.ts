@@ -529,6 +529,7 @@ async function buildBoard(app: App, trip: typeof carrierTrips.$inferSelect, carr
     const option = (o: (typeof c)['bestDropHub']) => ({
       hubId: o.hubId,
       hubName: hubName(o.hubId),
+      openingHours: (hubById.get(o.hubId)?.openingHours ?? {}) as Record<string, string>,
       detourKm: o.detourKm,
       netMsat: msat(o.netMsat),
       finalizationBonusMsat: msat(o.finalizationBonusMsat),
