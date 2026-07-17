@@ -590,6 +590,18 @@
     "checkout": "Check-out",
     "evidence": "Rejection evidence"
   },
+  "qrScan": {
+    "scanCta": "Scan with the camera",
+    "scanning": "Frame the QR",
+    "aim": "Center the QR code in the box.",
+    "torchOn": "Turn on the torch",
+    "torchOff": "Turn off the torch",
+    "privacyNote": "The images stay on your device: nothing is sent or stored.",
+    "errorInsecure": "The camera needs a secure connection (https). Paste the QR result here instead.",
+    "errorDenied": "Camera permission denied. Enable it in your browser settings, or paste the QR result here.",
+    "errorNotFound": "No camera available. Paste the QR result here instead.",
+    "errorGeneric": "Could not start the camera. Paste the QR result here instead."
+  },
   "apiErrors": {
     "fallback": "Operation rejected ({code}).",
     "network_error": "Network unreachable: check your connection.",

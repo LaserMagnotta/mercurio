@@ -689,6 +689,43 @@ legend {
   cursor: pointer;
 }
 
+/* In-page QR scanner (ADR-021): a progressive-enhancement camera preview under
+   the universal text field. Mobile-first — the live preview fills the field
+   width with a centered reticle and a dimmed surround; the text input above
+   stays the fallback that always works. */
+.qr-scan {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+
+.qr-scan-viewport {
+  position: relative;
+  width: 100%;
+  max-width: 22rem;
+  aspect-ratio: 1 / 1;
+  overflow: hidden;
+  border-radius: var(--radius);
+  background: #000;
+}
+
+.qr-scan-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.qr-scan-reticle {
+  position: absolute;
+  inset: 18%;
+  border: 3px solid var(--accent);
+  border-radius: var(--radius-sm);
+  /* Huge spread paints the classic dimmed surround; clipped by the viewport. */
+  box-shadow: 0 0 0 100vmax rgb(0 0 0 / 0.35);
+}
+
 /* Certified photos (ADR-020): thumbnails in the custody timeline and in the
    hub gallery. Mobile-first: a wrapping row of small tap targets. */
 .photo-strip {

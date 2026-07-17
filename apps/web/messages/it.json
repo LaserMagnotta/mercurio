@@ -590,6 +590,18 @@
     "checkout": "Check-out",
     "evidence": "Prova del rifiuto"
   },
+  "qrScan": {
+    "scanCta": "Scansiona con la fotocamera",
+    "scanning": "Inquadra il QR",
+    "aim": "Centra il codice QR nel riquadro.",
+    "torchOn": "Accendi la torcia",
+    "torchOff": "Spegni la torcia",
+    "privacyNote": "Le immagini restano sul tuo dispositivo: nulla viene inviato o salvato.",
+    "errorInsecure": "La fotocamera richiede una connessione sicura (https). Incolla qui il risultato del QR.",
+    "errorDenied": "Permesso fotocamera negato. Abilitalo nelle impostazioni del browser oppure incolla qui il risultato del QR.",
+    "errorNotFound": "Nessuna fotocamera disponibile. Incolla qui il risultato del QR.",
+    "errorGeneric": "Impossibile avviare la fotocamera. Incolla qui il risultato del QR."
+  },
   "apiErrors": {
     "fallback": "Operazione rifiutata ({code}).",
     "network_error": "Rete non raggiungibile: controlla la connessione.",
