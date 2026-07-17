@@ -19,6 +19,7 @@ import {
 import type { App } from '../app.js';
 import { requireAuth } from '../plugins/auth-guard.js';
 import { generateToken } from '../lib/tokens.js';
+import { mintCodename } from '../lib/codename.js';
 import { eurToMsat, type EurRateSnapshot } from '../lib/eur-rate.js';
 import { hasConnectedWallet } from '../lib/wallets.js';
 import { parcelFitsHub, storageFitsHub } from '../lib/parcel.js';
@@ -96,6 +97,7 @@ export function registerShipmentRoutes(app: App) {
 
       const shipmentId = randomUUID();
       const qrToken = generateToken().token;
+      const codename = await mintCodename(app.db);
       const segmentWorkMsat = splitCommitment(offerMsat).workMsat;
       const senderWalletConnected = await hasConnectedWallet(app.db, senderId);
 
@@ -136,6 +138,7 @@ export function registerShipmentRoutes(app: App) {
               destHubId: destHub.id,
               recipientEmail: b.recipientEmail,
               qrToken,
+              codename,
               dimLCm: parcel.dimLCm,
               dimWCm: parcel.dimWCm,
               dimHCm: parcel.dimHCm,
@@ -182,6 +185,7 @@ export function registerShipmentRoutes(app: App) {
 
       return reply.code(201).send({
         id: shipmentId,
+        codename,
         status: originAccepted ? 'AWAITING_DROPOFF' : 'DRAFT',
         qrToken,
         distanceKm,
@@ -245,6 +249,7 @@ export function registerShipmentRoutes(app: App) {
 
       return {
         id: s.id,
+        codename: s.codename,
         status: bundle.state,
         senderId: s.senderId,
         originHubId: s.originHubId,
@@ -323,6 +328,7 @@ export function registerShipmentRoutes(app: App) {
       .where(inArray(hubs.id, [s.originHubId, s.destHubId]));
     const name = (id: string) => hubRows.find((h) => h.id === id)?.name ?? '—';
     return {
+      codename: s.codename,
       status: s.status.toUpperCase(),
       originHubName: name(s.originHubId),
       destHubName: name(s.destHubId),

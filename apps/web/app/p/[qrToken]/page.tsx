@@ -5,6 +5,7 @@
 import { getTranslations } from 'next-intl/server';
 import { apiFetch, ApiError } from '../../../lib/api/client';
 import type { ShipmentPublic } from '../../../lib/api/endpoints';
+import { Codename } from '../../../components/Codename';
 import { StatusBadge } from '../../../components/StatusBadge';
 
 const API_URL = process.env.API_URL ?? 'http://localhost:3001';
@@ -41,7 +42,12 @@ export default async function PublicShipmentPage({
   return (
     <div className="card stack-sm">
       <div className="row-between">
-        <h1>{t('title')}</h1>
+        <div>
+          <p className="muted">{t('title')}</p>
+          <h1>
+            <Codename value={data.codename} className="codename-lg" />
+          </h1>
+        </div>
         <StatusBadge status={data.status} />
       </div>
       <p className="muted">{tStatuses(`${data.status}.description`)}</p>

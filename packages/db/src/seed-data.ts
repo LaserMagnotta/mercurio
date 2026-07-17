@@ -115,6 +115,9 @@ export async function seedDemoData(db: Db) {
     destHubId: hubGiulia.id,
     recipientEmail: 'destinatario@example.com', // no account needed to receive (ADR-009)
     qrToken: randomUUID(),
+    // A fixed demo codename (the canonical Marco→Giulia shipment); real ones
+    // are minted server-side at POST /shipments (apps/api lib/codename.ts).
+    codename: 'Tasso-Ambrato-742',
     dimLCm: 20,
     dimWCm: 15,
     dimHCm: 5,

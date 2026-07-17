@@ -31,6 +31,7 @@ import {
   statusDescriptionKey,
 } from '../../../lib/shipment-status';
 import { Amount } from '../../../components/Amount';
+import { Codename } from '../../../components/Codename';
 import { PhotoStrip } from '../../../components/PhotoStrip';
 import { QrCode } from '../../../components/QrCode';
 import { StatusBadge } from '../../../components/StatusBadge';
@@ -214,7 +215,12 @@ export function TrackClient({ id }: { id: string }) {
     <div className="stack">
       <section>
         <div className="row-between">
-          <h1>{t('title')}</h1>
+          <div>
+            <p className="muted">{t('title')}</p>
+            <h1>
+              <Codename value={detail.codename} className="codename-lg" />
+            </h1>
+          </div>
           <span className="row">
             <StatusBadge status={detail.status} />
             <button type="button" className="btn btn-sm" onClick={() => void load()}>

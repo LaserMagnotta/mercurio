@@ -13,6 +13,7 @@ import { z } from 'zod';
 // schemas below are being built (silently disabling the checks).
 import {
   CARRIER_TRIP_STATUSES,
+  CODENAME_PATTERN,
   DEFAULT_LIST_LIMIT,
   MAX_LIST_LIMIT,
   MAX_STORAGE_HOURS,
@@ -31,6 +32,14 @@ export const msatString = z
   .describe('Amount in millisatoshi, as a decimal string');
 
 export const uuidString = z.string().uuid();
+
+/** A shipment codename ("Tasso-Ambrato-742"): the human-sayable label shown
+ *  wherever a shipment is cited. A LABEL, never a credential (ARCHITECTURE.md
+ *  §7) — the UUID and QR token are the real identifiers. */
+export const codenameString = z
+  .string()
+  .regex(CODENAME_PATTERN, 'shipment codename Animal-Adjective-NNN')
+  .describe('Human-sayable shipment label, e.g. "Tasso-Ambrato-742"');
 
 /** SHA-256 of a photo the client took ON DEVICE (ADR-018 §6): the hash lands
  *  in the custody chain as the tamper-evident certification, and it is the
@@ -262,6 +271,7 @@ export const listQuery = z.object({
 
 export const meShipmentDto = z.object({
   id: uuidString,
+  codename: codenameString,
   status: shipmentStateSchema,
   originHubId: uuidString,
   originHubName: z.string(),
@@ -350,6 +360,7 @@ export const custodyEventDto = z.object({
 
 export const shipmentDetailDto = z.object({
   id: uuidString,
+  codename: codenameString,
   status: shipmentStateSchema,
   senderId: uuidString,
   originHubId: uuidString,
@@ -418,6 +429,7 @@ export const claimCreatedDto = z.object({
 
 export const shipmentCreatedDto = z.object({
   id: uuidString,
+  codename: codenameString,
   status: shipmentStateSchema,
   qrToken: z.string(),
   distanceKm: z.number(),
@@ -430,6 +442,7 @@ export const shipmentCreatedDto = z.object({
 /** Public status by QR scan: whoever frames the parcel sees at most this
  *  (ARCHITECTURE.md §7 — no action is possible with the QR alone). */
 export const shipmentPublicDto = z.object({
+  codename: codenameString,
   status: shipmentStateSchema,
   originHubName: z.string(),
   destHubName: z.string(),
@@ -450,6 +463,7 @@ export const dropHubOptionDto = z.object({
 
 export const boardCardDto = z.object({
   shipmentId: uuidString,
+  codename: codenameString,
   isMatch: z.boolean(),
   bestDropHub: dropHubOptionDto,
   alternatives: z.array(dropHubOptionDto),

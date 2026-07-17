@@ -143,6 +143,7 @@ export const getHubs = () => apiFetch<{ hubs: Hub[] }>('/hubs');
 
 export interface HubAcceptRequest {
   shipmentId: string;
+  codename: string;
   destHubId: string;
   dims: { lengthCm: number; widthCm: number; heightCm: number };
   weightG: number;
@@ -155,6 +156,7 @@ export interface HubAcceptRequest {
 export interface HubStaySummary {
   hubStayId: string;
   shipmentId: string;
+  codename: string;
   status: 'reserved' | 'active';
   /** Lowercase DB enum (e.g. "at_hub") — uppercase it for ShipmentState. */
   shipmentStatus: string;

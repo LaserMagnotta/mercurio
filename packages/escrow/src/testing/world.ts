@@ -54,6 +54,7 @@ export async function createEscrowWorld(): Promise<EscrowWorld> {
       destHubId: hubB.id,
       recipientEmail: 'recipient@test.local',
       qrToken: crypto.randomUUID(),
+      codename: 'Volpe-Argentea-314',
       dimLCm: 20,
       dimWCm: 15,
       dimHCm: 5,

@@ -21,6 +21,7 @@ import { useApiErrorMessage } from '../../../../lib/api-error-message';
 import { useSession } from '../../../../lib/session';
 import { formatDateTime, formatKm } from '../../../../lib/format';
 import { Amount } from '../../../../components/Amount';
+import { Codename } from '../../../../components/Codename';
 import { RatingStars } from '../../../../components/RatingStars';
 
 type DropOption = BoardCard['bestDropHub'];
@@ -154,7 +155,7 @@ export function BoardClient({ tripId }: { tripId: string }) {
       className={`card stack-sm${card.isMatch ? ' card-highlight' : ''}`}
     >
       <div className="row-between">
-        <strong>{t('from', { hub: card.currentHubName })}</strong>
+        <Codename value={card.codename} />
         <span className="muted small">
           {t('remainingOfTotal', {
             remaining: formatKm(card.remainingKm, locale),
@@ -162,6 +163,7 @@ export function BoardClient({ tripId }: { tripId: string }) {
           })}
         </span>
       </div>
+      <strong>{t('from', { hub: card.currentHubName })}</strong>
       <p className="row small">
         <span className="muted">
           {t('parcel', {
@@ -224,7 +226,10 @@ export function BoardClient({ tripId }: { tripId: string }) {
 
       {accepted && (
         <div className="alert alert-success stack-sm" role="status">
-          <strong>{t('acceptedTitle')}</strong>
+          <div className="row-between">
+            <strong>{t('acceptedTitle')}</strong>
+            <Codename value={accepted.card.codename} />
+          </div>
           <p className="small">
             {t('acceptedBody', {
               time: formatDateTime(accepted.fundingDeadlineAt, locale),

@@ -501,6 +501,21 @@ legend {
   color: var(--danger);
 }
 
+/* --------------------------------------------------------------- codename */
+/* Shipment codename ("Tasso-Ambrato-742"): a human-sayable label, set in a
+ * monospace face so its hyphenated parts read as one token and never blur
+ * into surrounding prose. */
+.codename {
+  font-family: ui-monospace, 'SFMono-Regular', 'Menlo', 'Consolas', monospace;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.codename-lg {
+  font-size: 1.25rem;
+}
+
 .rating {
   white-space: nowrap;
   font-variant-numeric: tabular-nums;

@@ -35,6 +35,7 @@ import { parseQrInput } from '../../../../lib/qr-input';
 import { formatDateTime } from '../../../../lib/format';
 import { statusDescriptionKey } from '../../../../lib/shipment-status';
 import { Amount } from '../../../../components/Amount';
+import { Codename } from '../../../../components/Codename';
 import { PhotoHashInput } from '../../../../components/PhotoHashInput';
 import { QrScanInput } from '../../../../components/QrScanInput';
 import { StatusBadge } from '../../../../components/StatusBadge';
@@ -402,7 +403,12 @@ export function HubOpsClient({ id }: { id: string }) {
     <div className="stack">
       <section>
         <div className="row-between">
-          <h1>{t('title')}</h1>
+          <div>
+            <p className="muted">{t('title')}</p>
+            <h1>
+              <Codename value={detail.codename} className="codename-lg" />
+            </h1>
+          </div>
           <StatusBadge status={detail.status} />
         </div>
         <p className="muted">{tStatuses(statusDescriptionKey(detail.status))}</p>

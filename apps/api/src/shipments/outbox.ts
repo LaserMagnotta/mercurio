@@ -6,7 +6,7 @@
 
 import { and, eq, inArray, lt, sql } from 'drizzle-orm';
 import type { Db } from '@mercurio/db';
-import { emailOutbox, hubs } from '@mercurio/db';
+import { emailOutbox, hubs, shipments } from '@mercurio/db';
 import type { SendMail } from '../lib/mailer.js';
 
 const LIFECYCLE_TEMPLATES = [
@@ -40,6 +40,19 @@ async function hubLabel(db: Db, hubId: unknown): Promise<string> {
   return hub ? `${hub.name} (${hub.address})` : 'un hub Mercurio';
 }
 
+// The shipment's codename is what a person reads and says (Fase 1 punto 1);
+// the email cites it instead of the raw UUID. Looked up here rather than
+// threaded through the pure state machine, which has no reason to carry a
+// display label. Falls back to the id if the row somehow can't be read.
+async function shipmentLabel(db: Db, shipmentId: unknown): Promise<string> {
+  if (typeof shipmentId !== 'string') return String(shipmentId ?? '');
+  const [s] = await db
+    .select({ codename: shipments.codename })
+    .from(shipments)
+    .where(eq(shipments.id, shipmentId));
+  return s?.codename ?? shipmentId;
+}
+
 // Web pages the emails point at (same WEB_URL knob as the magic links in
 // routes/auth.ts). The URLs carry only the shipment id — NEVER the claim
 // token or the OTP: those stay in the email body as bearer credentials.
@@ -63,10 +76,14 @@ async function render(
   template: string,
   payload: Record<string, unknown>,
 ): Promise<RenderedEmail | null> {
+  // The codename leads every subject so a shipment is recognizable in an
+  // inbox (Fase 1 punto 1: mostralo anche nei titoli) and is repeated on the
+  // "Spedizione:" line for anyone who quotes it to an hub or to support.
+  const codename = await shipmentLabel(db, payload.shipmentId);
   switch (template) {
     case 'parcel_tracking':
       return {
-        subject: 'Mercurio — il tuo pacco è in viaggio: codice personale di tracking e ritiro',
+        subject: `Mercurio ${codename} — il tuo pacco è in viaggio: codice personale di tracking e ritiro`,
         text:
           `Un pacco per te è stato consegnato a ${await hubLabel(db, payload.hubId)} ed è in viaggio.\n` +
           `Riceverai una mail a ogni tappa.\n\n` +
@@ -77,48 +94,48 @@ async function render(
           `al momento del ritiro: accettare il pacco vale come accettazione definitiva.\n` +
           `Non condividerlo: chiunque lo possieda può reclamare il pacco.\n\n` +
           `Segui il pacco (e riscattalo, se vuoi) qui: ${recipientLink(payload.shipmentId)}\n` +
-          `Spedizione: ${String(payload.shipmentId ?? '')}` +
+          `Spedizione: ${codename}` +
           firstContactFooter(),
       };
     case 'parcel_at_intermediate_hub':
       return {
-        subject: 'Mercurio — il pacco è arrivato in un hub intermedio',
+        subject: `Mercurio ${codename} — il pacco è arrivato in un hub intermedio`,
         text:
           `Il pacco è stato depositato presso ${await hubLabel(db, payload.hubId)}.\n` +
           `Resta in attesa di un vettore per la tratta successiva.\n\n` +
           `Dettagli e tracking: ${recipientLink(payload.shipmentId)}\n` +
-          `Spedizione: ${String(payload.shipmentId ?? '')}` +
+          `Spedizione: ${codename}` +
           privacyFooter(),
       };
     case 'parcel_arrived':
       return {
-        subject: 'Mercurio — il tuo pacco è arrivato: ritiralo con questo codice',
+        subject: `Mercurio ${codename} — il tuo pacco è arrivato: ritiralo con questo codice`,
         text:
           `Il pacco è arrivato presso ${await hubLabel(db, payload.hubId)}.\n` +
           `Il ritiro è gratuito. Presenta questo codice di ritiro (OTP): ${String(payload.otp ?? '')}\n` +
           `Digitarlo al ritiro vale come accettazione definitiva del pacco (ispezionalo prima).\n\n` +
           `Dettagli e tracking: ${recipientLink(payload.shipmentId)}\n` +
-          `Spedizione: ${String(payload.shipmentId ?? '')}` +
+          `Spedizione: ${codename}` +
           privacyFooter(),
       };
     case 'parcel_delivered':
       return {
-        subject: 'Mercurio — pacco consegnato',
+        subject: `Mercurio ${codename} — pacco consegnato`,
         text:
           `Il destinatario ha ritirato il pacco: la spedizione è conclusa.\n\n` +
           `Dettagli: ${senderLink(payload.shipmentId)}\n` +
-          `Spedizione: ${String(payload.shipmentId ?? '')}` +
+          `Spedizione: ${codename}` +
           privacyFooter(),
       };
     case 'handoff_rejected':
       return {
-        subject: 'Mercurio — un passaggio di mano è stato rifiutato',
+        subject: `Mercurio ${codename} — un passaggio di mano è stato rifiutato`,
         text:
           `Un passaggio di mano è stato rifiutato (fase: ${String(payload.stage ?? '?')}).\n` +
           `Motivo: ${String(payload.reason ?? '')}\n` +
           `La custodia non è passata e lo stato non è cambiato; puoi valutare un reroute o un boost.\n\n` +
           `Dettagli: ${senderLink(payload.shipmentId)}\n` +
-          `Spedizione: ${String(payload.shipmentId ?? '')}` +
+          `Spedizione: ${codename}` +
           privacyFooter(),
       };
     case 'storage_expiry_warning': {
@@ -145,9 +162,8 @@ async function render(
           : `Se ti conviene, puoi ritirarlo in anticipo con il tuo codice personale:\n` +
             `${recipientLink(payload.shipmentId)}\n`;
       return {
-        subject: 'Mercurio — giacenza in scadenza: il pacco sta per essere svincolato',
-        text:
-          intro + action + `Spedizione: ${String(payload.shipmentId ?? '')}` + privacyFooter(),
+        subject: `Mercurio ${codename} — giacenza in scadenza: il pacco sta per essere svincolato`,
+        text: intro + action + `Spedizione: ${codename}` + privacyFooter(),
       };
     }
     default:

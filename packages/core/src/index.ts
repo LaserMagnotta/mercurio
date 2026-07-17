@@ -2,6 +2,7 @@
 // the state machine, economics, matching and ledger are pure functions
 // (state, event) -> (new state, effects), so that 100% of the money logic
 // is unit-testable (CLAUDE.md: "no money logic without tests").
+export * from './codename/codename.js';
 export * from './economics/economics.js';
 export * from './matching/distance.js';
 export * from './matching/matching.js';

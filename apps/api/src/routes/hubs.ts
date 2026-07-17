@@ -77,6 +77,7 @@ export function registerHubRoutes(app: App) {
       hubId: hub.id,
       acceptRequests: pendingAccept.map((s) => ({
         shipmentId: s.id,
+        codename: s.codename,
         destHubId: s.destHubId,
         dims: { lengthCm: s.dimLCm, widthCm: s.dimWCm, heightCm: s.dimHCm },
         weightG: s.weightG,
@@ -88,6 +89,7 @@ export function registerHubRoutes(app: App) {
       stays: stays.map(({ stay, shipment }) => ({
         hubStayId: stay.id,
         shipmentId: stay.shipmentId,
+        codename: shipment.codename,
         status: stay.status,
         shipmentStatus: shipment.status,
         storageDeadlineAt: stay.storageDeadlineAt?.toISOString() ?? null,

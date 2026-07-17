@@ -36,6 +36,13 @@ export const shipments = pgTable('shipments', {
   // the OTP — the plaintext lives solely in the tracking email.
   recipientClaimTokenHash: text('recipient_claim_token_hash'),
   qrToken: text('qr_token').notNull().unique(),
+  // Human-sayable handle ("Tasso-Ambrato-742"), shown everywhere a shipment is
+  // cited (board, tracking, hub dashboard, emails). The UUID and qrToken stay
+  // the real identifiers: the codename is a LABEL, never a credential — it is
+  // short and guessable on purpose, so nothing authorizes on it. Minted
+  // server-side at POST /shipments with a collision-retry loop; the unique
+  // index is the backstop for the race the probe cannot close.
+  codename: text('codename').notNull().unique(),
 
   dimLCm: integer('dim_l_cm').notNull(),
   dimWCm: integer('dim_w_cm').notNull(),

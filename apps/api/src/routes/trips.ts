@@ -538,6 +538,7 @@ async function buildBoard(app: App, trip: typeof carrierTrips.$inferSelect, carr
     });
     return {
       shipmentId: c.shipmentId,
+      codename: meta.row.codename,
       isMatch: c.isMatch,
       bestDropHub: option(c.bestDropHub),
       alternatives: c.alternatives.map(option),

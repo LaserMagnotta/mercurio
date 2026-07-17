@@ -29,6 +29,7 @@ import {
   statusDescriptionKey,
 } from '../../../lib/shipment-status';
 import { Amount } from '../../../components/Amount';
+import { Codename } from '../../../components/Codename';
 import { StatusBadge } from '../../../components/StatusBadge';
 import { RatingStars } from '../../../components/RatingStars';
 import { QrCode } from '../../../components/QrCode';
@@ -196,7 +197,12 @@ export function ShipmentClient({
 
       <section>
         <div className="row-between">
-          <h1>{t('title')}</h1>
+          <div>
+            <p className="muted">{t('title')}</p>
+            <h1>
+              <Codename value={detail.codename} className="codename-lg" />
+            </h1>
+          </div>
           <StatusBadge status={detail.status} />
         </div>
         <p className="muted">{tStatuses(statusDescriptionKey(detail.status))}</p>

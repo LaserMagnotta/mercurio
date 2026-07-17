@@ -8,6 +8,7 @@ import { getMyShipments, type MeShipments } from '../lib/api/endpoints';
 import { useApiErrorMessage } from '../lib/api-error-message';
 import { useSession } from '../lib/session';
 import { Amount } from '../components/Amount';
+import { Codename } from '../components/Codename';
 import { StatusBadge } from '../components/StatusBadge';
 
 const PAGE_SIZE = 5;
@@ -105,12 +106,13 @@ export default function HomePage() {
                 {items.map((s) => (
                   <li key={s.id} className="card stack-sm">
                     <div className="row-between">
+                      <Codename value={s.codename} />
                       <StatusBadge status={s.status} />
-                      <span className="muted small">{formatDateTime(s.createdAt, locale)}</span>
                     </div>
                     <p className="small">
                       {t('routeLine', { origin: s.originHubName, dest: s.destHubName })}
                     </p>
+                    <span className="muted small">{formatDateTime(s.createdAt, locale)}</span>
                     <div className="row-between">
                       <Amount msat={s.offerMsat} />
                       <Link className="btn btn-sm" href={`/shipments/${s.id}`}>

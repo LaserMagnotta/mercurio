@@ -119,6 +119,7 @@ export function registerMeRoutes(app: App) {
       return {
         items: rows.map((s) => ({
           id: s.id,
+          codename: s.codename,
           status: s.status.toUpperCase(),
           originHubId: s.originHubId,
           originHubName: hubName(s.originHubId),

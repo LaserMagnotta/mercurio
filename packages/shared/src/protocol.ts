@@ -39,6 +39,14 @@ export type ConditionalPaymentState = (typeof CONDITIONAL_PAYMENT_STATES)[number
  *  hub-bond hold invoice (ESCROW.md §4). */
 export const MAX_STORAGE_HOURS = 7 * 24;
 
+/** Canonical shape of a shipment codename: "Animale-Aggettivo-123" (Fase 1
+ *  punto 1). Both lists are pure ASCII, so a codename is always URL/email safe.
+ *  The generator and its curated word lists live in @mercurio/core; this is the
+ *  shared validation contract (the API DTOs and the core generator both anchor
+ *  to it). A codename is a LABEL, never a credential — nothing authorizes on
+ *  it (ARCHITECTURE.md §7). */
+export const CODENAME_PATTERN = /^[A-Z][a-z]+-[A-Z][a-z]+-\d{3}$/;
+
 /** ToS cap on declared parcel value, in EUR (RISKS.md §2). */
 export const MAX_DECLARED_VALUE_EUR = 45;
 

@@ -19,6 +19,7 @@ import {
 import { useApiErrorMessage } from '../../lib/api-error-message';
 import { formatDateTime } from '../../lib/format';
 import { Amount } from '../../components/Amount';
+import { Codename } from '../../components/Codename';
 import { StatusBadge } from '../../components/StatusBadge';
 import type { ShipmentState } from '../../lib/shipment-status';
 
@@ -106,11 +107,12 @@ export function HubDashboard() {
                 {data.acceptRequests.map((req) => (
                   <li key={req.shipmentId} className="stack-sm">
                     <div className="row-between">
-                      <strong>{t('acceptDest', { hub: hubName(req.destHubId) })}</strong>
+                      <Codename value={req.codename} />
                       {req.undeclared && (
                         <span className="badge badge-warning">{t('undeclaredBadge')}</span>
                       )}
                     </div>
+                    <strong>{t('acceptDest', { hub: hubName(req.destHubId) })}</strong>
                     <p className="small muted">
                       {t('parcelLine', {
                         l: req.dims.lengthCm,
@@ -152,14 +154,15 @@ export function HubDashboard() {
                 {data.stays.map((stay) => (
                   <li key={stay.hubStayId} className="stack-sm">
                     <div className="row-between">
-                      <StatusBadge
-                        status={stay.shipmentStatus.toUpperCase() as ShipmentState}
-                      />
+                      <Codename value={stay.codename} />
                       <span className="badge badge-neutral">{t(`stayStatus.${stay.status}`)}</span>
                     </div>
-                    <p className="small">
-                      <strong>{t('acceptDest', { hub: hubName(stay.destHubId) })}</strong>
-                    </p>
+                    <div className="row-between">
+                      <strong className="small">
+                        {t('acceptDest', { hub: hubName(stay.destHubId) })}
+                      </strong>
+                      <StatusBadge status={stay.shipmentStatus.toUpperCase() as ShipmentState} />
+                    </div>
                     <p className="small muted">
                       {stay.storageDeadlineAt
                         ? t('storageUntil', {
