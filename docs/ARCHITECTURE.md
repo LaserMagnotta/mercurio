@@ -545,7 +545,9 @@ registrate:
     caricano DOPO la certificazione su `POST /shipments/:id/photos/:sha256`
     (il server verifica hash, formato e assenza di GPS EXIF — mai
     ri-encoda) e si scaricano solo via API con authz di sessione; retention
-    e purge in ADR-020 §5.
+    e purge in ADR-020 §5. Le foto opzionali del mittente alla creazione
+    (`content`/`sealed`) si dichiarano in `POST /shipments` e certificano
+    nel payload dell'evento `created` (ADR-022).
 13. **Auto-accettazione dell'hub di origine**: se `auto_accept` e vincoli
     rispettati, `origin_hub_accept` parte nella stessa richiesta di
     `POST /shipments` (transazione separata: un fallimento lascia DRAFT e

@@ -28,6 +28,10 @@ are pushed after the transition, and participants see the thumbnails in the
 custody timelines and the hub ops gallery. QR fields accept the scanned
 `/p/<token>` URL or the bare token, and since ADR-021 they also offer an
 in-page camera scanner where the browser ships the native BarcodeDetector.
+Since ADR-022 the "Spedisci" form also takes the sender's optional creation
+photos (content / sealed parcel): same on-device hash + post-creation upload
+pipeline, certified by the genesis `created` custody event — counterparties
+see them in the hub ops gallery and in the custody timelines.
 
 Also closed the same day (ADR-018 §5): the home page and `/carrier` now read
 a user's own shipments and declared trips from the account (`GET

@@ -96,7 +96,7 @@ pre-ADR (hash senza byte) — e il client può ritentare finché ha il file.
 | `hub_checkin_intermediate` / `arrived_destination` | `checkin`  | hub d'arrivo (actor)                                                                         |
 | `leg_returned`                                   | `checkin`  | hub di partenza (actor)                                                                      |
 | `handoff_rejected`                               | `evidence` | chi ha rifiutato (actor)                                                                     |
-| — (`content`, `sealed`)                          | riservati  | foto del mittente alla creazione: il form Spedisci non ha ancora la cattura — lavoro futuro |
+| `created` (chiavi `contentPhotoSha256`/`sealedPhotoSha256`) | `content` / `sealed` | mittente (actor) — foto alla creazione, ADR-022                                   |
 
 ### 4. Visualizzazione: solo via API, con la sessione — la mappa authz
 
