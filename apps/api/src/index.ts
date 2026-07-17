@@ -6,8 +6,12 @@
 // @mercurio/core and is pure.
 
 import { FakeLightningNetwork } from '@mercurio/escrow';
-import { buildApp } from './app';
-import { startWorkers } from './worker';
+import { buildApp } from './app.js';
+import { assertProductionSafeEnv } from './lib/production-guard.js';
+import { startWorkers } from './worker.js';
+
+// Before anything else: the dev-only switches must not be live in production.
+assertProductionSafeEnv();
 
 // FAKE_WALLETS=true backs `kind: 'fake'` connections with an in-memory
 // Lightning network (dev only): flows are exercisable without regtest nodes.
