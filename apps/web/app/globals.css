@@ -213,7 +213,20 @@ a {
   font-size: 0.8rem;
   display: flex;
   justify-content: space-between;
+  align-items: baseline;
+  flex-wrap: wrap;
   gap: var(--space-3);
+}
+
+.app-footer a {
+  color: inherit;
+}
+
+/* Legal pages (/tos, /privacy): section bodies carry list-style lines
+   separated by single newlines — pre-line renders them without a markdown
+   pipeline (LegalDocument.tsx). */
+.legal-paragraph {
+  white-space: pre-line;
 }
 
 @media (min-width: 700px) {

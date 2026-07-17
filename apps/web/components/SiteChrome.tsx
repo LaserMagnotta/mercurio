@@ -92,9 +92,13 @@ export function SiteFooter() {
   return (
     <footer className="app-footer no-print">
       <span>{t('tagline')}</span>
-      <button type="button" className="link-button" onClick={switchLocale}>
-        {t('switchLanguage')}
-      </button>
+      <span className="row">
+        <Link href="/tos">{t('tosLink')}</Link>
+        <Link href="/privacy">{t('privacyLink')}</Link>
+        <button type="button" className="link-button" onClick={switchLocale}>
+          {t('switchLanguage')}
+        </button>
+      </span>
     </footer>
   );
 }

@@ -13,9 +13,10 @@ import { verifyMagicLink } from '../../../lib/api/endpoints';
 import { ApiError } from '../../../lib/api/client';
 import { useSession } from '../../../lib/session';
 
-/** Versions recorded in consent_events; bump when the documents change. */
-const TOS_VERSION = '2026-07-14';
-const PRIVACY_VERSION = '2026-07-14';
+/** Versions recorded in consent_events; bump when the documents change.
+ *  Must match the versions published on /tos and /privacy (legal catalogs). */
+const TOS_VERSION = '2026-07-17';
+const PRIVACY_VERSION = '2026-07-17';
 
 type Phase = 'verifying' | 'consent' | 'error';
 
@@ -29,6 +30,7 @@ const KNOWN_AUTH_ERRORS = new Set([
 
 export function VerifyClient() {
   const t = useTranslations('auth');
+  const tCommon = useTranslations('common');
   const router = useRouter();
   const params = useSearchParams();
   const { refresh } = useSession();
@@ -37,6 +39,9 @@ export function VerifyClient() {
   const [phase, setPhase] = useState<Phase>('verifying');
   const [errorCode, setErrorCode] = useState<string>('invalid_token');
   const [accepted, setAccepted] = useState(false);
+  // Specific approval of the onerous clauses (ToS §15, artt. 1341-1342 c.c.):
+  // a separate, dedicated tick — not folded into the general acceptance.
+  const [approvedClauses, setApprovedClauses] = useState(false);
   const attempted = useRef(false);
 
   const finishLogin = async () => {
@@ -67,7 +72,7 @@ export function VerifyClient() {
 
   const submitConsent = async (e: FormEvent) => {
     e.preventDefault();
-    if (!token || !accepted) return;
+    if (!token || !accepted || !approvedClauses) return;
     try {
       await verifyMagicLink(token, {
         tosVersion: TOS_VERSION,
@@ -95,7 +100,18 @@ export function VerifyClient() {
       <div className="card stack-sm">
         <h1>{t('consentTitle')}</h1>
         <p className="muted">{t('consentBody')}</p>
-        <form onSubmit={submitConsent}>
+        <p className="row small">
+          {/* New tab on purpose: navigating away would abandon the pending,
+              still-unconsumed magic-link token of this page. */}
+          <Link href="/tos" target="_blank" rel="noopener">
+            {tCommon('tosLink')}
+          </Link>
+          <Link href="/privacy" target="_blank" rel="noopener">
+            {tCommon('privacyLink')}
+          </Link>
+        </p>
+        <p className="muted small">{t('consentReadNote')}</p>
+        <form onSubmit={submitConsent} className="stack-sm">
           <div className="checkbox-row">
             <input
               id="consent"
@@ -105,7 +121,18 @@ export function VerifyClient() {
             />
             <label htmlFor="consent">{t('consentCheckbox')}</label>
           </div>
-          <button className="btn btn-primary btn-block" disabled={!accepted}>
+          <div className="checkbox-row">
+            <input
+              id="consent-clauses"
+              type="checkbox"
+              checked={approvedClauses}
+              onChange={(e) => setApprovedClauses(e.target.checked)}
+            />
+            <label htmlFor="consent-clauses" className="small">
+              {t('consentSpecificCheckbox')}
+            </label>
+          </div>
+          <button className="btn btn-primary btn-block" disabled={!accepted || !approvedClauses}>
             {t('consentSubmit')}
           </button>
         </form>

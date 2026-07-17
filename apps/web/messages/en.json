@@ -20,7 +20,9 @@
     "ratingNone": "New",
     "ratingAria": "{stars} stars out of 5, {count} reviews",
     "ratingCount": "({count})",
-    "switchLanguage": "Italiano"
+    "switchLanguage": "Italiano",
+    "tosLink": "Terms of Service",
+    "privacyLink": "Privacy policy"
   },
   "nav": {
     "home": "Home",
@@ -67,7 +69,9 @@
     "requestNew": "Request a new link",
     "consentTitle": "Welcome to Mercurio",
     "consentBody": "This address is signing in for the first time: creating the account requires accepting the Terms of Service and the privacy policy (GDPR).",
+    "consentReadNote": "They open in a new tab: this page stays valid.",
     "consentCheckbox": "I accept the Terms of Service and the privacy policy",
+    "consentSpecificCheckbox": "I specifically approve the clauses listed in ToS §15 (artt. 1341-1342 of the Italian Civil Code): the Operator not being a party, liability following certified custody, deterministic outcomes with no arbiter and no insurance, pickup as final acceptance, end-of-storage release, liability limitations, amendments and venue.",
     "consentSubmit": "Create the account",
     "errors": {
       "invalid_token": "Invalid link.",
@@ -137,7 +141,7 @@
     "contentPhotosLabel": "Photos of the content (optional)",
     "sealedPhotosLabel": "Photos of the sealed parcel (optional)",
     "storageLabel": "Max storage per hub (hours)",
-    "storageHint": "Once storage expires the parcel becomes releasable to the hub (ToS). Maximum {max} hours.",
+    "storageHint": "Once storage expires the parcel becomes releasable to the hub under the Terms of Service (§10): you get an email warning 72 and 24 hours ahead, and a 7-day window to recover it remains. Maximum {max} hours.",
     "offerLabel": "Offer (sats)",
     "offerHint": "A spending commitment paid leg by leg: the more you offer, the higher you rank on carriers' boards.",
     "suggestionTitle": "Suggested offer",
@@ -260,7 +264,7 @@
     },
     "FORFEITED": {
       "label": "Forfeited",
-      "description": "Storage expired: the parcel is released to the hub under the ToS."
+      "description": "Storage expired: the parcel is released to the hub under the Terms of Service (§10). The sender has 7 days to recover it by paying the extra storage directly to the hub."
     },
     "LOST": {
       "label": "Lost",
@@ -397,7 +401,7 @@
     "maxHeightLabel": "Max height (cm)",
     "maxWeightLabel": "Max weight (g)",
     "storageLabel": "Max storage (hours)",
-    "storageHint": "Past the storage window the parcel becomes releasable in your favor (ToS). Maximum {max} hours.",
+    "storageHint": "Past the storage window the parcel becomes releasable in your favor under the Terms of Service (§10: recovery window and valuation with any excess owed to the sender). Maximum {max} hours.",
     "undeclaredLabel": "I accept parcels with undeclared content",
     "feeLabel": "Requested percentage (%)",
     "feeHint": "Withheld from the gross of every leg departing from or arriving at your hub. Maximum {max}%.",
@@ -468,7 +472,7 @@
     "arrivalCta": "Certify the arrival",
     "arrivalDone": "Arrival certified: the carrier collects and the parcel is in storage with you.",
     "returnTitle": "Carrier return",
-    "returnIntro": "The carrier brings back the parcel they picked up from you: you are bound to take it back (ToS). The leg payment and the carrier bond are cancelled.",
+    "returnIntro": "The carrier brings back the parcel they picked up from you: you are bound to take it back (Terms of Service §8). The leg payment and the carrier bond are cancelled.",
     "returnCta": "Take the parcel back",
     "returnDone": "Return recorded: the parcel is in storage with you again.",
     "pickupTitle": "Recipient pickup",
@@ -530,6 +534,127 @@
     "deleteConfirmLabel": "I understand: this cannot be undone.",
     "deleteCta": "Delete permanently",
     "deleting": "Deleting…"
+  },
+  "legal": {
+    "versionLine": "Version {version}",
+    "operator": "Operator of this instance (and data controller): to be filled in at instance deploy time.",
+    "note": "Courtesy translation: the Italian version prevails.",
+    "tos": {
+      "title": "Terms of Service",
+      "version": "2026-07-17",
+      "sections": [
+        {
+          "title": "1. What Mercurio is, who the Operator is",
+          "body": "Mercurio is open source software coordinating a peer-to-peer logistics network: senders entrust parcels to drop-off points (hubs) and occasional travellers (carriers), who move them towards the destination leg by leg. Payments happen on the Lightning Network directly between users.\n\nThe Operator is the party running this instance of Mercurio, identified at the bottom of this page. The Operator provides the coordination software: it is not a party to the contracts between users (§3), it never holds funds (§5), it does not decide disputes (§8). The coordination service is free: the platform fee is 0%."
+        },
+        {
+          "title": "2. Roles and definitions",
+          "body": "– Sender: creates the shipment, seals the parcel and hands it to the origin hub.\n– Hub: a business with long opening hours that stores parcels in transit in exchange for a percentage, configured in its profile, of the gross of every adjacent leg.\n– Carrier: picks shipments from the board and moves them between hubs, even for a partial leg only.\n– Recipient: receives email updates and collects the parcel at destination (free, no account needed); with an account and a wallet they can also collect it early from a hub along the route (§9).\n\nOne account can hold every role. The custody chain is the immutable record of every shipment event: the documentary proof of who certified what. The custody bond is the amount, set by the sender, that whoever takes custody of the parcel locks as a guarantee (§5)."
+        },
+        {
+          "title": "3. The contract is between peers; the platform is not a party",
+          "body": "Every shipment gives rise to a logistics contract concluded directly between the sender, the hubs and the carriers who take part in it: the hub's acceptance, the carrier's leg acceptance and every certification at a handoff are the parties' declarations of intent, recorded in the custody chain. Custody at a hub is a paid deposit (artt. 1766 ff. of the Italian Civil Code) ancillary to that contract.\n\nThe Operator undertakes no transport, storage or delivery obligation; it does not vet parcels, users or offers in advance; it does not warrant that a shipment will find carriers or reach its destination."
+        },
+        {
+          "title": "4. Access requirements",
+          "body": "The service is restricted to adults, with a verified email address. Whoever moves money (sender, carrier, hub, recipient collecting early) must connect their own Lightning wallet with hold-invoice support: the platform probes its capabilities when it is connected and has no access to the funds.\n\nOn Lightning the payer and the payee must be different users: the sender, the leg's carrier and the owners of the hubs involved in one shipment must be distinct accounts. Acceptance of these Terms and of the privacy policy happens at account creation and is recorded with date and version."
+        },
+        {
+          "title": "5. Payments, bonds, zero custody",
+          "body": "The platform never holds funds. Every economic commitment — leg payment, carrier bond, hub bond, early-pickup payment — is a conditional payment (hold invoice) directly between the two users involved; hub fees are instant payments at the handoff. The platform only holds the information that releases payments already locked towards beneficiaries fixed in advance, never money: if the instance stops working, every hold expires and the funds return to the payers automatically.\n\nThe sender's offer is a spending commitment paid leg by leg: 90% is the work pool, split in proportion to the kilometres of approach; 10% is the finalization bonus (70% to the carrier who delivers to the destination, 30% to the destination hub at pickup). Every leg's amounts are computed and frozen at acceptance: no renegotiation.\n\nWhoever takes custody of the parcel locks the bond set by the sender — at most €1,000 — which is released when custody passes with certification, and is collected by the sender only in the outcomes of §8. All amounts are denominated and settled in satoshi; the euro is indicative only, at the rate frozen when the shipment was created: whoever earns sats accepts the sats exchange risk. Every movement is recorded in a double-entry ledger."
+        },
+        {
+          "title": "6. Contents: self-declaration, exclusions, value cap",
+          "body": "The sender self-declares that the contents are lawful and remains solely responsible for them. Hubs and carriers are mere holders in good faith: they take custody of a sealed parcel on the strength of the sender's declarations and can always refuse it, without penalty (§7).\n\nIt is forbidden to ship: weapons, ammunition and explosives; narcotic or psychotropic substances; medicines; tobacco and excise goods; cash, bearer instruments, prepaid cards and valuables; live animals; dangerous, flammable or corrosive materials, including lithium batteries not installed or not protected; counterfeit or unlawfully sourced goods; any good whose shipment between private parties is forbidden by law. Perishable goods are allowed but travel at the sender's sole risk.\n\nThe value of the contents may not exceed €45 (a threshold aligned with the EU customs relief for occasional consignments between private individuals). The cap also serves as the objective valuation criterion in the end-of-storage release (§10). The value cap is not a care cap: the required bond can reach €1,000 (§5).\n\nDeclaring the contents is optional: parcels with undeclared contents only reach hubs that explicitly accept them, and are flagged on the board before a carrier accepts. The platform performs no general monitoring of the contents it coordinates; the safeguard is the documented right of refusal (§7) and the traceability of the custody chain."
+        },
+        {
+          "title": "7. Handoffs: accept or refuse, never judge",
+          "body": "At every handoff, whoever receives the parcel has exactly two moves: accept — certifying its integrity with photos; custody passes and the previous custodian's bond and payouts are released for good — or refuse, documenting it with photos and a reason: custody does NOT pass, the state does not change, no money moves and the sender is notified.\n\nLiability follows certified custody: whoever accepts without inspecting assumes the risk. From the moment of certification, any damage discovered later is attributed to the current custodian, whose bond is the only guarantee at stake. Refusal is free and carries no penalty; it is recorded in the custody chain and, if systematic and unjustified, weighs on reputation (§11).\n\nThe sender can document the initial state with optional photos of the contents and of the sealed parcel at creation: they are the sender's main documentary protection."
+        },
+        {
+          "title": "8. Deterministic outcomes: no arbiter, no dispute",
+          "body": "There are no arbiters, no dispute states, no contestation windows. Money moves only by mechanical rules:\n– delivery certified by the receiving hub: the carrier collects the leg's gross directly from the sender and their bond is released;\n– no pickup within 24 hours of funding: the carrier's bond is collected by the sender, the payment is cancelled and the parcel returns to the board;\n– no delivery within 48 hours of pickup: the carrier's bond is collected by the sender and the shipment closes as lost;\n– return to the leg's departure hub: payment and bond cancelled, no payout; the ceding hub is bound to take back what it certified at checkout;\n– storage expired: the parcel is released to the hub under §10.\n\nConsequences accepted by every party: in unprovable cases — damage that no mechanical rule attributes to anyone — nobody is compensated; the loss stays with the sender and reputation records the behaviour (§11). There is no transport insurance of any kind: the custody bond, sized by the sender, is the only peer-to-peer guarantee. Hub fees already paid at handoffs stay paid: they compensate a service already rendered."
+        },
+        {
+          "title": "9. Pickup, final acceptance, early pickup",
+          "body": "At destination the recipient inspects the parcel and then enters the OTP code received by email: that is the final acceptance and closes the shipment. There is no contestation window after pickup; before entering the code the recipient can refuse the handoff like anyone else (§7). Pickup is free.\n\nEarly pickup: with the personal code received in the tracking email, a recipient holding an account with a wallet can claim the parcel while it rests at a hub along the route, collecting the residual compensation: they are doing the last leg themselves. The physical pickup is final acceptance, like the OTP. The personal code is a bearer credential: whoever receives it must not share it.\n\nEarly pickup does not pause storage: if storage expires before the pickup, the parcel is released (§10) and the early-pickup payments are cancelled."
+        },
+        {
+          "title": "10. End of storage: release to the hub",
+          "body": "The sender chooses at creation the maximum storage time per hub (up to 7 days); the system rejects hubs with a shorter limit and the current deadline is always visible on the shipment and tracking pages. When it expires, the good itself compensates the hub for the storage: with the no-custody architecture there is no fund to forward. The release operates as a cascade:\n\n1. Warnings: sender and recipient receive a warning email 72 and 24 hours before the deadline. Until the deadline the sender can always get the parcel moving again (boost), change its destination or recall it towards the origin (reroute), or cancel the shipment if no carrier has picked it up yet.\n2. Expiry: the shipment enters the Released state, the hub's bond is freed and the platform's coordination ends; the following phases are direct obligations between hub and sender, governed by these Terms and performed outside the software.\n3. Recovery window — 7 days: for 7 calendar days from the expiry the sender (or someone they appoint) can still collect the parcel at the hub, paying the accrued extra storage directly to the hub. The hub is bound to hand it over against payment.\n4. Extra storage rate: €1.50 for every started day past the deadline (1/30 of the value cap), payable in sats at the current rate or in cash, directly to the hub. The rate is uniform and fixed here ex ante.\n5. Release in 'marcian' form: once the recovery window has lapsed, the hub may keep or realize the good to offset the accrued extra-storage credit. The valuation is anchored to the declarable value cap (€45, §6); if the value so estimated exceeds the accrued credit, the excess is owed to the sender. Alternatively the hub may opt for a documented donation to a charity, which extinguishes the mutual claims; disposal is allowed only for perishable or worthless goods, with a recorded justification.\n\nThe clause mirrors powers the law already grants to those who store or transport (artt. 1686, 1690, 2756, 2796-2797 of the Italian Civil Code), with extra safeguards: warnings, a recovery window, recall always available before expiry, a rate published ex ante, a valuation cap and any excess owed to the sender. This clause is specifically approved under artt. 1341-1342 of the Italian Civil Code (§15)."
+        },
+        {
+          "title": "11. Reviews",
+          "body": "Once a shipment is closed — whatever the outcome, including bad ones — every effective participant can review every other effective participant, in the role they actually had, within 30 days of closure. Ratings are separate per role (sender, carrier, hub); reviews are public, cannot be edited and cannot be deleted: they are a dated judgment, like a custody event. In a system without arbiters, reputation is the sanction: whoever publishes a review is responsible for what they write; defamatory content and third parties' personal data are forbidden."
+        },
+        {
+          "title": "12. The Operator's obligations and liability",
+          "body": "The software is provided \"as is\", with no guarantee of continuous availability (MIT license). The Operator is not liable for the users' obligations towards each other (transport, custody, delivery, payments) nor for damage from unforeseeable events, force majeure or misuse of the service.\n\nThe Operator has no discretionary power over money movements: every movement is decided by the rules of these Terms and executed by the software. The architecture guarantees that even if the instance is compromised or shut down, locked funds return to the payers or go to the beneficiaries already fixed (§5).\n\nNothing in these Terms excludes or limits the Operator's liability where the law does not allow it. The Operator may suspend accounts that violate §6 or use the service for unlawful activities; suspension never touches locked funds, which follow the outcomes of §8 regardless."
+        },
+        {
+          "title": "13. Personal data",
+          "body": "The processing of personal data is described in the privacy policy, which also covers the position of the recipient designated by the sender. The custody chain and the ledger contain no personal data and survive account deletion (anonymization)."
+        },
+        {
+          "title": "14. Amendments, governing law, venue",
+          "body": "The Operator may update these Terms; changes apply to new sign-ups and, for existing accounts, after email notice with 30 days' warning. Shipments in progress remain governed by the version accepted when they were created.\n\nThese Terms are governed by Italian law. For consumer users the competent venue is the consumer's place of residence or domicile; for other users, the venue of the Operator's seat."
+        },
+        {
+          "title": "15. Specifically approved clauses (artt. 1341-1342 Italian Civil Code)",
+          "body": "Under artt. 1341 and 1342 of the Italian Civil Code, the user specifically approves the following clauses: §3 (the Operator not being a party to the contracts between users); §7 (liability follows certified custody); §8 (deterministic outcomes, no arbiter, no compensation in unprovable cases, no insurance); §9 (pickup as final acceptance, no contestation window); §10 (release of the parcel at the end of storage, extra storage rate, valuation and realization in marcian form); §12 (the Operator's liability limitations); §14 (amendments and venue).\n\nThe approval happens with the dedicated checkbox at account creation, distinct from the general acceptance, and is recorded with date and version."
+        }
+      ]
+    },
+    "privacy": {
+      "title": "Privacy policy",
+      "version": "2026-07-17",
+      "sections": [
+        {
+          "title": "1. Data controller",
+          "body": "The controller is the Operator of this Mercurio instance, identified — with contact details — at the bottom of this page. Mercurio is open source software: each instance has its own controller."
+        },
+        {
+          "title": "2. Who this policy addresses",
+          "body": "– Registered users (senders, carriers, hubs, recipients collecting early): the policy is provided under art. 13 GDPR at account creation, where its acceptance is recorded.\n– Unregistered recipients: the sender enters the recipient's email for the shipment's notifications. For them the policy is provided under art. 14 GDPR at first contact: the shipment's first email, and every following one, link to this page. Source of the data: the sender. Categories of data: the email address, nothing else."
+        },
+        {
+          "title": "3. What data, for what purposes, on what bases",
+          "body": "– Email, language, sign-up date and recorded consents: account, magic-link authentication, operational notifications — performance of the contract (art. 6(1)(b)); kept until account deletion.\n– Hub data (business name, address, coordinates, opening hours, constraints, percentage): publication of the hub in the network, matching and leg computation — art. 6(1)(b); until deactivation or deletion.\n– Carrier trips (origin, destination, deviation, rate): matching with the board — art. 6(1)(b); until deletion.\n– Recipient's email (entered by the sender): shipment lifecycle notifications — legitimate interest in performing the shipment (art. 6(1)(f)); for the contract's parties, art. 6(1)(b).\n– Shipments, legs, storage stays and custody chain: coordination and documentary proof — art. 6(1)(b); the chain contains no personal data and remains after deletion.\n– Double-entry ledger: traceability and reconciliation of observed movements — art. 6(1)(b) and legitimate interest in the system's integrity (art. 6(1)(f)); kept without personal data after deletion.\n– Photos (contents, sealed parcel, handoffs): the parties' documentary protection — art. 6(1)(b); for the counterparties of an ongoing custody, art. 6(1)(f); kept at most 90 days from upload, or up to 30 days after the shipment closes if earlier (§5).\n– Wallet connection string: execution of the payments the user requests from their own wallet — art. 6(1)(b); encrypted at rest, removed at deletion.\n– Reviews: public per-role reputation — art. 6(1)(b); permanent, attached to an anonymized identifier after deletion.\n\nThere is no processing for marketing, profiling or automated decisions about people: the only automatisms (the state machine's deterministic outcomes) concern the shipment and are described in the Terms of Service (§8)."
+        },
+        {
+          "title": "4. Minimization by design",
+          "body": "The minimization principle (art. 5(1)(c) GDPR) is implemented in the software, not merely declared:\n– no geotags: photos are re-encoded on your device before the fingerprint is computed — EXIF metadata (GPS position, device details) never leave the phone; as an extra defence the server rejects uploads containing GPS coordinates;\n– no GPS tracking of carriers: only the trip's declared origin and destination are recorded, never the real-time position;\n– no faces required: the photos in the flow picture the parcel and are visible only to the shipment's participants, never to the public;\n– custody chain without personal data: events record facts and fingerprints (hashes), never emails or other personal data;\n– credentials never in cleartext in the database: pickup codes and personal codes are stored as hashes only; the QR on the parcel carries an opaque identifier that authorizes nothing on its own;\n– technical cookies only: session (httpOnly) and language; no profiling or third-party cookies;\n– URLs in emails carry only the shipment identifier: codes stay in the message body."
+        },
+        {
+          "title": "5. Photos: the full lifecycle",
+          "body": "1. The photo is re-encoded and stripped of metadata on the device, then its sha256 fingerprint is computed and enters the custody chain.\n2. The bytes are uploaded only after certification and served only via the API to the shipment's participants, with the session: never public URLs.\n3. Every photo is born with a deletion date: at most 90 days from upload; when the shipment closes, the date is tightened to closure + 30 days. A daily process deletes expired photos (art. 5(1)(e) GDPR).\n4. On account deletion, photos the user took for already-closed shipments are deleted immediately; those of shipments still in progress remain until their natural expiry, as the counterparties' documentary protection (art. 6(1)(f))."
+        },
+        {
+          "title": "6. Data recipients and transfers",
+          "body": "Data lives in the Operator's infrastructure; transactional emails are sent through the SMTP provider indicated at the bottom of this page. There are no other recipients: no selling, no third-party analytics.\n\nThe carrier's route map loads OpenStreetMap tiles: the browser contacts the OSM servers (which see the IP address) only when the map is open. The export to Google Maps happens only if the user clicks the link. Any transfers outside the EU depend on the providers chosen by the instance and are indicated at the bottom of this page."
+        },
+        {
+          "title": "7. Your rights",
+          "body": "– Access and portability (artt. 15 and 20): from the Account page you download in one click the complete JSON export of everything the instance keeps about you — account, hub, trips, shipments, reviews, consent history.\n– Erasure (art. 17): from the same page, with explicit confirmation. Erasure anonymizes: email and personal data are unlinked forever and sessions revoked; the ledger and the custody chain remain — they contain no personal data — attached to an anonymized identifier (§8).\n– Objection (art. 21): a recipient who does not want a shipment's emails can object at any time by writing to the controller; every shipment email links to this policy. The objection stops the notifications, not the physical shipment already entrusted to the network.\n– Rectification (art. 16) and every other right: by writing to the controller.\n– Complaint: to the supervisory authority (for Italy, the Garante per la protezione dei dati personali — gpdp.it)."
+        },
+        {
+          "title": "8. Deletion: what remains and why",
+          "body": "Account deletion removes or unlinks all personal data; what remains, anonymized, are the facts the system must be able to prove towards the other users too: the ledger entries (observed movements), the custody chain events (who certified what, as an anonymized identifier) and the published reviews. Any hub is deactivated. Photos follow §5."
+        },
+        {
+          "title": "9. Security",
+          "body": "The keys that release payments and the wallets' connection secrets are encrypted at rest (AES-256-GCM); the platform never has access to the funds: even a full database compromise cannot divert money to third parties. Pickup codes and personal codes are stored as hashes only, and the verification routes are rate limited. The session is an httpOnly cookie; photos are served only with session authorization on every request."
+        },
+        {
+          "title": "10. Minors",
+          "body": "The service is restricted to adults (Terms of Service §4); no processing of minors' data is envisaged."
+        },
+        {
+          "title": "11. Changes",
+          "body": "Changes to this policy are published on this page with a new version date; for substantial changes registered users are notified by email."
+        }
+      ]
+    }
   },
   "track": {
     "title": "Your parcel",

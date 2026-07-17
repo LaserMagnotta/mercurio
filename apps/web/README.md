@@ -33,6 +33,15 @@ photos (content / sealed parcel): same on-device hash + post-creation upload
 pipeline, certified by the genesis `created` custody event — counterparties
 see them in the hub ops gallery and in the custody timelines.
 
+Legal pages: `/tos` and `/privacy` render the project's legal texts
+(canonical sources: `docs/legal/TOS.md` and `docs/legal/PRIVACY.md`) from the
+message catalogs — full it/en parity enforced by `messages.test.ts`. They are
+linked from the footer and from the first-login GDPR consent step, which now
+collects TWO ticks: the general acceptance and the specific approval of the
+onerous clauses (ToS §15, artt. 1341-1342 c.c.). Both must be checked before
+the account is created; the accepted versions are recorded server-side in
+`consent_events`.
+
 Also closed the same day (ADR-018 §5): the home page and `/carrier` now read
 a user's own shipments and declared trips from the account (`GET
 /me/shipments`, `GET /me/trips`, paginated) instead of remembering ids in
@@ -81,7 +90,8 @@ Emails (magic links, tracking) land in Mailpit: http://localhost:8025.
 The demo seed creates three users with a hub each (Milano, Bologna, Firenze)
 but no wallets and no sessions. The full happy path, all through the UI
 (each actor is a browser session: sign in via the Mailpit magic link, accept
-the GDPR consent on first login, connect a fake wallet from _Wallet_):
+the GDPR consent on first login — both ticks: general acceptance + specific
+clause approval — connect a fake wallet from _Wallet_):
 
 1. **Sender** (e.g. `sara@example.com` + fake wallet `sara`) — _Spedisci_:
    origin "Bar Mario" (Bologna), destination "Tabaccheria Giulia" (Firenze),

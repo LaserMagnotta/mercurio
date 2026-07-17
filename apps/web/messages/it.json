@@ -20,7 +20,9 @@
     "ratingNone": "Nuovo",
     "ratingAria": "{stars} stelle su 5, {count} recensioni",
     "ratingCount": "({count})",
-    "switchLanguage": "English"
+    "switchLanguage": "English",
+    "tosLink": "Termini di servizio",
+    "privacyLink": "Informativa privacy"
   },
   "nav": {
     "home": "Home",
@@ -67,7 +69,9 @@
     "requestNew": "Richiedi un nuovo link",
     "consentTitle": "Benvenuto su Mercurio",
     "consentBody": "È la prima volta che questo indirizzo accede: per creare l'account serve l'accettazione dei Termini di servizio e dell'informativa privacy (GDPR).",
+    "consentReadNote": "Si aprono in una nuova scheda: questa pagina resta valida.",
     "consentCheckbox": "Accetto i Termini di servizio e l'informativa privacy",
+    "consentSpecificCheckbox": "Approvo specificamente le clausole elencate al §15 dei Termini (artt. 1341-1342 c.c.): estraneità del Gestore, responsabilità che segue la custodia certificata, esiti deterministici senza arbitro né assicurazione, ritiro come accettazione definitiva, svincolo a fine giacenza, limitazioni di responsabilità, modifiche e foro.",
     "consentSubmit": "Crea l'account",
     "errors": {
       "invalid_token": "Link non valido.",
@@ -137,7 +141,7 @@
     "contentPhotosLabel": "Foto del contenuto (facoltative)",
     "sealedPhotosLabel": "Foto del pacco sigillato (facoltative)",
     "storageLabel": "Giacenza massima per hub (ore)",
-    "storageHint": "Scaduta la giacenza il pacco diventa svincolabile a favore dell'hub (ToS). Massimo {max} ore.",
+    "storageHint": "Scaduta la giacenza il pacco diventa svincolabile a favore dell'hub secondo i Termini di servizio (§10): riceverai un preavviso via email 72 e 24 ore prima e resta una finestra di 7 giorni per recuperarlo. Massimo {max} ore.",
     "offerLabel": "Offerta (sats)",
     "offerHint": "È un impegno di spesa pagato tratta per tratta: più offri, più in alto compari nelle bacheche dei vettori.",
     "suggestionTitle": "Offerta consigliata",
@@ -260,7 +264,7 @@
     },
     "FORFEITED": {
       "label": "Svincolata",
-      "description": "Giacenza scaduta: il pacco è svincolato a favore dell'hub secondo i ToS."
+      "description": "Giacenza scaduta: il pacco è svincolato a favore dell'hub secondo i Termini di servizio (§10). Il mittente ha 7 giorni per recuperarlo pagando la giacenza extra direttamente all'hub."
     },
     "LOST": {
       "label": "Smarrita",
@@ -397,7 +401,7 @@
     "maxHeightLabel": "Altezza max (cm)",
     "maxWeightLabel": "Peso massimo (g)",
     "storageLabel": "Giacenza massima (ore)",
-    "storageHint": "Scaduta la giacenza il pacco è svincolabile a tuo favore (ToS). Massimo {max} ore.",
+    "storageHint": "Scaduta la giacenza il pacco è svincolabile a tuo favore secondo i Termini di servizio (§10: finestra di recupero e stima con eccedenza al mittente). Massimo {max} ore.",
     "undeclaredLabel": "Accetto pacchi con contenuto non dichiarato",
     "feeLabel": "Percentuale richiesta (%)",
     "feeHint": "Trattenuta sul lordo di ogni tratta in partenza e in arrivo dal tuo hub. Massimo {max}%.",
@@ -468,7 +472,7 @@
     "arrivalCta": "Certifica l'arrivo",
     "arrivalDone": "Arrivo certificato: il vettore incassa e il pacco è in giacenza da te.",
     "returnTitle": "Riconsegna del vettore",
-    "returnIntro": "Il vettore riporta il pacco che ti aveva ritirato: sei tenuto a riaccettarlo (ToS). Il pagamento della tratta e il bond del vettore si annullano.",
+    "returnIntro": "Il vettore riporta il pacco che ti aveva ritirato: sei tenuto a riaccettarlo (Termini di servizio §8). Il pagamento della tratta e il bond del vettore si annullano.",
     "returnCta": "Riaccetta il pacco",
     "returnDone": "Riconsegna registrata: il pacco è di nuovo in giacenza da te.",
     "pickupTitle": "Ritiro del destinatario",
@@ -530,6 +534,127 @@
     "deleteConfirmLabel": "Ho capito: l'operazione è irreversibile.",
     "deleteCta": "Cancella definitivamente",
     "deleting": "Cancellazione…"
+  },
+  "legal": {
+    "versionLine": "Versione {version}",
+    "operator": "Gestore di questa istanza (e Titolare del trattamento): da indicare al deploy dell'istanza.",
+    "note": "Documento ufficiale di questa istanza.",
+    "tos": {
+      "title": "Termini di servizio",
+      "version": "2026-07-17",
+      "sections": [
+        {
+          "title": "1. Che cos'è Mercurio, chi è il Gestore",
+          "body": "Mercurio è un software open source che coordina una rete logistica peer-to-peer: i mittenti affidano pacchi a punti di deposito (hub) e a viaggiatori occasionali (vettori), che li avvicinano alla destinazione tratta per tratta. I pagamenti avvengono su Lightning Network direttamente tra gli utenti.\n\nIl Gestore è il soggetto che opera questa istanza di Mercurio ed è identificato in fondo a questa pagina. Il Gestore mette a disposizione il software di coordinamento: non è parte dei contratti tra gli utenti (§3), non custodisce mai fondi (§5), non decide controversie (§8). Il servizio di coordinamento è gratuito: la fee di piattaforma è 0%."
+        },
+        {
+          "title": "2. Ruoli e definizioni",
+          "body": "– Mittente: crea la spedizione, sigilla il pacco e lo consegna all'hub di partenza.\n– Hub: attività con orari lunghi che custodisce pacchi in transito in cambio di una percentuale, configurata nel proprio profilo, sul lordo di ogni tratta adiacente.\n– Vettore: sceglie spedizioni dalla bacheca e le trasporta tra hub, anche solo per una tratta parziale.\n– Destinatario: riceve gli aggiornamenti via email e ritira il pacco a destinazione (gratis, senza bisogno di account); con un account e un wallet può ritirarlo in anticipo da un hub del percorso (§9).\n\nUno stesso account può avere tutti i ruoli. La catena di custodia è il registro immutabile di ogni evento della spedizione: la prova documentale di chi ha certificato cosa. Il bond di custodia è l'importo, fissato dal mittente, che chiunque prenda in custodia il pacco vincola come garanzia (§5)."
+        },
+        {
+          "title": "3. Il contratto è tra pari; la piattaforma non è parte",
+          "body": "Ogni spedizione dà luogo a un contratto di logistica concluso direttamente tra mittente, hub e vettori che vi prendono parte: l'accettazione dell'hub, l'accettazione della tratta da parte del vettore e ogni certificazione ai passaggi di mano sono le manifestazioni di volontà delle parti, registrate nella catena di custodia. La custodia del pacco presso un hub è un deposito oneroso (artt. 1766 ss. c.c.) accessorio a quel contratto.\n\nIl Gestore non assume obbligazioni di trasporto, deposito o consegna; non seleziona né controlla preventivamente pacchi, utenti od offerte; non garantisce che una spedizione trovi vettori o arrivi a destinazione."
+        },
+        {
+          "title": "4. Requisiti di accesso",
+          "body": "Il servizio è riservato ai maggiorenni, con email verificata. Chi muove denaro (mittente, vettore, hub, destinatario che ritira in anticipo) deve collegare un proprio wallet Lightning con supporto alle hold invoice: la piattaforma ne verifica le capacità al collegamento e non ha accesso ai fondi.\n\nSu Lightning chi paga e chi incassa devono essere utenti diversi: mittente, vettore della tratta e proprietari degli hub coinvolti in una stessa spedizione devono essere account distinti. L'accettazione di questi Termini e dell'informativa privacy avviene alla creazione dell'account ed è registrata con data e versione."
+        },
+        {
+          "title": "5. Pagamenti, bond, zero custodia",
+          "body": "La piattaforma non custodisce mai fondi. Ogni vincolo economico — pagamento di tratta, bond del vettore, bond dell'hub, pagamento del ritiro anticipato — è un pagamento condizionale (hold invoice) direttamente tra i due utenti interessati; le fee degli hub sono pagamenti istantanei al passaggio di mano. La piattaforma detiene soltanto le informazioni che sbloccano pagamenti già vincolati verso beneficiari fissati in anticipo, mai denaro: se l'istanza cessa di funzionare, ogni hold scade e i fondi tornano automaticamente ai pagatori.\n\nL'offerta del mittente è un impegno di spesa pagato tratta per tratta: il 90% è il pool di lavoro, ripartito in proporzione ai km di avvicinamento; il 10% è il premio di finalizzazione (70% al vettore che consegna a destinazione, 30% all'hub di destinazione al ritiro). Gli importi di ogni tratta sono calcolati e congelati all'accettazione: nessuna rinegoziazione.\n\nChi prende in custodia il pacco vincola il bond fissato dal mittente — al massimo 1.000 € — che si sblocca quando la custodia passa con certificazione e viene incassato dal mittente solo negli esiti del §8. Tutti gli importi sono espressi e regolati in satoshi; l'euro è solo indicativo, al cambio congelato alla creazione della spedizione: chi incassa sats accetta il rischio di cambio. Ogni movimento è registrato in un ledger contabile a partita doppia."
+        },
+        {
+          "title": "6. Contenuti: autodichiarazione, esclusioni, tetto di valore",
+          "body": "Il mittente autodichiara la liceità del contenuto e ne resta l'unico responsabile. Hub e vettori sono meri detentori in buona fede: prendono in custodia un pacco sigillato sulla base delle dichiarazioni del mittente e possono sempre rifiutarlo, senza penalità (§7).\n\nÈ vietato spedire: armi, munizioni ed esplosivi; sostanze stupefacenti o psicotrope; farmaci; tabacco e prodotti soggetti ad accisa; denaro contante, titoli al portatore, carte prepagate e valori; animali vivi; materiali pericolosi, infiammabili o corrosivi, incluse batterie al litio non installate o non protette; merce contraffatta o di provenienza illecita; qualunque bene la cui spedizione tra privati sia vietata dalla legge. I beni deperibili sono ammessi ma viaggiano a esclusivo rischio del mittente.\n\nIl valore del contenuto non può eccedere 45 € (soglia allineata alla franchigia doganale UE per le spedizioni occasionali tra privati). Il tetto vale anche come criterio oggettivo di stima nello svincolo di fine giacenza (§10). Il tetto di valore non è un tetto di cura: il bond richiesto può arrivare a 1.000 € (§5).\n\nDichiarare il contenuto è facoltativo: i pacchi con contenuto non dichiarato raggiungono solo gli hub che li accettano esplicitamente e sono segnalati in bacheca ai vettori prima dell'accettazione. La piattaforma non esercita alcuna sorveglianza generale sui contenuti intermediati; il presidio è il diritto di rifiuto documentato (§7) e la tracciabilità della catena di custodia."
+        },
+        {
+          "title": "7. Passaggi di mano: accettare o rifiutare, mai giudicare",
+          "body": "A ogni passaggio di mano chi riceve il pacco ha due sole mosse: accettare — certifica con foto l'integrità; la custodia passa e bond e pagamenti del custode precedente si sbloccano definitivamente — oppure rifiutare, documentando con foto e motivo: la custodia NON passa, lo stato non cambia, nessun denaro si muove e il mittente è avvisato.\n\nLa responsabilità segue la custodia certificata: chi accetta senza ispezionare si assume il rischio. Dal momento della certificazione ogni danno scoperto dopo è attribuito al custode corrente, il cui bond è l'unica garanzia in gioco. Il rifiuto è gratuito e non comporta penalità; è registrato nella catena di custodia e, se sistematico e immotivato, pesa sulla reputazione (§11).\n\nIl mittente può documentare lo stato iniziale con foto facoltative del contenuto e del pacco sigillato alla creazione: sono la sua principale tutela documentale."
+        },
+        {
+          "title": "8. Esiti deterministici: nessun arbitro, nessuna disputa",
+          "body": "Non esistono arbitri, stati di disputa né finestre di contestazione. Il denaro si muove solo per regole meccaniche:\n– consegna certificata dall'hub ricevente: il vettore incassa il lordo della tratta direttamente dal mittente e il suo bond si sblocca;\n– mancato ritiro entro 24 ore dal finanziamento della tratta: il bond del vettore è incassato dal mittente, il pagamento è annullato e il pacco torna in bacheca;\n– mancata consegna entro 48 ore dal ritiro: il bond del vettore è incassato dal mittente e la spedizione si chiude come smarrita;\n– riconsegna all'hub di partenza della tratta: pagamento e bond annullati, nessun compenso; l'hub cedente è tenuto a riaccettare ciò che ha certificato al check-out;\n– giacenza scaduta: il pacco è svincolato all'hub secondo il §10.\n\nConseguenze accettate da tutte le parti: nei casi non provabili — un danno emerso dove nessuna regola meccanica individua un responsabile — nessuno viene risarcito; la perdita resta al mittente e la reputazione registra i comportamenti (§11). Non esiste alcuna assicurazione sul trasporto: il bond di custodia, dimensionato dal mittente, è l'unica garanzia peer-to-peer. Le fee hub già pagate ai passaggi di mano restano pagate: retribuiscono un servizio già reso."
+        },
+        {
+          "title": "9. Ritiro, accettazione definitiva, ritiro anticipato",
+          "body": "A destinazione il destinatario ispeziona il pacco e poi digita il codice OTP ricevuto via email: è l'accettazione definitiva e chiude la spedizione. Non esiste una finestra di contestazione dopo il ritiro; prima di digitare il codice il destinatario può rifiutare il passaggio come chiunque altro (§7). Il ritiro è gratuito.\n\nRitiro anticipato: con il codice personale ricevuto nella mail di tracking, il destinatario titolare di account con wallet può reclamare il pacco fermo in un hub del percorso, incassando il compenso residuo: sta facendo lui l'ultima tratta. Il ritiro fisico è accettazione definitiva come l'OTP. Il codice personale è una credenziale al portatore: chi lo riceve è tenuto a non condividerlo.\n\nIl ritiro anticipato non sospende la giacenza: se la giacenza scade prima del ritiro, il pacco è svincolato (§10) e i pagamenti del ritiro anticipato vengono annullati."
+        },
+        {
+          "title": "10. Fine giacenza: svincolo a favore dell'hub",
+          "body": "Il mittente sceglie alla creazione il tempo massimo di giacenza per hub (fino a 7 giorni); il sistema rifiuta gli hub il cui limite è più corto e la scadenza corrente è sempre visibile nelle pagine della spedizione e del tracking. Alla scadenza il bene stesso compensa l'hub per lo stoccaggio: con l'architettura senza custodia non esiste un fondo da girargli. Lo svincolo opera in cascata:\n\n1. Preavvisi: mittente e destinatario ricevono un'email di preavviso 72 e 24 ore prima della scadenza. Fino alla scadenza il mittente può sempre far ripartire il pacco (boost), cambiarne la destinazione o richiamarlo verso l'origine (reroute), o annullare la spedizione se nessun vettore l'ha ancora ritirata.\n2. Scadenza: la spedizione passa nello stato Svincolata, il bond dell'hub si libera e il coordinamento della piattaforma termina; le fasi successive sono obbligazioni dirette tra hub e mittente, regolate da questi Termini e adempiute fuori dal software.\n3. Finestra di recupero — 7 giorni: per 7 giorni di calendario dalla scadenza il mittente (o un suo incaricato) può ancora ritirare il pacco presso l'hub, pagando direttamente all'hub la giacenza extra maturata. L'hub è tenuto a consegnarglielo contro pagamento.\n4. Tariffa di giacenza extra: 1,50 € per ogni giorno iniziato oltre la scadenza (1/30 del tetto di valore), pagabile in sats al cambio corrente o in contanti, direttamente all'hub. La tariffa è unica e fissata qui ex ante.\n5. Svincolo in forma marciana: decorsa la finestra di recupero, l'hub può trattenere o realizzare il bene a compensazione del credito di giacenza extra maturato. La stima del bene è ancorata al tetto di valore dichiarabile (45 €, §6); se il valore così stimato eccede il credito maturato, l'eccedenza è riconosciuta al mittente. In alternativa l'hub può optare per la donazione documentata a un ente benefico, che estingue le pretese reciproche; lo smaltimento è ammesso solo per beni deperibili o di valore nullo, con motivazione registrata.\n\nLa clausola riprende facoltà che l'ordinamento già riconosce a chi custodisce o trasporta (artt. 1686, 1690, 2756, 2796-2797 c.c.), con tutele aggiuntive: preavvisi, finestra di recupero, richiamo sempre disponibile prima della scadenza, tariffa pubblicata ex ante, tetto di stima ed eccedenza al mittente. Questa clausola è approvata specificamente ai sensi degli artt. 1341-1342 c.c. (§15)."
+        },
+        {
+          "title": "11. Recensioni",
+          "body": "A spedizione chiusa — in qualunque esito, anche negativo — ogni partecipante effettivo può recensire ogni altro partecipante effettivo, nel ruolo che ha davvero avuto, entro 30 giorni dalla chiusura. Il rating è separato per ruolo (mittente, vettore, hub); le recensioni sono pubbliche, non modificabili e non cancellabili: sono un giudizio datato, come un evento di custodia. In un sistema senza arbitri la reputazione è la sanzione: chi pubblica una recensione si assume la responsabilità di ciò che scrive; sono vietati contenuti diffamatori e dati personali di terzi nel testo."
+        },
+        {
+          "title": "12. Obblighi e responsabilità del Gestore",
+          "body": "Il software è fornito \"così com'è\", senza garanzia di disponibilità continuativa (licenza MIT). Il Gestore non risponde delle obbligazioni degli utenti tra loro (trasporto, custodia, consegna, pagamenti) né dei danni da caso fortuito, forza maggiore o uso improprio del servizio.\n\nIl Gestore non ha alcun potere discrezionale sui movimenti di denaro: ogni movimento è deciso dalle regole di questi Termini ed eseguito dal software. L'architettura garantisce che anche in caso di compromissione o cessazione dell'istanza i fondi vincolati tornino ai pagatori o vadano ai beneficiari già fissati (§5).\n\nNulla in questi Termini esclude o limita la responsabilità del Gestore nei casi in cui la legge non ne consente l'esclusione. Il Gestore può sospendere gli account che violano il §6 o usano il servizio per attività illecite; la sospensione non tocca mai i fondi vincolati, che seguono comunque gli esiti del §8."
+        },
+        {
+          "title": "13. Dati personali",
+          "body": "Il trattamento dei dati personali è descritto nell'informativa privacy, che copre anche la posizione del destinatario indicato dal mittente. La catena di custodia e il ledger non contengono dati personali e sopravvivono alla cancellazione dell'account (anonimizzazione)."
+        },
+        {
+          "title": "14. Modifiche, legge applicabile, foro",
+          "body": "Il Gestore può aggiornare questi Termini; le modifiche si applicano dalle nuove adesioni e, per gli account esistenti, dopo notifica via email con 30 giorni di preavviso. Le spedizioni in corso restano regolate dalla versione accettata alla loro creazione.\n\nQuesti Termini sono regolati dalla legge italiana. Per gli utenti consumatori è competente il foro del luogo di residenza o domicilio del consumatore; per gli altri utenti, il foro della sede del Gestore."
+        },
+        {
+          "title": "15. Clausole approvate specificamente (artt. 1341-1342 c.c.)",
+          "body": "Ai sensi degli artt. 1341 e 1342 c.c., l'utente approva specificamente le seguenti clausole: §3 (estraneità del Gestore ai contratti tra utenti); §7 (la responsabilità segue la custodia certificata); §8 (esiti deterministici, assenza di arbitro e di risarcimento nei casi non provabili, assenza di assicurazione); §9 (ritiro come accettazione definitiva, nessuna finestra di contestazione); §10 (svincolo del pacco a fine giacenza, tariffa di giacenza extra, stima e realizzo in forma marciana); §12 (limitazioni di responsabilità del Gestore); §14 (modifiche e foro).\n\nL'approvazione avviene con la spunta dedicata alla creazione dell'account, distinta dall'accettazione generale, ed è registrata con data e versione."
+        }
+      ]
+    },
+    "privacy": {
+      "title": "Informativa privacy",
+      "version": "2026-07-17",
+      "sections": [
+        {
+          "title": "1. Titolare del trattamento",
+          "body": "Il Titolare è il Gestore di questa istanza di Mercurio, identificato — con i relativi contatti — in fondo a questa pagina. Mercurio è software open source: ogni istanza ha il proprio Titolare."
+        },
+        {
+          "title": "2. A chi si rivolge questa informativa",
+          "body": "– Utenti registrati (mittenti, vettori, hub, destinatari che ritirano in anticipo): l'informativa è resa ai sensi dell'art. 13 GDPR alla creazione dell'account, dove ne viene registrata l'accettazione.\n– Destinatari non registrati: il mittente inserisce l'email del destinatario per le notifiche della spedizione. Per loro l'informativa è resa ai sensi dell'art. 14 GDPR al primo contatto: la prima email della spedizione e ogni email successiva contengono il link a questa pagina. Fonte del dato: il mittente. Categorie di dati: l'indirizzo email, nessun altro dato."
+        },
+        {
+          "title": "3. Quali dati, per quali finalità, su quali basi",
+          "body": "– Email, lingua, data di iscrizione e consensi registrati: account, autenticazione via magic link, notifiche operative — esecuzione del contratto (art. 6(1)(b)); conservati fino alla cancellazione dell'account.\n– Dati dell'hub (nome attività, indirizzo, coordinate, orari, vincoli, percentuale): pubblicazione dell'hub nella rete, matching e calcolo delle tratte — art. 6(1)(b); fino alla disattivazione o cancellazione.\n– Viaggi del vettore (origine, destinazione, deviazione, tariffa): matching con la bacheca — art. 6(1)(b); fino alla cancellazione.\n– Email del destinatario (inserita dal mittente): notifiche del ciclo di vita della spedizione — legittimo interesse all'esecuzione della spedizione (art. 6(1)(f)); per le parti del contratto, art. 6(1)(b).\n– Spedizioni, tratte, giacenze e catena di custodia: coordinamento e prova documentale — art. 6(1)(b); la catena non contiene dati personali e resta anche dopo la cancellazione.\n– Ledger contabile a partita doppia: tracciabilità e riconciliazione dei movimenti — art. 6(1)(b) e legittimo interesse all'integrità del sistema (art. 6(1)(f)); conservato senza dati personali dopo la cancellazione.\n– Foto (contenuto, pacco sigillato, passaggi di mano): tutela documentale delle parti — art. 6(1)(b); per le controparti di una custodia in corso, art. 6(1)(f); conservate al più 90 giorni dall'upload, o fino a 30 giorni dopo la chiusura della spedizione se precedente (§5).\n– Stringa di connessione del wallet: esecuzione dei pagamenti richiesti dall'utente dal proprio wallet — art. 6(1)(b); cifrata a riposo, eliminata alla cancellazione.\n– Recensioni: reputazione pubblica per ruolo — art. 6(1)(b); permanenti, agganciate a un identificativo anonimo dopo la cancellazione.\n\nNon esiste alcun trattamento per marketing, profilazione o decisioni automatizzate su persone: gli unici automatismi (gli esiti deterministici della macchina a stati) riguardano la spedizione e sono descritti nei Termini di servizio (§8)."
+        },
+        {
+          "title": "4. Minimizzazione by design",
+          "body": "Il principio di minimizzazione (art. 5(1)(c) GDPR) è implementato nel software, non solo dichiarato:\n– niente geotag: le foto sono ricodificate sul tuo dispositivo prima del calcolo dell'impronta — i metadati EXIF (posizione GPS, dati del dispositivo) non lasciano mai il telefono; in difesa aggiuntiva il server rifiuta gli upload che contengono coordinate GPS;\n– niente tracking GPS dei vettori: si registrano solo origine e destinazione dichiarate del viaggio, mai la posizione in tempo reale;\n– nessun volto richiesto: le foto previste dal flusso ritraggono il pacco e le vedono solo i partecipanti alla spedizione, mai il pubblico;\n– catena di custodia senza dati personali: gli eventi registrano fatti e impronte (hash), mai email o altri dati personali;\n– credenziali mai in chiaro nel database: codici di ritiro e codici personali sono conservati solo come hash; il QR sul pacco contiene un identificatore opaco che da solo non autorizza nulla;\n– cookie solo tecnici: sessione (httpOnly) e lingua; nessun cookie di profilazione o di terze parti;\n– le URL nelle email portano solo l'identificativo della spedizione: i codici restano nel corpo del messaggio."
+        },
+        {
+          "title": "5. Foto: ciclo di vita completo",
+          "body": "1. La foto è ricodificata e ripulita dai metadati sul dispositivo, poi ne viene calcolata l'impronta sha256, che entra nella catena di custodia.\n2. I byte sono caricati solo dopo la certificazione e serviti solo via API ai partecipanti della spedizione, con la sessione: mai URL pubbliche.\n3. Ogni foto nasce con una data di eliminazione: al più 90 giorni dall'upload; quando la spedizione si chiude, la data è anticipata a chiusura + 30 giorni. Un processo giornaliero elimina le foto scadute (art. 5(1)(e) GDPR).\n4. Alla cancellazione dell'account, le foto scattate dall'utente per spedizioni già chiuse sono eliminate subito; quelle di spedizioni in corso restano fino alla scadenza naturale, come tutela documentale delle controparti (art. 6(1)(f))."
+        },
+        {
+          "title": "6. Destinatari dei dati e trasferimenti",
+          "body": "I dati risiedono nell'infrastruttura del Gestore; le email transazionali sono inviate tramite il fornitore SMTP indicato in fondo a questa pagina. Non esistono altri destinatari: nessuna cessione, nessuna analisi di terze parti.\n\nLa mappa del percorso del vettore carica le tile di OpenStreetMap: il browser contatta i server OSM (che vedono l'indirizzo IP) solo quando la mappa è aperta. L'export verso Google Maps avviene solo se l'utente clicca il link. Eventuali trasferimenti extra-UE dipendono dai fornitori scelti dall'istanza e sono indicati in fondo a questa pagina."
+        },
+        {
+          "title": "7. I tuoi diritti",
+          "body": "– Accesso e portabilità (artt. 15 e 20): dalla pagina Account scarichi in un click l'export JSON completo di tutto ciò che l'istanza conserva su di te — account, hub, viaggi, spedizioni, recensioni, storico dei consensi.\n– Cancellazione (art. 17): dalla stessa pagina, con conferma esplicita. La cancellazione anonimizza: email e dati personali sono scollegati per sempre e le sessioni revocate; ledger e catena di custodia restano — non contengono dati personali — agganciati a un identificativo anonimo (§8).\n– Opposizione (art. 21): il destinatario che non vuole ricevere le email di una spedizione può opporsi in ogni momento scrivendo al Titolare; ogni email della spedizione contiene il link a questa informativa. L'opposizione ferma le notifiche, non la spedizione fisica già affidata alla rete.\n– Rettifica (art. 16) e ogni altro diritto: scrivendo al Titolare.\n– Reclamo: all'autorità di controllo (per l'Italia, il Garante per la protezione dei dati personali — gpdp.it)."
+        },
+        {
+          "title": "8. Cancellazione: che cosa resta e perché",
+          "body": "La cancellazione dell'account rimuove o scollega tutti i dati personali; restano, in forma anonimizzata, i fatti che il sistema deve poter provare anche verso gli altri utenti: le scritture del ledger (movimenti osservati), gli eventi della catena di custodia (chi ha certificato cosa, come identificativo anonimo) e le recensioni pubblicate. Un eventuale hub viene disattivato. Le foto seguono il §5."
+        },
+        {
+          "title": "9. Sicurezza",
+          "body": "Le chiavi che sbloccano i pagamenti e i segreti di connessione dei wallet sono cifrati a riposo (AES-256-GCM); la piattaforma non ha mai accesso ai fondi: anche una compromissione totale del database non permette di deviare denaro verso terzi. I codici di ritiro e i codici personali sono conservati solo come hash e le rotte di verifica sono protette da rate limit. La sessione è un cookie httpOnly; le foto sono servite solo con autorizzazione di sessione a ogni richiesta."
+        },
+        {
+          "title": "10. Minori",
+          "body": "Il servizio è riservato ai maggiorenni (Termini di servizio §4); non è previsto alcun trattamento di dati di minori."
+        },
+        {
+          "title": "11. Modifiche",
+          "body": "Le modifiche a questa informativa sono pubblicate su questa pagina con nuova data di versione; per i cambiamenti sostanziali gli utenti registrati sono avvisati via email."
+        }
+      ]
+    }
   },
   "track": {
     "title": "Il tuo pacco",
