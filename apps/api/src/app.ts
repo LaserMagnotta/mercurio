@@ -32,7 +32,7 @@ import { registerPhotoRoutes } from './routes/photos.js';
 import { createBlobStoreFromEnv, type BlobStore } from './lib/blob-store.js';
 import { createMailer, type SendMail } from './lib/mailer.js';
 import { createDbWalletResolver } from './lib/wallets.js';
-import { createEnvEurRateProvider, type EurRateProvider } from './lib/eur-rate.js';
+import { createEurRateProviderFromEnv, type EurRateProvider } from './lib/eur-rate.js';
 import type { LifecycleDeps } from './shipments/executor.js';
 
 /** Non-injectable knobs the routes need beyond LifecycleDeps. */
@@ -146,7 +146,10 @@ export async function buildApp(options: BuildAppOptions = {}) {
       nwcProbeTimeoutMs: options.nwcProbeTimeoutMs,
     }),
   });
-  app.decorate('eurRate', options.eurRate ?? createEnvEurRateProvider());
+  // EUR→sats snapshot (ADR-008): fixed rate or real tickers, from
+  // EUR_RATE_PROVIDER (ADR-025). Defaults to the fixed one, so nothing here
+  // reaches the network unless a deploy asked for it.
+  app.decorate('eurRate', options.eurRate ?? createEurRateProviderFromEnv());
   // Photo blobs (ADR-020, ADR-023): fs or S3-compatible driver from config,
   // content-addressed by sha256.
   app.decorate('blobStore', options.blobStore ?? createBlobStoreFromEnv());
