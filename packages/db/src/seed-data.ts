@@ -3,6 +3,20 @@ import { eq } from 'drizzle-orm';
 import type { Db } from './client.js';
 import { hubs, shipments, users } from './schema/index.js';
 
+// Haversine × 1.3 circuity (ADR-007), inlined so the db package does not
+// depend on @mercurio/core just for the seed. The demo shipment's frozen
+// distance MUST be what the API's provider would compute: a hardcoded 100 km
+// made remainingKm (105.23) exceed totalKm and broke the carrier board on a
+// freshly seeded database (remainingPool throws invalid_distance).
+function demoDistanceKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
+  const rad = (deg: number) => (deg * Math.PI) / 180;
+  const dLat = rad(b.lat - a.lat);
+  const dLng = rad(b.lng - a.lng);
+  const h =
+    Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 6371 * 2 * Math.asin(Math.sqrt(h)) * 1.3;
+}
+
 /**
  * Demo dataset: 3 users, 3 hubs, 1 shipment - mirrors the canonical example
  * in CLAUDE.md (Marco ships pens from a Bologna hub to a Firenze hub).
@@ -125,13 +139,21 @@ export async function seedDemoData(db: Db) {
     declaredContent: 'penne',
     undeclared: false,
     offerMsat: msatFor(5n),
+    // ADR-014 work split (90% of the offer): without it the column defaults
+    // to 0 and every board card prices the demo shipment's legs at zero.
+    segmentWorkMsat: (msatFor(5n) * 9n) / 10n,
     custodyBondMsat: msatFor(15n),
     maxStorageDays: 2,
     eurRateSnapshot: DEMO_SAT_PER_EUR.toString(),
     eurRateSource: 'demo-seed',
     eurRateAt: new Date(),
     status: 'draft',
-    distanceKm: 100, // matches the CLAUDE.md canonical example (haversine x 1.3, ADR-007)
+    // The provider's real Bologna→Firenze distance (~105 km — close to the
+    // canonical 100 km example, but frozen EXACTLY as the API would freeze it).
+    distanceKm: demoDistanceKm(
+      { lat: hubMario.lat, lng: hubMario.lng },
+      { lat: hubGiulia.lat, lng: hubGiulia.lng },
+    ),
   });
 
   console.log('Seeded 3 users, 3 hubs, 1 shipment.');
