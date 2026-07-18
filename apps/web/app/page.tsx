@@ -25,26 +25,32 @@ export default function HomePage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const loadMore = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await getMyShipments({ limit: PAGE_SIZE, offset: items.length });
-      setItems((prev) => [...prev, ...res.items]);
-      setTotal(res.total);
-    } catch (err) {
-      setError(errorMessage(err));
-    } finally {
-      setLoading(false);
-    }
-  }, [items.length]);
+  // Explicit offset, and offset 0 REPLACES instead of appending: the initial
+  // load stays idempotent (StrictMode double-mount was duplicating the first
+  // page) and the callback identity is stable.
+  const load = useCallback(
+    async (offset: number) => {
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await getMyShipments({ limit: PAGE_SIZE, offset });
+        setItems((prev) => (offset === 0 ? res.items : [...prev, ...res.items]));
+        setTotal(res.total);
+      } catch (err) {
+        setError(errorMessage(err));
+      } finally {
+        setLoading(false);
+      }
+    },
+    // errorMessage (useApiErrorMessage) is not memoized: keeping it out of
+    // the deps keeps `load` stable, which the [user, load] effect relies on.
+    [],
+  );
 
   useEffect(() => {
     if (!user) return;
-    void loadMore();
-    // Deliberately keyed on `user` alone: loadMore's identity churns with
-    // items.length and must not re-trigger this initial load.
-  }, [user]);
+    void load(0);
+  }, [user, load]);
 
   return (
     <div className="stack">
@@ -124,7 +130,12 @@ export default function HomePage() {
               </ul>
             )}
             {items.length < total && (
-              <button type="button" className="btn btn-sm" disabled={loading} onClick={loadMore}>
+              <button
+                type="button"
+                className="btn btn-sm"
+                disabled={loading}
+                onClick={() => void load(items.length)}
+              >
                 {loading ? tCommon('loading') : t('loadMore')}
               </button>
             )}
