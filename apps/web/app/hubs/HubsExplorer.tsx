@@ -9,10 +9,11 @@
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { latLngBounds, type LatLngBoundsExpression } from 'leaflet';
 import { searchHubs, type Hub } from '../../lib/api/endpoints';
 import { useApiErrorMessage } from '../../lib/api-error-message';
+import { formatKm } from '../../lib/format';
 import { HubCard } from '../../components/HubCard';
 
 const HubsMap = dynamic(() => import('../../components/HubsMap'), {
@@ -37,6 +38,7 @@ interface Viewport {
 
 export function HubsExplorer() {
   const t = useTranslations('hubs');
+  const locale = useLocale();
   const errorMessage = useApiErrorMessage();
 
   const [viewport, setViewport] = useState<Viewport>({
@@ -174,7 +176,8 @@ export function HubsExplorer() {
             <HubCard hub={hub} />
             <div className="row-between">
               <span className="muted small">
-                {hub.distanceKm !== undefined && t('distanceLine', { km: hub.distanceKm.toFixed(1) })}
+                {hub.distanceKm !== undefined &&
+                  t('distanceLine', { km: formatKm(hub.distanceKm, locale) })}
               </span>
               <Link className="btn btn-sm" href={`/hubs/${hub.id}`}>
                 {t('openHub')}

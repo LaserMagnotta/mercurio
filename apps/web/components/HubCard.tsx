@@ -4,13 +4,15 @@
 // limits, fee, storage ceiling and the owner's hub-role rating (ADR-017:
 // ratings visible wherever a counterparty is chosen).
 
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { type Hub, venuePhotoUrl } from '../lib/api/endpoints';
+import { formatPercent } from '../lib/format';
 import { OpeningHours } from './OpeningHours';
 import { RatingStars } from './RatingStars';
 
 export function HubCard({ hub }: { hub: Hub }) {
   const t = useTranslations('hubs');
+  const locale = useLocale();
   return (
     <article className="card stack-sm">
       <div className="row-between">
@@ -28,7 +30,7 @@ export function HubCard({ hub }: { hub: Hub }) {
       )}
       <p className="muted small">{hub.address}</p>
       <p className="small">
-        {t('fee', { percent: hub.feePercent })} ·{' '}
+        {t('fee', { percent: formatPercent(hub.feePercent, locale) })} ·{' '}
         {t('maxDims', {
           l: hub.maxDims.lengthCm,
           w: hub.maxDims.widthCm,

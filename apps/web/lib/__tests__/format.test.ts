@@ -89,3 +89,12 @@ describe('formatKm / formatDateTime', () => {
     expect(formatDateTime('2026-07-14T12:00:00.000Z', 'it')).toBeTruthy();
   });
 });
+
+describe('formatPercent', () => {
+  it('drops numeric-column trailing zeros, keeps real decimals per locale', async () => {
+    const { formatPercent } = await import('../format');
+    expect(formatPercent('10.00', 'it')).toBe('10');
+    expect(formatPercent('12.50', 'it')).toBe('12,5');
+    expect(formatPercent('not-a-number', 'it')).toBe('not-a-number');
+  });
+});
