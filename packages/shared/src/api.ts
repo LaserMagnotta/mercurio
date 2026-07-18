@@ -578,6 +578,64 @@ export const hubDto = z.object({
   /** sha256 of each public venue photo (ADR-028, Fase 2 punto 6): the bytes
    *  come from GET /hubs/:id/venue-photos/:sha256 (public — no session). */
   venuePhotos: z.array(sha256String),
+  /** Road-estimate distance from the `near` point of the query (ADR-030 —
+   *  hub discovery): present only when the caller asked to sort by distance. */
+  distanceKm: z.number().optional(),
+});
+
+/**
+ * Query of GET /hubs (ADR-030 — hub discovery at 10k-hub scale). All fields
+ * optional; with NO field at all the route keeps its legacy behavior (full
+ * unpaginated list — the internal pickers rely on it). The moment ANY field
+ * is present the response is paginated (default limit 50).
+ */
+export const hubsListQuery = z.object({
+  /** Viewport filter: "minLat,minLng,maxLat,maxLng" (WGS84 degrees). */
+  bbox: z
+    .string()
+    .regex(/^-?\d+(\.\d+)?,-?\d+(\.\d+)?,-?\d+(\.\d+)?,-?\d+(\.\d+)?$/)
+    .optional(),
+  /** Text search on name and address (case-insensitive substring). */
+  q: z.string().trim().min(1).max(100).optional(),
+  /** "lat,lng": sort by distance from this point and fill `distanceKm`. */
+  near: z
+    .string()
+    .regex(/^-?\d+(\.\d+)?,-?\d+(\.\d+)?$/)
+    .optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+  offset: z.coerce.number().int().min(0).optional(),
+});
+
+/** Response of GET /hubs: the page plus the pre-pagination total, so the UI
+ *  can say "N hub in this area" without ever rendering all of them. */
+export const hubsListDto = z.object({
+  hubs: z.array(hubDto),
+  total: z.number().int(),
+});
+
+/** One shipment waiting for a carrier at a hub (ADR-030 "reverse trip
+ *  planning"): what a carrier browsing the hub page sees BEFORE declaring a
+ *  trip. `maxGrossMsat` is the indicative ceiling — remaining work pool plus
+ *  the accrued carrier bonus — that a direct delivery to the destination
+ *  would gross (hub fees then apply per leg); the frozen per-leg numbers
+ *  still come only from the board/acceptance flow. */
+export const hubWaitingShipmentDto = z.object({
+  shipmentId: uuidString,
+  codename: codenameString,
+  destHubId: uuidString,
+  destHubName: z.string(),
+  remainingKm: z.number(),
+  dims: dimensionsSchema,
+  weightG: z.number().int(),
+  undeclared: z.boolean(),
+  custodyBondMsat: msatString,
+  maxGrossMsat: msatString,
+  eurRate: eurRateDto,
+});
+
+export const hubWaitingDto = z.object({
+  hubId: uuidString,
+  shipments: z.array(hubWaitingShipmentDto),
 });
 
 /** Public list of a hub's venue photos (ADR-028): hashes only; the bytes are a
@@ -597,6 +655,9 @@ export const venuePhotoUploadedDto = z.object({
 export type CreateShipmentBody = z.infer<typeof createShipmentBody>;
 export type LegAcceptBody = z.infer<typeof legAcceptBody>;
 export type DepositRejectBody = z.infer<typeof depositRejectBody>;
+export type HubsListQuery = z.infer<typeof hubsListQuery>;
+export type HubsListDto = z.infer<typeof hubsListDto>;
+export type HubWaitingDto = z.infer<typeof hubWaitingDto>;
 export type CreateTripBody = z.infer<typeof createTripBody>;
 export type ShipmentDetailDto = z.infer<typeof shipmentDetailDto>;
 export type BoardCardDto = z.infer<typeof boardCardDto>;
