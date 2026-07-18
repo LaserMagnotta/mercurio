@@ -67,10 +67,13 @@ non era mai stata eseguita: `pnpm dev` gira su tsx e i test su vitest) e i
 Fase 1 completa (codename delle spedizioni, giacenza in giorni — ADR-026,
 recensioni solo hub — ADR-027, audit importi EUR+sats) e Fase 2 in corso —
 orari di apertura dell'hub, **foto del locale + email di contatto + avviso di
-deposito via outbox** ([ADR-028](adr/ADR-028-hub-venue-and-deposit-notice.md))
-e **guadagno stimato/puntuale su ogni richiesta della dashboard hub**
-(`estimateHubFeeRange`, ECONOMICS §7). **Da implementare**: app
-mobile. **Todo umano**: revisione dei testi legali da parte di un legale;
+deposito via outbox** ([ADR-028](adr/ADR-028-hub-venue-and-deposit-notice.md)),
+**guadagno stimato/puntuale su ogni richiesta della dashboard hub**
+(`estimateHubFeeRange`, ECONOMICS §7) e **accetta/rifiuta dell'hub d'arrivo
+sulle richieste di deposito** ([ADR-029](adr/ADR-029-arrival-hub-deposit-request.md):
+fase `requested` senza denaro, finestra di risposta 30 min, `auto_accept`
+default false, richieste pendenti in cima alla dashboard). **Da implementare**:
+app mobile. **Todo umano**: revisione dei testi legali da parte di un legale;
 acquisto di VPS e dominio; un check di uptime esterno su `/api/health`.
 
 ## Documenti
@@ -118,7 +121,7 @@ acquisto di VPS e dominio; un check di uptime esterno su `/api/health`.
 | [ADR-026](adr/ADR-026-storage-in-days.md)           | Giacenza in giorni (cap 7 subito); i 30 giorni via bond a rinnovo rolling, da implementare a parte |
 | [ADR-027](adr/ADR-027-reviews-hub-only.md)          | Recensioni: l'unico soggetto recensibile è l'hub (emenda ADR-017) |
 | [ADR-028](adr/ADR-028-hub-venue-and-deposit-notice.md) | Foto del locale (tabella + store separati), email di contatto dell'hub, avviso di deposito via outbox |
-| [ADR-029](adr/ADR-029-arrival-hub-deposit-request.md) | Accetta/rifiuta dell'hub d'arrivo sulle richieste di deposito (fase `requested` senza denaro); **deciso, da implementare** (Fase 2 P8+P9) |
+| [ADR-029](adr/ADR-029-arrival-hub-deposit-request.md) | Accetta/rifiuta dell'hub d'arrivo sulle richieste di deposito: fase `requested` senza denaro, `leg_accept` → `leg_request`+`deposit_accept`, `auto_accept` default false |
 
 ## Stato delle decisioni
 

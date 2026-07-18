@@ -1,10 +1,8 @@
 # ADR-029 — Accetta/Rifiuta dell'hub d'arrivo sulle richieste di deposito
 
-- Stato: **ACCETTATO — 2026-07-18 (decisioni di Giacomo, riportate sotto in
-  §«Le decisioni aperte»).** Cambio di protocollo **deciso ma NON ancora
-  implementato**: l'implementazione (con il punto 9) è una sessione dedicata,
-  perché sposta la creazione delle hold dentro la macchina a stati (superficie
-  di denaro, ADR-010/013) e va trattata col rigore dei test di denaro.
+- Stato: **IMPLEMENTATO — 2026-07-18** (decisioni di Giacomo in §«Le decisioni
+  aperte»; precisazioni implementative in fondo). Migrazione `0010`
+  (`deposit_request`), punto 9 incluso (dashboard hub).
 - Contesto: CLAUDE.md «Hub — dettagli» (la dashboard mostra le richieste di
   deposito che l'hub accetta o no); ARCHITECTURE §4 (`auto_accept`) e §5 (riga 4
   `leg_accept`, riga 2 `origin_hub_accept`); [ADR-012](ADR-012-no-arbiter.md)
@@ -157,7 +155,7 @@ secondo handshake asincrono di ritiro**: eviterebbe di raddoppiare conferme e
 latenza per un guadagno minimo (l'hub di partenza ha già il pacco e vuole
 liberarsene; il rischio del vettore è coperto da bond + reputazione).
 
-## Cosa toccherebbe l'implementazione (per scoping — non ancora fatto)
+## Cosa tocca l'implementazione (fatta — 2026-07-18)
 
 - **Enum (solo ADD, trappola nota)**: `leg_status` += `requested`;
   `custody_event_type` += `deposit_requested` (l'accept riusa `leg_accepted`);
@@ -193,6 +191,44 @@ liberarsene; il rischio del vettore è coperto da bond + reputazione).
   spazio)**: metterebbe denaro in volo prima dell'accettazione, cioè un impegno
   che un rifiuto dovrebbe poi sciogliere — rompe la semplicità «la richiesta non
   muove denaro» e riapre la porta a msat in limbo. Scartata.
+
+## Precisazioni implementative (2026-07-18 — emerse implementando)
+
+Nessuna cambia il protocollo deciso; sono le scelte «più semplici coerenti»
+registrate per chi legge il codice:
+
+1. **Attore di `leg_accepted`**: ora è il **proprietario dell'hub d'arrivo**
+   (è lui che accetta), non più il vettore; il payload resta identico a prima.
+   Il vettore è l'attore di `deposit_requested`.
+2. **Catena di custodia con soli enum esistenti**: il rifiuto riusa
+   `handoff_rejected` (stesso primitivo ADR-012: chi dovrebbe ricevere
+   declina) con payload `{stage: 'deposit_request', reason}`; scadenza e
+   annullamento riusano `expired` con `reason: 'deposit_response'` /
+   `'deposit_request_cancelled'`.
+3. **La Π_h congelata vive nella catena**: il payload di `deposit_requested`
+   registra `finalizationHubBonusMsat` e il context builder la rilegge da lì
+   (come gli accumulatori ADR-014 — nessuna colonna). È sicuro perché
+   boost/reroute sono respinti finché la richiesta pende: niente può
+   spostarla sotto il valore congelato.
+4. **Schema `legs`**: `funding_deadline_at` diventa nullable (una tratta
+   `requested` non ha ancora la finestra) e nasce `response_deadline_at`;
+   `accepted_at` viene riscritto all'accettazione (le rate observations
+   misurano dalla prenotazione, non dalla richiesta). Migrazione `0010`.
+5. **Riga `rejections` anche sulla scadenza**, scritta dalla proiezione
+   dell'executor (non dalla rotta): `rejected_by` = proprietario dell'hub
+   silente, `reason` = token macchina `deposit_response_expired` — così anche
+   lo sweep del worker documenta se stesso.
+6. **Avviso al vettore**: nuovo template outbox `deposit_request_rejected`
+   (rifiuto ed esaurimento finestra; l'annullamento no: è suo). Nuovo ruolo
+   email `carrier` negli effetti, risolto dall'executor via
+   `ctx.pendingLegRequest.carrierId`.
+7. **Auto-fire in transazione separata** (come prec. 13 di ARCHITECTURE §5):
+   se il `deposit_accept` automatico fallisce, la tratta resta `requested` e
+   la finestra di 30 minuti la dissolve da sola — mai una tratta mezzo
+   prenotata.
+8. **`deposit_accept` oltre la scadenza è respinto** (guardia deterministica
+   speculare a `leg_funded`): l'esito di una corsa risposta/sweep non dipende
+   da chi arriva prima al database.
 
 ## Conseguenze
 

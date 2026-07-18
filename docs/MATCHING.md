@@ -66,8 +66,11 @@ Candidati: tutti gli hub `H` (incluso `T` stesso) tali che:
 2. **progresso positivo e non-banale**: `r_S − d(H,T) ≥ max(5 km, 5% × D)`; la
    consegna diretta a destinazione (`H = T`, progresso `r_S`) è sempre ammessa,
    anche sotto soglia (ECONOMICS.md §6);
-3. l'hub ha il wallet connesso e accetta automaticamente di vincolare il bond di
-   custodia (hold invoice — ADR-013; accettazione automatica, ARCHITECTURE §4).
+3. l'hub ha il wallet connesso — deve **poter** vincolare il bond di custodia
+   se accetta (hold invoice — ADR-013). Dall'[ADR-029](adr/ADR-029-arrival-hub-deposit-request.md)
+   anche gli hub **manuali** sono candidati: la loro opzione è marcata
+   `requiresConfirmation` («richiede conferma») e sceglierli apre una
+   richiesta di deposito invece di prenotare all'istante.
 
 Per ogni candidato si calcolano (ECONOMICS.md, modello B — le percentuali degli hub
 si applicano al lordo della tratta):
@@ -121,11 +124,13 @@ vettore. `H1` resta visibile come alternativa.
 
 La bacheca dell'hub mostra tutte le spedizioni in stato `AT_HUB` presso quell'hub
 (e, in una vista "lungo il tuo viaggio", quelle negli hub vicini alla rotta).
-**Esclusioni**: le spedizioni con una tratta in corso (pendente, prenotata o in
-transito) e quelle con un **claim del destinatario vivo** (pendente o `CLAIMED`
-— [ADR-016](adr/ADR-016-recipient-claim.md)): dalla richiesta di claim il pacco
-sparisce dalla bacheca e ogni `leg_accept` è respinto; se la finestra di
-funding del claim scade, il pacco ricompare.
+**Esclusioni**: le spedizioni con una tratta in corso (**richiesta** — ADR-029 —,
+pendente, prenotata o in transito) e quelle con un **claim del destinatario
+vivo** (pendente o `CLAIMED`
+— [ADR-016](adr/ADR-016-recipient-claim.md)): dalla richiesta — di deposito o
+di claim — il pacco sparisce dalla bacheca e ogni `leg_request` concorrente è
+respinto; se la richiesta si dissolve (rifiuto, scadenza, annullamento) o la
+finestra di funding del claim scade, il pacco ricompare.
 
 1. **Sezione "Per te" (match)**: spedizioni con `surplus(H*) ≥ 0` e `detour(H*) ≤ dev_max`,
    evidenziate, ordinate per `surplus(H*)` **decrescente**.
