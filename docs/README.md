@@ -77,7 +77,11 @@ discovery a scala 10k** ([ADR-030](adr/ADR-030-hub-discovery-scale.md):
 mappa navigabile con clustering, bbox+ricerca+paginazione, spedizioni in
 attesa per hub — reverse trip planning); Fase 4: **routing stradale nel
 pricing** ([ADR-031](adr/ADR-031-road-routing.md): metrica per spedizione,
-OSRM self-hosted opzionale, polilinee reali sulla mappa del viaggio).
+OSRM self-hosted opzionale, polilinee reali sulla mappa del viaggio);
+Fase 5: **de-slop della UI** (icone SVG uniche al posto delle emoji, copy
+asciutta it+en, importi sats+€ verificati ovunque) e **picker hub sulla
+ricerca paginata** (ADR-030 «Aggiornamento 2026-07-18»: combobox q+near,
+lookup mirati per nome, contratto legacy di `GET /hubs` ritirato).
 **Da implementare**: app mobile. **Todo umano**: revisione dei testi legali da parte di un legale;
 acquisto di VPS e dominio; un check di uptime esterno su `/api/health`;
 preparazione del grafo OSRM quando ci sarà l'host (DEPLOY §10).
