@@ -1,7 +1,10 @@
 # ADR-029 — Accetta/Rifiuta dell'hub d'arrivo sulle richieste di deposito
 
-- Stato: **PROPOSTA — in attesa della decisione di Giacomo.** Cambio di
-  protocollo: NON implementare finché non è deciso (Fase 2 punto 8 del backlog).
+- Stato: **ACCETTATO — 2026-07-18 (decisioni di Giacomo, riportate sotto in
+  §«Le decisioni aperte»).** Cambio di protocollo **deciso ma NON ancora
+  implementato**: l'implementazione (con il punto 9) è una sessione dedicata,
+  perché sposta la creazione delle hold dentro la macchina a stati (superficie
+  di denaro, ADR-010/013) e va trattata col rigore dei test di denaro.
 - Contesto: CLAUDE.md «Hub — dettagli» (la dashboard mostra le richieste di
   deposito che l'hub accetta o no); ARCHITECTURE §4 (`auto_accept`) e §5 (riga 4
   `leg_accept`, riga 2 `origin_hub_accept`); [ADR-012](ADR-012-no-arbiter.md)
@@ -114,55 +117,45 @@ evidenziate) si implementa insieme a questo: la sezione «Richieste di deposito�
 raccoglie sia le `DRAFT` all'origine (già oggi) sia le tratte `requested` in
 arrivo, ordinate per **scadenza di risposta** più vicina e in evidenza.
 
-## Le decisioni aperte (servono a Giacomo)
+## Le decisioni aperte (DECISE da Giacomo — 2026-07-18)
 
-### A. Timeout di risposta — default proposto: **30 minuti** (wall-clock)
+### A. Timeout di risposta → **30 minuti** (wall-clock) ✅
 
-Trade-off: troppo lungo e la spedizione resta fuori bacheca e il vettore
-aspetta; troppo corto e un negozio umano non fa in tempo → auto-rifiuto e hub
-manuali inutili.
+Stessa famiglia della finestra di funding (60 min): tiene la spedizione liquida
+(esce dalla bacheca solo per poco) e il vettore può annullare e ri-mirare.
+Costante di protocollo nuova (`@mercurio/shared`), accanto a `LEG_FUNDING_
+WINDOW_MINUTES`. La variante «a ore di apertura» (usando gli orari del punto 5)
+resta un'evoluzione futura, non l'MVP.
 
-- **30 min (raccomandato per l'MVP)**: stessa famiglia della finestra di funding
-  (60 min), tiene la spedizione liquida, il vettore può annullare e ri-mirare.
-- **2 ore**: più realistico per un'attività fisica, ma spedizione fuori bacheca e
-  vettore in attesa più a lungo.
-- **A ore di apertura** (usando gli orari del punto 5): «l'hub ha X ore *di
-  apertura* per rispondere». Elegante e giusto, ma richiede matematica del timer
-  consapevole degli orari — lo terrei come evoluzione, non MVP.
+### B. Default di `auto_accept` per i nuovi hub → **`false`** ✅ (cambio)
 
-### B. Default di `auto_accept` per i nuovi hub — proposto: **resta `true`**
+Giacomo ha scelto il default **opt-in sicuro**: un hub nuovo è **manuale** e
+rivede ogni deposito prima di impegnare bond e spazio; `auto_accept` si attiva
+di proposito («accetta sempre»). Implica: `hubs.auto_accept` default `false`
+(schema + validazione API `autoAccept.default(false)`), e la checkbox di
+registrazione **non spuntata** di default. Gli hub **esistenti** non cambiano
+(hanno un valore esplicito); è solo il default dei nuovi. Nessuna migrazione
+dati necessaria — al più cambiare il `DEFAULT` di colonna, cosmetico visto che
+la rotta passa sempre il valore.
 
-«opt-in» nel brief può voler dire due cose: (i) `auto_accept` *resta disponibile*
-come scelta (default invariato `true`), oppure (ii) si *entra* nell'auto-accept
-di proposito (default `false`, ogni hub rivede ogni deposito). Raccomando **(i)
-default `true`**: minima sorpresa, massima liquidità, e chi vuole rivedere
-disattiva. Se preferisci il default sicuro `false`, si cambia una costante.
+### C. La bacheca durante una richiesta pendente → **esclusiva** ✅
 
-### C. La bacheca durante una richiesta pendente — proposto: **esclusiva**
+Come il claim (ADR-016): la spedizione esce dalla bacheca mentre una richiesta è
+pendente; il timeout di §A limita l'attesa. Semplice, nessuna corsa,
+zero-custodia banale. La richiesta pendente respinge `leg_request`/
+`recipient_claim`/`boost`/`reroute`/`cancel` concorrenti, come già una tratta
+pendente o un claim.
 
-- **Esclusiva (raccomandata)**: come il claim (ADR-016), la spedizione esce dalla
-  bacheca mentre una richiesta è pendente; il timeout limita l'attesa. Semplice,
-  nessuna corsa, zero-custodia banale.
-- **Non esclusiva**: la spedizione resta in bacheca, più vettori possono
-  richiedere, il primo accept dell'hub vince e gli altri decadono. Più liquida
-  ma con gestione della corsa e notifica ai «perdenti». La terrei per dopo.
+### D. «e ritiro» → **il check-out a doppia conferma basta** ✅
 
-### D. «e ritiro»: cosa intendi? — la mia lettura e una domanda
-
-Il brief dice «richieste di deposito **e ritiro**». Il **deposito** è chiaro:
-l'hub d'arrivo che accetta il pacco in entrata (questa proposta). Il **ritiro**
-è l'hub **di partenza** che consegna il pacco al vettore: ma quello è **già** un
-accetta/rifiuta, in tempo reale, con il **check-out a doppia conferma** (l'hub
-certifica con foto cosa consegna, il vettore conferma; l'hub può rifiutare con
-`handoff_reject` stage `pickup_checkout`, ARCHITECTURE §5 riga 12).
-
-Raccomando di **non** aggiungere un secondo handshake asincrono di ritiro
-(raddoppierebbe le conferme e la latenza per un guadagno minimo: l'hub di
-partenza ha già il pacco e vuole liberarsene, e il rischio del vettore è coperto
-da bond + reputazione). Ma è una tua scelta: vuoi che «ritiro» significhi (i) il
-gate di check-out esistente è sufficiente [raccomandato], oppure (ii) un
-accetta/rifiuta **asincrono** dell'hub di partenza *prima* che il vettore si
-muova a ritirare?
+Il **deposito** è la novità (l'hub d'arrivo che accetta il pacco in entrata). Il
+**ritiro** — l'hub di partenza che consegna il pacco al vettore — è **già** un
+accetta/rifiuta in tempo reale: il **check-out a doppia conferma** (l'hub
+certifica con foto, il vettore conferma; l'hub può rifiutare con
+`handoff_reject` stage `pickup_checkout`, ARCHITECTURE §5 riga 12). **Nessun
+secondo handshake asincrono di ritiro**: eviterebbe di raddoppiare conferme e
+latenza per un guadagno minimo (l'hub di partenza ha già il pacco e vuole
+liberarsene; il rischio del vettore è coperto da bond + reputazione).
 
 ## Cosa toccherebbe l'implementazione (per scoping — non ancora fatto)
 
