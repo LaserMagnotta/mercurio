@@ -15,7 +15,13 @@ import {
   walletConnections,
 } from '@mercurio/db';
 import { estimateHubFeeRange, splitCommitment } from '@mercurio/core';
-import { hubFeePercentToBp, hubsListQuery, MAX_VENUE_PHOTOS, sha256String } from '@mercurio/shared';
+import {
+  hubFeePercentToBp,
+  hubsListQuery,
+  MAX_VENUE_PHOTOS,
+  type OpeningHoursEntry,
+  sha256String,
+} from '@mercurio/shared';
 import type { App } from '../app.js';
 import { requireAuth } from '../plugins/auth-guard.js';
 import { msat } from '../lib/serialize.js';
@@ -24,6 +30,7 @@ import { sha256Hex } from '../lib/blob-store.js';
 import { isJpeg, jpegHasGpsExif } from '../lib/photo-validation.js';
 import { PHOTO_MAX_BYTES } from '@mercurio/shared';
 import { loadShipmentBundle, remainingWorkPool } from '../shipments/context.js';
+import { hasPair, pairKeyOf, pointKeyOf } from '../lib/road-routing.js';
 
 const hubParams = z.object({ id: z.string().uuid() });
 const venuePhotoParams = z.object({ id: z.string().uuid(), sha256: sha256String });
@@ -92,7 +99,7 @@ export function registerHubRoutes(app: App) {
       maxWeightG: h.maxWeightG,
       acceptsUndeclared: h.acceptsUndeclared,
       maxStorageDays: h.maxStorageDays,
-      openingHours: h.openingHours as Record<string, string>,
+      openingHours: h.openingHours as OpeningHoursEntry[],
       autoAccept: h.autoAccept,
       walletConnected: connected.has(h.userId),
       rating: ratingOf(ratings, h.userId, 'hub'),
@@ -235,19 +242,46 @@ export function registerHubRoutes(app: App) {
       const destById = new Map(destRows.map((h) => [h.id, h]));
       const d = app.lifecycle.distance.distanceKm.bind(app.lifecycle.distance);
 
+      // ADR-031: road shipments' distances in their own metric where the
+      // cache/router answers (one matrix call for the whole shelf), haversine
+      // estimate otherwise. These numbers are ADVISORY ceilings — the binding
+      // price still freezes on the board — so they degrade instead of hiding
+      // the shipment.
+      const hubPoint = { lat: hub.lat, lng: hub.lng };
+      const roadDestPoints = new Map<string, { lat: number; lng: number }>();
+      for (const { shipment } of atHub) {
+        const dest = destById.get(shipment.destHubId);
+        if (dest && shipment.distanceMetric === 'road') {
+          roadDestPoints.set(pointKeyOf(dest), { lat: dest.lat, lng: dest.lng });
+        }
+      }
+      const roadMap =
+        roadDestPoints.size > 0
+          ? await app.roadRouting.resolveMatrix(app.db, [hubPoint], [...roadDestPoints.values()])
+          : new Map<string, number>();
+
       const waiting = [];
       for (const { shipment } of atHub) {
         if (busy.has(shipment.id)) continue;
         const dest = destById.get(shipment.destHubId);
         if (!dest) continue;
-        const remainingKm = d({ lat: hub.lat, lng: hub.lng }, { lat: dest.lat, lng: dest.lng });
+        const destPoint = { lat: dest.lat, lng: dest.lng };
+        let remainingKm: number | null = null;
+        if (shipment.distanceMetric === 'road' && hasPair(roadMap, hubPoint, destPoint)) {
+          const metres = roadMap.get(pairKeyOf(hubPoint, destPoint)) ?? 0;
+          remainingKm = metres / 1000;
+        }
+        if (remainingKm === null) remainingKm = d(hubPoint, destPoint);
         if (!(remainingKm > 0)) continue;
         const bundle = await loadShipmentBundle(app.db, shipment.id);
         if (!bundle) continue;
         // Indicative ceiling: the whole remaining work pool (what a single
         // delivering leg would gross) plus the accrued carrier bonus Π_v.
+        // min(): the haversine fallback of a road shipment can exceed the
+        // road-frozen D, and the pool math wants r ≤ D.
         const maxGrossMsat =
-          remainingWorkPool(bundle, remainingKm) + bundle.carrierBonusAvailableMsat;
+          remainingWorkPool(bundle, Math.min(remainingKm, shipment.distanceKm)) +
+          bundle.carrierBonusAvailableMsat;
         waiting.push({
           shipmentId: shipment.id,
           codename: shipment.codename,

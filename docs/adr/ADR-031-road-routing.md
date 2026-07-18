@@ -198,8 +198,10 @@ I quattro problemi di §Opzione F, uno per uno:
 ### 1. Metrica congelata per spedizione
 
 Nuova colonna `shipments.distance_metric` (`'haversine' | 'road'`), scelta
-**alla creazione** e mai più cambiata: `'road'` se il router risponde in quel
-momento (e la coppia origine→destinazione è instradabile), `'haversine'`
+**alla creazione** e mai più cambiata: `'road'` se la coppia
+origine→destinazione è risolvibile in quel momento — **dalla cache o dal
+router** (una coppia già in `road_distances` rende il road disponibile anche
+a router giù: è la cache la fonte di verità, non il processo), `'haversine'`
 altrimenti — per sempre, anche se il router torna su. Le spedizioni esistenti
 restano `'haversine'` (default di migrazione). Ogni numero monetario di una
 spedizione — `D`, `r`, `Δr`, detour dei candidati, surplus, prezzi congelati

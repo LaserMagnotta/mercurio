@@ -21,6 +21,7 @@ import { EconomicsError, applyReroute, floorToSat, priceClaim, priceLeg, splitCo
 import {
   boostBody,
   checkoutConfirmBody,
+  type GeoPoint,
   CHECKOUT_CONFIRMATION_WINDOW_MINUTES,
   claimedPickupBody,
   DEPOSIT_RESPONSE_WINDOW_MINUTES,
@@ -40,6 +41,7 @@ import {
 import type { App } from '../app.js';
 import { requireAuth } from '../plugins/auth-guard.js';
 import { hashToken } from '../lib/tokens.js';
+import { pairKeyOf, providerFromPairMap, type PairMap } from '../lib/road-routing.js';
 import { hasConnectedWallet } from '../lib/wallets.js';
 import { parcelFitsHub, storageFitsHub } from '../lib/parcel.js';
 import { msat } from '../lib/serialize.js';
@@ -74,6 +76,37 @@ export function registerShipmentLifecycleRoutes(app: App) {
       return null;
     }
     return bundle;
+  }
+
+  /** ADR-031: money distances resolve strictly in the SHIPMENT's frozen
+   *  metric. For 'road', every pair must come from the road_distances cache
+   *  (router on miss); when any pair stays cold the operation is refused as
+   *  RETRIABLE (503) — never silently repriced on another metric, which
+   *  would break the determinism the frozen metric exists for. 'haversine'
+   *  shipments get the plain ADR-007 provider, untouched. Returns null after
+   *  replying 503. */
+  async function metricDistanceOr503(
+    bundle: ShipmentBundle,
+    pairs: [GeoPoint, GeoPoint][],
+    reply: FastifyReply,
+  ): Promise<((a: GeoPoint, b: GeoPoint) => number) | null> {
+    if (bundle.shipment.distanceMetric !== 'road') {
+      return deps().distance.distanceKm.bind(deps().distance);
+    }
+    const map: PairMap = new Map();
+    for (const [a, b] of pairs) {
+      const metres = await app.roadRouting.resolvePair(app.db, a, b);
+      if (metres === null) {
+        await reply.code(503).send({
+          error: 'road_routing_unavailable',
+          message: 'road distance temporarily unresolvable — retry shortly',
+        });
+        return null;
+      }
+      map.set(pairKeyOf(a, b), metres);
+    }
+    const provider = providerFromPairMap(map);
+    return provider.distanceKm.bind(provider);
   }
 
   function qrMatches(bundle: ShipmentBundle, qrToken: string): boolean {
@@ -195,15 +228,23 @@ export function registerShipmentLifecycleRoutes(app: App) {
       if (problem) return reply.code(422).send({ error: problem, hubId: toHub.id });
 
       const destHub = bundle.hubById.get(s.destHubId)!;
-      const d = deps().distance.distanceKm.bind(deps().distance);
-      const remainingKm = d(
-        { lat: currentHub.lat, lng: currentHub.lng },
-        { lat: destHub.lat, lng: destHub.lng },
-      );
+      const sPoint = { lat: currentHub.lat, lng: currentHub.lng };
+      const tPoint = { lat: destHub.lat, lng: destHub.lng };
+      const hPoint = { lat: toHub.lat, lng: toHub.lng };
       const isFinal = toHub.id === s.destHubId;
-      const progressKm = isFinal
-        ? remainingKm
-        : remainingKm - d({ lat: toHub.lat, lng: toHub.lng }, { lat: destHub.lat, lng: destHub.lng });
+      const d = await metricDistanceOr503(
+        bundle,
+        isFinal
+          ? [[sPoint, tPoint]]
+          : [
+              [sPoint, tPoint],
+              [hPoint, tPoint],
+            ],
+        reply,
+      );
+      if (!d) return;
+      const remainingKm = d(sPoint, tPoint);
+      const progressKm = isFinal ? remainingKm : remainingKm - d(hPoint, tPoint);
 
       let pricing;
       try {
@@ -652,10 +693,11 @@ export function registerShipmentLifecycleRoutes(app: App) {
       }
 
       const destHub = bundle.hubById.get(s.destHubId)!;
-      const remainingKm = deps().distance.distanceKm(
-        { lat: currentHub.lat, lng: currentHub.lng },
-        { lat: destHub.lat, lng: destHub.lng },
-      );
+      const claimFrom = { lat: currentHub.lat, lng: currentHub.lng };
+      const claimTo = { lat: destHub.lat, lng: destHub.lng };
+      const dClaim = await metricDistanceOr503(bundle, [[claimFrom, claimTo]], reply);
+      if (!dClaim) return;
+      const remainingKm = dClaim(claimFrom, claimTo);
       let pricing;
       try {
         pricing = priceClaim({
@@ -825,10 +867,13 @@ export function registerShipmentLifecycleRoutes(app: App) {
       const destHub = bundle.hubById.get(bundle.shipment.destHubId);
       let atRemainingKm = bundle.shipment.distanceKm;
       if (bundle.state === 'AT_HUB' && currentHub && destHub) {
-        atRemainingKm = deps().distance.distanceKm(
-          { lat: currentHub.lat, lng: currentHub.lng },
-          { lat: destHub.lat, lng: destHub.lng },
-        );
+        const boostFrom = { lat: currentHub.lat, lng: currentHub.lng };
+        const boostTo = { lat: destHub.lat, lng: destHub.lng };
+        // The boost enters the pool math at this r (money): shipment metric,
+        // strict — a road shipment with a cold pair asks the sender to retry.
+        const dBoost = await metricDistanceOr503(bundle, [[boostFrom, boostTo]], reply);
+        if (!dBoost) return;
+        atRemainingKm = dBoost(boostFrom, boostTo);
       }
       try {
         await executeShipmentTransition(deps(), {
@@ -862,7 +907,10 @@ export function registerShipmentLifecycleRoutes(app: App) {
       const currentHub = currentHubOf(bundle);
       if (!currentHub) return reply.code(409).send({ error: 'parcel_not_idle_at_hub' });
       const { newDestHubId, newRecipientEmail } = request.body;
-      const d = deps().distance.distanceKm.bind(deps().distance);
+      const herePoint = { lat: currentHub.lat, lng: currentHub.lng };
+      // ADR-031: the reroute opens a new segment but KEEPS the shipment's
+      // birth metric — D* and every later r must stay comparable with the
+      // boosts and pool already recorded in that metric.
 
       let event;
       let shipmentPatch;
@@ -874,10 +922,21 @@ export function registerShipmentLifecycleRoutes(app: App) {
         }
         const problem = parcelFitsHub(s, newDest) ?? storageFitsHub(s.maxStorageDays, newDest);
         if (problem) return reply.code(422).send({ error: problem, hubId: newDest.id });
-        const newRemainingKm = d(
-          { lat: currentHub.lat, lng: currentHub.lng },
-          { lat: newDest.lat, lng: newDest.lng },
+        const oldDest = bundle.hubById.get(s.destHubId)!;
+        const oldDestPoint = { lat: oldDest.lat, lng: oldDest.lng };
+        const newDestPoint = { lat: newDest.lat, lng: newDest.lng };
+        const d = await metricDistanceOr503(
+          bundle,
+          bundle.state === 'AWAITING_PICKUP'
+            ? [[herePoint, newDestPoint]]
+            : [
+                [herePoint, newDestPoint],
+                [herePoint, oldDestPoint],
+              ],
+          reply,
         );
+        if (!d) return;
+        const newRemainingKm = d(herePoint, newDestPoint);
         if (!(newRemainingKm > 0)) return reply.code(422).send({ error: 'hubs_too_close' });
 
         // The reroute opens a fresh price segment (ECONOMICS.md §5-6): the
@@ -890,11 +949,7 @@ export function registerShipmentLifecycleRoutes(app: App) {
         if (bundle.state === 'AWAITING_PICKUP') {
           frozenWorkMsat = postArrivalBoostWork(bundle);
         } else {
-          const oldDest = bundle.hubById.get(s.destHubId)!;
-          const oldRemainingKm = d(
-            { lat: currentHub.lat, lng: currentHub.lng },
-            { lat: oldDest.lat, lng: oldDest.lng },
-          );
+          const oldRemainingKm = d(herePoint, oldDestPoint);
           frozenWorkMsat = applyReroute(
             s.segmentWorkMsat,
             s.distanceKm,
@@ -921,13 +976,13 @@ export function registerShipmentLifecycleRoutes(app: App) {
         // Recipient-only change: no money, no segment change; the machine
         // rotates the OTP and (at the destination) re-invites immediately.
         const destHub = bundle.hubById.get(s.destHubId)!;
-        const remainingKm =
-          bundle.state === 'AWAITING_PICKUP'
-            ? s.distanceKm // at destination r = 0; payload-only value must be > 0
-            : d(
-                { lat: currentHub.lat, lng: currentHub.lng },
-                { lat: destHub.lat, lng: destHub.lng },
-              );
+        let remainingKm = s.distanceKm; // at destination r = 0; payload-only value must be > 0
+        if (bundle.state !== 'AWAITING_PICKUP') {
+          const destPoint = { lat: destHub.lat, lng: destHub.lng };
+          const d = await metricDistanceOr503(bundle, [[herePoint, destPoint]], reply);
+          if (!d) return;
+          remainingKm = d(herePoint, destPoint);
+        }
         event = {
           type: 'reroute' as const,
           newDestHubId: null,

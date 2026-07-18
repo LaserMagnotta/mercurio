@@ -14,6 +14,7 @@ import { splitCommitment } from '@mercurio/core';
 import {
   createShipmentBody,
   MAX_CUSTODY_BOND_EUR,
+  type DistanceMetric,
   type ShipmentContext,
 } from '@mercurio/shared';
 import type { App } from '../app.js';
@@ -89,10 +90,25 @@ export function registerShipmentRoutes(app: App) {
           .send({ error: 'bond_above_cap', capMsat: msat(bondCapMsat) });
       }
 
-      const distanceKm = deps.distance.distanceKm(
-        { lat: originHub.lat, lng: originHub.lng },
-        { lat: destHub.lat, lng: destHub.lng },
-      );
+      // ADR-031: the shipment's distance metric is chosen HERE and never
+      // changes again (reroutes included). 'road' only when the router
+      // resolves the pair right now; any router trouble means the shipment is
+      // born 'haversine' — deterministic either way, and the sender is never
+      // blocked by an unreachable OSRM.
+      const originPoint = { lat: originHub.lat, lng: originHub.lng };
+      const destPoint = { lat: destHub.lat, lng: destHub.lng };
+      let distanceMetric: DistanceMetric = 'haversine';
+      let distanceKm = 0;
+      if (app.roadRouting.enabled) {
+        const metres = await app.roadRouting.resolvePair(app.db, originPoint, destPoint);
+        if (metres !== null && metres > 0) {
+          distanceMetric = 'road';
+          distanceKm = metres / 1000;
+        }
+      }
+      if (distanceMetric === 'haversine') {
+        distanceKm = deps.distance.distanceKm(originPoint, destPoint);
+      }
       if (!(distanceKm > 0)) return reply.code(422).send({ error: 'hubs_too_close' });
 
       const shipmentId = randomUUID();
@@ -173,6 +189,7 @@ export function registerShipmentRoutes(app: App) {
               eurRateAt: rate.at,
               status: 'draft',
               distanceKm,
+              distanceMetric,
             });
             if (depositRequestTo) {
               await tx.insert(emailOutbox).values({
@@ -272,16 +289,24 @@ export function registerShipmentRoutes(app: App) {
 
       const currentHubId = bundle.currentStayRow?.hubId ?? null;
       const destHub = bundle.hubById.get(s.destHubId);
-      const remainingKm =
-        currentHubId && destHub
-          ? app.lifecycle.distance.distanceKm(
-              {
-                lat: bundle.hubById.get(currentHubId)!.lat,
-                lng: bundle.hubById.get(currentHubId)!.lng,
-              },
-              { lat: destHub.lat, lng: destHub.lng },
-            )
-          : null;
+      let remainingKm: number | null = null;
+      if (currentHubId && destHub) {
+        const from = {
+          lat: bundle.hubById.get(currentHubId)!.lat,
+          lng: bundle.hubById.get(currentHubId)!.lng,
+        };
+        const to = { lat: destHub.lat, lng: destHub.lng };
+        // ADR-031: a road shipment's remaining km comes from the frozen road
+        // cache. This is display (the binding numbers re-resolve strictly at
+        // leg_request/claim), so a cold pair falls back to the haversine
+        // estimate rather than blanking the page — cache-only, no router on
+        // a read path.
+        const roadMetres =
+          s.distanceMetric === 'road'
+            ? await app.roadRouting.resolvePair(app.db, from, to, { cacheOnly: true })
+            : null;
+        remainingKm = roadMetres !== null ? roadMetres / 1000 : app.lifecycle.distance.distanceKm(from, to);
+      }
 
       return {
         id: s.id,
@@ -300,11 +325,15 @@ export function registerShipmentRoutes(app: App) {
         segmentWorkMsat: msat(s.segmentWorkMsat),
         remainingPoolMsat:
           remainingKm !== null && remainingKm > 0
-            ? msat(remainingWorkPool(bundle, remainingKm))
+            ? // min(): the haversine fallback of a road shipment can exceed the
+              // road-frozen D (real circuity < 1.3) and the pool math wants
+              // r ≤ D. Display only — the frozen numbers never take this path.
+              msat(remainingWorkPool(bundle, Math.min(remainingKm, s.distanceKm)))
             : msat(0n),
         custodyBondMsat: msat(s.custodyBondMsat),
         maxStorageDays: s.maxStorageDays,
         distanceKm: s.distanceKm,
+        distanceMetric: s.distanceMetric,
         remainingKm,
         eurRate: {
           satsPerEur: s.eurRateSnapshot,

@@ -62,12 +62,14 @@ import { canonicalJson, custodyEventHash, transition, type DistanceProvider } fr
 import type { EscrowCoordinator, WalletResolver } from '@mercurio/escrow';
 import {
   LEG_FUNDING_WINDOW_MINUTES,
+  type GeoPoint,
   type ShipmentContext,
   type ShipmentEffect,
   type ShipmentEvent,
   type ShipmentState,
 } from '@mercurio/shared';
 import { generateToken, hashToken } from '../lib/tokens.js';
+import { hasPair, providerFromPairMap, type RoadRouting } from '../lib/road-routing.js';
 import {
   loadShipmentBundle,
   stateToDbStatus,
@@ -82,6 +84,9 @@ export interface LifecycleDeps {
   coordinator: EscrowCoordinator;
   resolveWallet: WalletResolver;
   distance: DistanceProvider;
+  /** ADR-031: cache-backed road distances for road-metric shipments.
+   *  Optional so bare test worlds keep the pure haversine behavior. */
+  roadRouting?: RoadRouting;
   now: () => Date;
   /** Polling knobs for sync-held / instant settlement (tests tighten them). */
   waitAttempts?: number;
@@ -898,11 +903,30 @@ async function recordRateObservation(
   const fromHub = bundle.hubById.get(leg.fromHubId);
   const toHub = bundle.hubById.get(leg.toHubId);
   if (!trip || !fromHub || !toHub) return; // observation is best-effort, money is not
-  const d = deps.distance.distanceKm.bind(deps.distance);
+  let d = deps.distance.distanceKm.bind(deps.distance);
   const origin = { lat: trip.originLat, lng: trip.originLng };
   const dest = { lat: trip.destLat, lng: trip.destLng };
   const s = { lat: fromHub.lat, lng: fromHub.lng };
   const h = { lat: toHub.lat, lng: toHub.lng };
+  // ADR-031: record the detour in the metric the carrier actually saw on the
+  // board. Cache-only (a money transaction never blocks on HTTP) and
+  // best-effort: with any pair cold, the haversine estimate still feeds the
+  // suggester rather than losing the observation.
+  if (bundle.shipment.distanceMetric === 'road' && deps.roadRouting) {
+    const map = await deps.roadRouting.resolveMatrix(tx, [origin, s, h], [s, h, dest], {
+      cacheOnly: true,
+    });
+    const pairs: [GeoPoint, GeoPoint][] = [
+      [origin, s],
+      [s, h],
+      [h, dest],
+      [origin, dest],
+    ];
+    if (pairs.every(([a, b]) => hasPair(map, a, b))) {
+      const provider = providerFromPairMap(map);
+      d = provider.distanceKm.bind(provider);
+    }
+  }
   const detourKm = Math.max(0, d(origin, s) + d(s, h) + d(h, dest) - d(origin, dest));
   await tx.insert(rateObservations).values({
     legId: leg.id,

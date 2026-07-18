@@ -56,8 +56,10 @@ function compareOptions(a: DropHubOption, b: DropHubOption): number {
 }
 
 /** Board order (MATCHING.md §3): matches first, surplus(H*) desc within each
- *  section, shipmentId as the deterministic tiebreaker. */
-function compareCandidates(a: MatchCandidate, b: MatchCandidate): number {
+ *  section, shipmentId as the deterministic tiebreaker. Exported since
+ *  ADR-031: the API ranks per-metric groups separately (one rankBoard call
+ *  per DistanceProvider) and must merge them under this SAME total order. */
+export function compareCandidates(a: MatchCandidate, b: MatchCandidate): number {
   if (a.isMatch !== b.isMatch) return a.isMatch ? -1 : 1;
   if (a.bestDropHub.surplusMsat !== b.bestDropHub.surplusMsat) {
     return b.bestDropHub.surplusMsat > a.bestDropHub.surplusMsat ? 1 : -1;

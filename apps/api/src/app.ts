@@ -37,6 +37,7 @@ import {
 import { createMailer, type SendMail } from './lib/mailer.js';
 import { createDbWalletResolver } from './lib/wallets.js';
 import { createEurRateProviderFromEnv, type EurRateProvider } from './lib/eur-rate.js';
+import { createRoadRoutingFromEnv, type RoadRouting } from './lib/road-routing.js';
 import type { LifecycleDeps } from './shipments/executor.js';
 
 /** Non-injectable knobs the routes need beyond LifecycleDeps. */
@@ -58,6 +59,9 @@ declare module 'fastify' {
     lifecycle: LifecycleDeps;
     lifecycleConfig: LifecycleConfig;
     eurRate: EurRateProvider;
+    /** ADR-031: OSRM-backed road distances (money, deterministic via the
+     *  road_distances cache) and polylines (display, degradable). */
+    roadRouting: RoadRouting;
     blobStore: BlobStore;
     /** Venue photos (ADR-028): a SEPARATE store from `blobStore`, isolated from
      *  the shipment photo purge worker. */
@@ -72,6 +76,8 @@ export interface BuildAppOptions {
   coordinator?: EscrowCoordinator;
   walletResolver?: WalletResolver;
   distanceProvider?: DistanceProvider;
+  /** Injected by tests (fake OSRM client); defaults to OSRM_URL wiring. */
+  roadRouting?: RoadRouting;
   eurRate?: EurRateProvider;
   now?: () => Date;
   /** 32-byte key (COORDINATOR_KEY) for preimages and wallet secrets. */
@@ -135,11 +141,13 @@ export async function buildApp(options: BuildAppOptions = {}) {
       coordinatorKey,
       now: () => now().getTime(),
     });
+  const roadRouting = options.roadRouting ?? createRoadRoutingFromEnv();
   const lifecycle: LifecycleDeps = {
     db,
     coordinator,
     resolveWallet: walletResolver,
     distance: options.distanceProvider ?? createHaversineDistanceProvider(),
+    roadRouting,
     now,
     ...(options.waitAttempts !== undefined && { waitAttempts: options.waitAttempts }),
     ...(options.waitDelayMs !== undefined && { waitDelayMs: options.waitDelayMs }),
@@ -160,6 +168,9 @@ export async function buildApp(options: BuildAppOptions = {}) {
   // EUR_RATE_PROVIDER (ADR-025). Defaults to the fixed one, so nothing here
   // reaches the network unless a deploy asked for it.
   app.decorate('eurRate', options.eurRate ?? createEurRateProviderFromEnv());
+  // Road routing (ADR-031): OSRM_URL unset = pre-ADR-031 behavior (haversine
+  // metric for new shipments; cache-only reads for road ones in flight).
+  app.decorate('roadRouting', roadRouting);
   // Photo blobs (ADR-020, ADR-023): fs or S3-compatible driver from config,
   // content-addressed by sha256.
   app.decorate('blobStore', options.blobStore ?? createBlobStoreFromEnv());
