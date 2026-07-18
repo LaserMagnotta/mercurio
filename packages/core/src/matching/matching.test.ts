@@ -94,6 +94,7 @@ describe('MATCHING.md §2 — the numeric example on plane geometry', () => {
       netMsat: 3_350_000n,
       finalizationBonusMsat: 350_000n,
       surplusMsat: 2_197_000n,
+      requiresConfirmation: false,
     });
     // H1: detour = √1000 + √925 + √1625 − 100 = 2.348 km; progress = 60 −
     // √925 = 29.586 km; gross = 3.75 € × 29586/60000 = 1.849 € (sat floor);
@@ -107,6 +108,7 @@ describe('MATCHING.md §2 — the numeric example on plane geometry', () => {
         netMsat: 1_481_000n,
         finalizationBonusMsat: 0n,
         surplusMsat: 1_011_400n,
+        requiresConfirmation: false,
       },
     ]);
     // H3 (detour 31.7 km > 15) is excluded outright, S itself gives zero
@@ -148,6 +150,7 @@ describe('MATCHING.md §2 — the numeric example on plane geometry', () => {
       netMsat: 3_000_000n,
       finalizationBonusMsat: 0n,
       surplusMsat: 1_847_000n,
+      requiresConfirmation: false,
     });
   });
 });
@@ -193,12 +196,11 @@ describe('candidate filters (MATCHING.md §2, conditions 1–3)', () => {
     expect(board[0]!.bestDropHub.hubId).toBe('T');
   });
 
-  it('excludes hubs that cannot take the parcel: inactive, no wallet, no auto-accept, size, weight, undeclared', () => {
+  it('excludes hubs that cannot take the parcel: inactive, no wallet, size, weight, undeclared', () => {
     const mid = pt(50, 0);
     const rejected = [
       hub('H-inactive', mid, 1000, { active: false }),
       hub('H-no-wallet', mid, 1000, { walletConnected: false }),
-      hub('H-manual', mid, 1000, { autoAcceptDeposits: false }),
       hub('H-small', mid, 1000, { maxDimsCm: { lengthCm: 5, widthCm: 5, heightCm: 5 } }),
       hub('H-light', mid, 1000, { maxWeightG: 100 }),
       hub('H-declared-only', mid, 1000, { acceptsUndeclared: false }),
@@ -206,6 +208,18 @@ describe('candidate filters (MATCHING.md §2, conditions 1–3)', () => {
     const ids = bestIds([S, T, ...rejected], shipment({ ...axisShipment, undeclared: true }));
     for (const r of rejected) expect(ids).not.toContain(r.hubId);
     expect(ids).toContain('T');
+  });
+
+  it('a MANUAL hub is a candidate marked requiresConfirmation (ADR-029)', () => {
+    const manual = hub('H-manual', pt(50, 0), 1000, { autoAcceptDeposits: false });
+    const board = rankBoard(axisTrip, [axisShipment], [S, T, manual], euclidean);
+    expect(board).toHaveLength(1);
+    const options = [board[0]!.bestDropHub, ...board[0]!.alternatives];
+    const manualOption = options.find((o) => o.hubId === 'H-manual');
+    expect(manualOption?.requiresConfirmation).toBe(true);
+    // Auto-accept hubs stay unmarked: instant booking is their advantage.
+    const autoOption = options.find((o) => o.hubId === 'T');
+    expect(autoOption?.requiresConfirmation).toBe(false);
   });
 
   it('allows rotated parcels: a 60×10×10 box fits a 15×80×12 limit', () => {

@@ -32,13 +32,15 @@ function fitsDims(parcel: DimensionsCm, limit: DimensionsCm): boolean {
   return p.every((side, i) => side <= (l[i] ?? 0));
 }
 
-/** Candidate conditions 1 and 3 of MATCHING.md §2: the hub is active, takes
- *  this parcel physically, and can bind its custody bond unattended. */
+/** Candidate conditions 1 and 3 of MATCHING.md §2 (amended by ADR-029): the
+ *  hub is active, takes this parcel physically, and could bind its custody
+ *  bond if it accepts (wallet connected). A MANUAL hub is a candidate too —
+ *  its option is marked `requiresConfirmation` and choosing it opens a
+ *  deposit request instead of booking instantly. */
 function hubAcceptsParcel(hub: MatchingHub, shipment: ShipmentAtHub): boolean {
   return (
     hub.active &&
     hub.walletConnected &&
-    hub.autoAcceptDeposits &&
     shipment.weightG <= hub.maxWeightG &&
     fitsDims(shipment.dimsCm, hub.maxDimsCm) &&
     (!shipment.undeclared || hub.acceptsUndeclared)
@@ -149,6 +151,10 @@ function evaluateShipment(
       netMsat,
       finalizationBonusMsat: pricing.finalizationBonusMsat,
       surplusMsat: netMsat - thresholdMsat,
+      // ADR-029 §3: dropping at a manual hub opens a request the hub must
+      // confirm — the card marks it so the carrier knows booking is not
+      // instant (auto-accept hubs keep their natural market advantage).
+      requiresConfirmation: !hub.autoAcceptDeposits,
     });
   }
   if (options.length === 0) return null;

@@ -54,6 +54,17 @@
 // claim is pending or CLAIMED forfeits the parcel and dissolves the claim
 // holds, mirroring the pending-leg rule. Boost, reroute and cancel are
 // rejected while a claim is in flight.
+//
+// Deposit request (ADR-029): the old leg_accept is split in two. leg_request
+// (carrier) freezes the price and arms a 30-minute response window but moves
+// NO money; deposit_accept (arrival hub — auto-fired by the API for
+// auto_accept hubs) is exactly the old leg_accept's effect: it creates the
+// 3–4 holds and arms the funding window. deposit_reject /
+// deposit_request_expired / deposit_request_cancel dissolve the request at
+// zero cost — no hold ever existed — and the shipment returns to the board.
+// A pending request is board-exclusive like a claim: leg_request,
+// recipient_claim, boost, reroute and cancel are all rejected while one is
+// in flight.
 
 import type {
   ActiveLeg,
@@ -424,13 +435,23 @@ export function transition(
       ]);
     }
 
-    // ------------------------------------------------------------------ #4
-    case 'leg_accept': {
-      if (state !== 'AT_HUB') return illegal(state, event.type, 'leg_accept is legal only in AT_HUB');
+    // ---------------------------------------------------- #4a (ADR-029)
+    case 'leg_request': {
+      // The carrier asks the arrival hub to host the parcel. Guards are the
+      // old leg_accept's, MINUS "the hub must auto-accept": a manual hub is a
+      // legitimate destination now — it just answers first. NO money moves
+      // here (the ADR-029 invariant): the price is frozen into the request so
+      // the carrier knows what they would collect, the holds wait for
+      // deposit_accept, and a request that dies liquidates zero msat.
+      if (state !== 'AT_HUB') return illegal(state, event.type, 'leg_request is legal only in AT_HUB');
       const stay = ctx.currentHubStay;
       if (!stay) return guardFailed(state, event.type, 'no active hub stay in context');
       if (ctx.leg !== null) {
         return guardFailed(state, event.type, 'another leg is already pending or active');
+      }
+      if (ctx.pendingLegRequest !== null) {
+        // Board-exclusive (decisione C): one request at a time, like a claim.
+        return guardFailed(state, event.type, 'a deposit request is already pending on this shipment');
       }
       if (ctx.pendingClaim !== null) {
         // From the claim request on, the parcel is the claimant's to lose:
@@ -443,12 +464,10 @@ export function transition(
       if (!event.carrierWalletConnected) {
         return guardFailed(state, event.type, 'carrier wallet must be connected to bind its bond');
       }
-      if (!event.arrivalHubAutoAccepts || !event.arrivalHubWalletConnected) {
-        return guardFailed(
-          state,
-          event.type,
-          'arrival hub must auto-accept deposits and have a connected wallet (no human in the loop)',
-        );
+      if (!event.arrivalHubWalletConnected) {
+        // The hub must be ABLE to bond if it accepts (ADR-029: the only
+        // arrival-hub requirement left at the request).
+        return guardFailed(state, event.type, 'arrival hub wallet must be connected to bind its bond');
       }
       if (event.toHubId === stay.hubId) {
         return guardFailed(state, event.type, 'arrival hub must differ from the current hub');
@@ -467,61 +486,27 @@ export function transition(
       }
       if (ctx.finalizationBonusHold !== null) {
         // Set only while a final leg is pending/active or awaiting pickup —
-        // states where leg_accept is barred anyway. A hold surviving here
+        // states where leg_request is barred anyway. A hold surviving here
         // means the API failed to clear a cancelled one: refuse to stack.
         return guardFailed(state, event.type, 'a finalization-bonus hold is already pending');
       }
-      const ref: PaymentRef = { type: 'leg', id: event.legId };
-      const effects: ShipmentEffect[] = [
-        // The three holds of ESCROW.md §3 — the carrier never works on credit.
-        // On a final leg the payment hold also binds the carrier bonus share
-        // Π_v: one hold, one preimage, one collection (ADR-014).
+      return ok('AT_HUB', [
         {
-          kind: 'create_conditional_payment',
-          purpose: 'leg_payment',
-          payerId: ctx.senderId,
-          payeeId: event.carrierId,
-          amountMsat: event.pricing.grossMsat + event.pricing.finalizationBonusMsat,
-          ref,
+          kind: 'schedule_timeout',
+          timeout: 'deposit_response',
+          refId: event.legId,
+          at: event.responseDeadlineAt,
         },
-        {
-          kind: 'create_conditional_payment',
-          purpose: 'custody_bond',
-          payerId: event.carrierId,
-          payeeId: ctx.senderId,
-          amountMsat: ctx.custodyBondMsat,
-          ref,
-        },
-        {
-          kind: 'create_conditional_payment',
-          purpose: 'custody_bond',
-          payerId: event.toHubUserId,
-          payeeId: ctx.senderId,
-          amountMsat: ctx.custodyBondMsat,
-          ref: stayRef(event.arrivalHubStayId),
-        },
-      ];
-      if (event.finalizationHubBonusMsat > 0n) {
-        // Fourth hold of ADR-014: the hub share Π_h, sender → destination hub,
-        // in the same funding window; released only at recipient_pickup. A
-        // zero share creates no hold (mirroring zero-amount fees).
-        effects.push({
-          kind: 'create_conditional_payment',
-          purpose: 'finalization_bonus',
-          payerId: ctx.senderId,
-          payeeId: event.toHubUserId,
-          amountMsat: event.finalizationHubBonusMsat,
-          ref: stayRef(event.arrivalHubStayId),
-        });
-      }
-      effects.push(
-        { kind: 'schedule_timeout', timeout: 'leg_funding', refId: event.legId, at: event.fundingDeadlineAt },
         {
           kind: 'append_custody_event',
-          type: 'leg_accepted',
+          type: 'deposit_requested',
           actorUserId: event.carrierId,
           legId: event.legId,
           hubStayId: null,
+          // The frozen price is documented HERE (deposit_accept freezes
+          // nothing new); the context builder reads finalizationHubBonusMsat
+          // back from this payload — the chain is its only store, mirroring
+          // the quota accumulators (ADR-014 precisazione 8).
           payload: {
             toHubId: event.toHubId,
             grossMsat: event.pricing.grossMsat,
@@ -531,10 +516,190 @@ export function transition(
             finalizationBonusMsat: event.pricing.finalizationBonusMsat,
             finalizationHubBonusMsat: event.finalizationHubBonusMsat,
             custodyBondMsat: ctx.custodyBondMsat,
+            responseDeadlineAt: event.responseDeadlineAt,
+          },
+        },
+      ]);
+    }
+
+    // ---------------------------------------------------- #4b (ADR-029)
+    case 'deposit_accept': {
+      // The arrival hub says yes: EXACTLY the old leg_accept's money effect —
+      // the 3–4 holds of ESCROW.md §3 / ADR-014 are created and the funding
+      // window is armed. Every amount comes frozen from the request; the only
+      // new facts are the stay id and the funding deadline.
+      if (state !== 'AT_HUB') return illegal(state, event.type, 'deposit_accept is legal only in AT_HUB');
+      const stay = ctx.currentHubStay;
+      const req = ctx.pendingLegRequest;
+      if (!stay) return guardFailed(state, event.type, 'no active hub stay in context');
+      if (!req) return guardFailed(state, event.type, 'no pending deposit request to accept');
+      if (ctx.leg !== null) {
+        // Impossible by leg_request's guards; refuse an incoherent context.
+        return guardFailed(state, event.type, 'another leg is already pending or active');
+      }
+      if (!withinDeadline(event.now, req.responseDeadlineAt)) {
+        return guardFailed(state, event.type, 'deposit response window expired (ADR-029, 30 min)');
+      }
+      if (!event.arrivalHubWalletConnected) {
+        return guardFailed(state, event.type, 'arrival hub wallet must be connected to bind its bond');
+      }
+      if (!pricingIsConsistent(req.pricing)) {
+        return guardFailed(state, event.type, 'frozen request pricing is inconsistent');
+      }
+      if (ctx.finalizationBonusHold !== null) {
+        return guardFailed(state, event.type, 'a finalization-bonus hold is already pending');
+      }
+      const ref: PaymentRef = { type: 'leg', id: req.legId };
+      const effects: ShipmentEffect[] = [
+        // The three holds of ESCROW.md §3 — the carrier never works on credit.
+        // On a final leg the payment hold also binds the carrier bonus share
+        // Π_v: one hold, one preimage, one collection (ADR-014).
+        {
+          kind: 'create_conditional_payment',
+          purpose: 'leg_payment',
+          payerId: ctx.senderId,
+          payeeId: req.carrierId,
+          amountMsat: req.pricing.grossMsat + req.pricing.finalizationBonusMsat,
+          ref,
+        },
+        {
+          kind: 'create_conditional_payment',
+          purpose: 'custody_bond',
+          payerId: req.carrierId,
+          payeeId: ctx.senderId,
+          amountMsat: ctx.custodyBondMsat,
+          ref,
+        },
+        {
+          kind: 'create_conditional_payment',
+          purpose: 'custody_bond',
+          payerId: req.toHubUserId,
+          payeeId: ctx.senderId,
+          amountMsat: ctx.custodyBondMsat,
+          ref: stayRef(event.arrivalHubStayId),
+        },
+      ];
+      if (req.finalizationHubBonusMsat > 0n) {
+        // Fourth hold of ADR-014: the hub share Π_h, sender → destination hub,
+        // in the same funding window; released only at recipient_pickup. A
+        // zero share creates no hold (mirroring zero-amount fees).
+        effects.push({
+          kind: 'create_conditional_payment',
+          purpose: 'finalization_bonus',
+          payerId: ctx.senderId,
+          payeeId: req.toHubUserId,
+          amountMsat: req.finalizationHubBonusMsat,
+          ref: stayRef(event.arrivalHubStayId),
+        });
+      }
+      effects.push(
+        // The answer consumes the response window and opens the funding one.
+        { kind: 'cancel_timeout', timeout: 'deposit_response', refId: req.legId },
+        { kind: 'schedule_timeout', timeout: 'leg_funding', refId: req.legId, at: event.fundingDeadlineAt },
+        {
+          kind: 'append_custody_event',
+          type: 'leg_accepted', // reused (ADR-029): same protocol fact as before
+          actorUserId: req.toHubUserId, // the hub is the party accepting now
+          legId: req.legId,
+          hubStayId: null,
+          payload: {
+            toHubId: req.toHubId,
+            grossMsat: req.pricing.grossMsat,
+            depHubFeeMsat: req.pricing.depHubFeeMsat,
+            arrHubFeeMsat: req.pricing.arrHubFeeMsat,
+            netMsat: req.pricing.netMsat,
+            finalizationBonusMsat: req.pricing.finalizationBonusMsat,
+            finalizationHubBonusMsat: req.finalizationHubBonusMsat,
+            custodyBondMsat: ctx.custodyBondMsat,
           },
         },
       );
       return ok('AT_HUB', effects);
+    }
+
+    // ---------------------------------------------------- #4c (ADR-029)
+    case 'deposit_reject': {
+      // The hub says no. Documentation, not a judgment (ADR-012): the API
+      // writes the rejections row (stage deposit_request); the chain records
+      // the refusal with the SAME event type as every other refusal. No hold
+      // ever existed: dissolving the request moves zero msat, the shipment is
+      // back on the board the moment the requested leg row is closed.
+      if (state !== 'AT_HUB') return illegal(state, event.type, 'deposit_reject is legal only in AT_HUB');
+      const req = ctx.pendingLegRequest;
+      if (!req) return guardFailed(state, event.type, 'no pending deposit request to reject');
+      if (event.reason.trim() === '') {
+        return guardFailed(state, event.type, 'a rejection requires a reason (documentation, ADR-012)');
+      }
+      return ok('AT_HUB', [
+        { kind: 'cancel_timeout', timeout: 'deposit_response', refId: req.legId },
+        {
+          kind: 'append_custody_event',
+          type: 'handoff_rejected',
+          actorUserId: event.rejectedById,
+          legId: req.legId,
+          hubStayId: null,
+          payload: { stage: 'deposit_request', reason: event.reason },
+        },
+        // ADR-029: "il vettore è avvisato e sceglie un altro hub".
+        {
+          kind: 'queue_email',
+          to: 'carrier',
+          template: 'deposit_request_rejected',
+          payload: { hubId: req.toHubId, outcome: 'rejected', reason: event.reason },
+        },
+      ]);
+    }
+
+    // ---------------------------------------------------- #4d (ADR-029)
+    case 'deposit_request_expired': {
+      // The response window elapsed with no answer (worker). Consumes its own
+      // timer (the sweep fired it); zero money by construction.
+      if (state !== 'AT_HUB') {
+        return illegal(state, event.type, 'deposit_request_expired is legal only in AT_HUB');
+      }
+      const req = ctx.pendingLegRequest;
+      if (!req) return guardFailed(state, event.type, 'no pending deposit request to expire');
+      if (!deadlinePassed(event.now, req.responseDeadlineAt)) {
+        return guardFailed(state, event.type, 'deposit response window has not expired yet');
+      }
+      return ok('AT_HUB', [
+        {
+          kind: 'append_custody_event',
+          type: 'expired',
+          actorUserId: null,
+          legId: req.legId,
+          hubStayId: null,
+          payload: { reason: 'deposit_response' },
+        },
+        {
+          kind: 'queue_email',
+          to: 'carrier',
+          template: 'deposit_request_rejected',
+          payload: { hubId: req.toHubId, outcome: 'expired' },
+        },
+      ]);
+    }
+
+    // ---------------------------------------------------- #4e (ADR-029)
+    case 'deposit_request_cancel': {
+      // The carrier withdraws to re-target quickly. Zero money, no email
+      // (they did it themselves), no rejections row (nobody refused).
+      if (state !== 'AT_HUB') {
+        return illegal(state, event.type, 'deposit_request_cancel is legal only in AT_HUB');
+      }
+      const req = ctx.pendingLegRequest;
+      if (!req) return guardFailed(state, event.type, 'no pending deposit request to cancel');
+      return ok('AT_HUB', [
+        { kind: 'cancel_timeout', timeout: 'deposit_response', refId: req.legId },
+        {
+          kind: 'append_custody_event',
+          type: 'expired',
+          actorUserId: req.carrierId,
+          legId: req.legId,
+          hubStayId: null,
+          payload: { reason: 'deposit_request_cancelled' },
+        },
+      ]);
     }
 
     // ------------------------------------------------------------------ #5
@@ -915,6 +1080,11 @@ export function transition(
       if (ctx.leg !== null) {
         return guardFailed(state, event.type, 'a leg is pending or booked: nothing can be claimed');
       }
+      if (ctx.pendingLegRequest !== null) {
+        // A pending deposit request is board-exclusive (ADR-029, decisione C):
+        // the parcel is the requesting carrier's to lose until the hub answers.
+        return guardFailed(state, event.type, 'a deposit request is pending on this shipment');
+      }
       if (ctx.pendingClaim !== null) {
         return guardFailed(state, event.type, 'a claim is already pending on this shipment');
       }
@@ -1180,6 +1350,15 @@ export function transition(
           timeout: 'leg_funding',
           refId: ctx.leg.legId,
         });
+      } else if (state === 'AT_HUB' && ctx.pendingLegRequest !== null) {
+        // A deposit request still awaiting the hub's answer dies with the
+        // storage (ADR-029): no hold ever existed, so the only thing to
+        // dissolve is the response window.
+        effects.push({
+          kind: 'cancel_timeout',
+          timeout: 'deposit_response',
+          refId: ctx.pendingLegRequest.legId,
+        });
       } else if (state === 'AT_HUB' && ctx.pendingClaim !== null) {
         // A claim still pending funding dies exactly like a pending leg
         // (ADR-016: storage never pauses for a claim): dissolve its holds —
@@ -1278,6 +1457,11 @@ export function transition(
         // (ADR-016). The sender can boost again once the claim resolves.
         return guardFailed(state, event.type, 'boost is rejected while a recipient claim is pending');
       }
+      if (ctx.pendingLegRequest !== null) {
+        // Same freeze rule (ADR-029): the request carries a frozen price; a
+        // boost would change the pool under the hub's pending decision.
+        return guardFailed(state, event.type, 'boost is rejected while a deposit request is pending');
+      }
       if (event.amountMsat <= 0n) {
         return guardFailed(state, event.type, 'boost amount must be > 0 msat');
       }
@@ -1313,6 +1497,10 @@ export function transition(
         // A reroute would re-freeze the pool and rotate the recipient's
         // credentials under a claim that already froze both (ADR-016).
         return guardFailed(state, event.type, 'reroute is rejected while a recipient claim is pending');
+      }
+      if (ctx.pendingLegRequest !== null) {
+        // The request froze its price against the CURRENT route (ADR-029).
+        return guardFailed(state, event.type, 'reroute is rejected while a deposit request is pending');
       }
       if (event.newDestHubId === null && event.newRecipientEmail === null) {
         return guardFailed(state, event.type, 'reroute must change the destination hub and/or the recipient');
@@ -1416,6 +1604,11 @@ export function transition(
         }
         if (ctx.pendingClaim !== null) {
           return guardFailed(state, event.type, 'cancel is rejected while a recipient claim is pending');
+        }
+        if (ctx.pendingLegRequest !== null) {
+          // Board-exclusive (ADR-029): the carrier holds a live option on the
+          // parcel until the hub answers or the window closes (30 min).
+          return guardFailed(state, event.type, 'cancel is rejected while a deposit request is pending');
         }
         if (stay.hubId !== ctx.originHubId) {
           // Only before the first pickup_checkout, i.e. while still at the

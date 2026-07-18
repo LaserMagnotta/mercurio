@@ -232,8 +232,19 @@ const HUBS = [
 
 /** Events that must never move money (documentary/administrative only).
  *  `reroute` left this set with ADR-014: rerouting away from the delivery
- *  state cancels the pending Π_h hold — asserted precisely in the walk. */
-const NO_MONEY_EVENTS = new Set(['create', 'origin_checkin', 'boost', 'handoff_reject']);
+ *  state cancels the pending Π_h hold — asserted precisely in the walk.
+ *  The whole deposit-request phase is money-free by design (ADR-029): the
+ *  request and every dissolution of it belong here. */
+const NO_MONEY_EVENTS = new Set([
+  'create',
+  'origin_checkin',
+  'boost',
+  'handoff_reject',
+  'leg_request',
+  'deposit_reject',
+  'deposit_request_expired',
+  'deposit_request_cancel',
+]);
 
 const MONEY_KINDS = new Set([
   'create_conditional_payment',
@@ -288,6 +299,17 @@ function feasibleEvents(walker: Walker): [string, number][] {
         ['cancel', 1],
       ];
     case 'AT_HUB': {
+      if (ctx.pendingLegRequest !== null) {
+        // Board-exclusive (ADR-029): only the hub's answer, the carrier's
+        // withdrawal, the response clock and the storage clock remain valid.
+        return [
+          ['deposit_accept', 6],
+          ['deposit_reject', 1],
+          ['deposit_request_expired', 1],
+          ['deposit_request_cancel', 1],
+          ['storage_expiry', 1],
+        ];
+      }
       if (ctx.leg !== null) {
         return [
           ['leg_funded', 6],
@@ -297,7 +319,7 @@ function feasibleEvents(walker: Walker): [string, number][] {
         ];
       }
       if (ctx.pendingClaim !== null) {
-        // Boost/reroute/cancel/leg_accept are all rejected here (ADR-016):
+        // Boost/reroute/cancel/leg_request are all rejected here (ADR-016):
         // only the claim's own outcomes and the storage clock remain valid.
         return [
           ['claim_funded', 6],
@@ -306,7 +328,7 @@ function feasibleEvents(walker: Walker): [string, number][] {
         ];
       }
       const events: [string, number][] = [
-        ['leg_accept', 8],
+        ['leg_request', 8],
         ['recipient_claim', 2],
         ['boost', 1],
         ['reroute', 1],
@@ -359,7 +381,7 @@ function buildEvent(walker: Walker, rand: () => number, type: string): ShipmentE
       return { type, hubStayId: mint('stay'), hubWalletConnected: true };
     case 'origin_checkin':
       return { type, photoSha256: [mint('ph')], storageDeadlineAt: iso(walker.clock + randInt(rand, 60, 2000)) };
-    case 'leg_accept': {
+    case 'leg_request': {
       const current = ctx.currentHubStay!.hubId;
       const candidates = HUBS.filter((h) => h.hubId !== current);
       // Bias toward finishing: half the time aim straight at the destination.
@@ -374,15 +396,33 @@ function buildEvent(walker: Walker, rand: () => number, type: string): ShipmentE
         carrierTripActive: true,
         toHubId: toHub.hubId,
         toHubUserId: toHub.userId,
-        arrivalHubStayId: mint('stay'),
-        arrivalHubAutoAccepts: true,
         arrivalHubWalletConnected: true,
         pricing: randomPricing(rand, isFinal),
         // Zero sometimes: the share may floor to nothing (then no 4th hold).
         finalizationHubBonusMsat: isFinal && rand() < 0.8 ? BigInt(randInt(rand, 1, 300)) * 1000n : 0n,
-        fundingDeadlineAt: iso(walker.clock + 60),
+        responseDeadlineAt: iso(walker.clock + 30),
       };
     }
+    case 'deposit_accept':
+      return {
+        type,
+        now: iso(walker.clock),
+        arrivalHubStayId: mint('stay'),
+        arrivalHubWalletConnected: true,
+        fundingDeadlineAt: iso(walker.clock + 60),
+      };
+    case 'deposit_reject':
+      return {
+        type,
+        rejectedById: ctx.pendingLegRequest!.toHubUserId,
+        reason: 'no room on the shelf',
+      };
+    case 'deposit_request_expired': {
+      walker.clock = (Date.parse(ctx.pendingLegRequest!.responseDeadlineAt) - T0) / 60_000 + 1;
+      return { type, now: iso(walker.clock) };
+    }
+    case 'deposit_request_cancel':
+      return { type };
     case 'leg_funded':
       return { type, now: iso(walker.clock), pickupDeadlineAt: iso(walker.clock + randInt(rand, 30, 120)) };
     case 'leg_funding_expired': {
@@ -489,6 +529,7 @@ function apply(walker: Walker, type: string, event: ShipmentEvent, nextState: Sh
   if (type === 'transit_timeout') world.fire('transit', ctx.leg!.legId);
   if (type === 'storage_expiry') world.fire('storage', ctx.currentHubStay!.hubStayId);
   if (type === 'claim_funding_expired') world.fire('claim_funding', ctx.pendingClaim!.claimId);
+  if (type === 'deposit_request_expired') world.fire('deposit_response', ctx.pendingLegRequest!.legId);
   world.execute(ctx.shipmentId, effects);
 
   switch (type) {
@@ -506,19 +547,36 @@ function apply(walker: Walker, type: string, event: ShipmentEvent, nextState: Sh
     case 'origin_checkin':
       ctx.currentHubStay!.storageDeadlineAt = (event as Extract<ShipmentEvent, { type: 'origin_checkin' }>).storageDeadlineAt;
       break;
-    case 'leg_accept': {
-      const e = event as Extract<ShipmentEvent, { type: 'leg_accept' }>;
-      ctx.leg = {
+    case 'leg_request': {
+      const e = event as Extract<ShipmentEvent, { type: 'leg_request' }>;
+      // Money-free (ADR-029): only the pending request enters the context.
+      ctx.pendingLegRequest = {
         legId: e.legId,
         carrierId: e.carrierId,
         fromHubId: ctx.currentHubStay!.hubId,
         fromHubUserId: ctx.currentHubStay!.hubUserId,
         toHubId: e.toHubId,
         toHubUserId: e.toHubUserId,
-        arrivalHubStayId: e.arrivalHubStayId,
         pricing: e.pricing,
-        legPaymentId: world.paymentByRef('leg_payment', 'leg', e.legId).id,
-        carrierBondId: world.paymentByRef('custody_bond', 'leg', e.legId).id,
+        finalizationHubBonusMsat: e.finalizationHubBonusMsat,
+        responseDeadlineAt: e.responseDeadlineAt,
+      };
+      break;
+    }
+    case 'deposit_accept': {
+      const e = event as Extract<ShipmentEvent, { type: 'deposit_accept' }>;
+      const req = ctx.pendingLegRequest!;
+      ctx.leg = {
+        legId: req.legId,
+        carrierId: req.carrierId,
+        fromHubId: req.fromHubId,
+        fromHubUserId: req.fromHubUserId,
+        toHubId: req.toHubId,
+        toHubUserId: req.toHubUserId,
+        arrivalHubStayId: e.arrivalHubStayId,
+        pricing: req.pricing,
+        legPaymentId: world.paymentByRef('leg_payment', 'leg', req.legId).id,
+        carrierBondId: world.paymentByRef('custody_bond', 'leg', req.legId).id,
         arrivalHubBondId: world.paymentByRef('custody_bond', 'hub_stay', e.arrivalHubStayId).id,
         fundingDeadlineAt: e.fundingDeadlineAt,
         pickupDeadlineAt: null,
@@ -526,14 +584,20 @@ function apply(walker: Walker, type: string, event: ShipmentEvent, nextState: Sh
       };
       // The fourth hold exists only when the final leg froze a hub share.
       ctx.finalizationBonusHold =
-        e.finalizationHubBonusMsat > 0n
+        req.finalizationHubBonusMsat > 0n
           ? {
               paymentId: world.paymentByRef('finalization_bonus', 'hub_stay', e.arrivalHubStayId).id,
-              amountMsat: e.finalizationHubBonusMsat,
+              amountMsat: req.finalizationHubBonusMsat,
             }
           : null;
+      ctx.pendingLegRequest = null;
       break;
     }
+    case 'deposit_reject':
+    case 'deposit_request_expired':
+    case 'deposit_request_cancel':
+      ctx.pendingLegRequest = null;
+      break;
     case 'leg_funded':
       ctx.leg!.pickupDeadlineAt = (event as Extract<ShipmentEvent, { type: 'leg_funded' }>).pickupDeadlineAt;
       break;
@@ -651,7 +715,11 @@ const ALL_EVENT_TYPES = [
   'create',
   'origin_hub_accept',
   'origin_checkin',
-  'leg_accept',
+  'leg_request',
+  'deposit_accept',
+  'deposit_reject',
+  'deposit_request_expired',
+  'deposit_request_cancel',
   'leg_funded',
   'leg_funding_expired',
   'pickup_checkout',
