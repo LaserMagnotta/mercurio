@@ -139,10 +139,6 @@ export const connectWallet = (kind: WalletKind, connectionSecret: string) =>
 
 // --------------------------------------------------------------------- hubs
 
-/** Legacy full list — internal pickers only (origin/destination selects).
- *  The discovery page must use searchHubs: never the whole table (ADR-030). */
-export const getHubs = () => apiFetch<{ hubs: Hub[] }>('/hubs');
-
 export interface HubSearchParams {
   /** Viewport filter "minLat,minLng,maxLat,maxLng". */
   bbox?: string;

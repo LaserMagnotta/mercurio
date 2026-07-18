@@ -608,9 +608,9 @@ export const hubDto = z.object({
 
 /**
  * Query of GET /hubs (ADR-030 — hub discovery at 10k-hub scale). All fields
- * optional; with NO field at all the route keeps its legacy behavior (full
- * unpaginated list — the internal pickers rely on it). The moment ANY field
- * is present the response is paginated (default limit 50).
+ * optional; the response is ALWAYS paginated (default limit 50). The legacy
+ * no-param full list retired with Fase 5, once the last internal picker
+ * moved to the search contract.
  */
 export const hubsListQuery = z.object({
   /** Viewport filter: "minLat,minLng,maxLat,maxLng" (WGS84 degrees). */
