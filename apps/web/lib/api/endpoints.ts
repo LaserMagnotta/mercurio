@@ -139,7 +139,47 @@ export const connectWallet = (kind: WalletKind, connectionSecret: string) =>
 
 // --------------------------------------------------------------------- hubs
 
+/** Legacy full list — internal pickers only (origin/destination selects).
+ *  The discovery page must use searchHubs: never the whole table (ADR-030). */
 export const getHubs = () => apiFetch<{ hubs: Hub[] }>('/hubs');
+
+export interface HubSearchParams {
+  /** Viewport filter "minLat,minLng,maxLat,maxLng". */
+  bbox?: string;
+  /** Case-insensitive substring on name and address. */
+  q?: string;
+  /** "lat,lng": sort by distance from here; fills each hub's distanceKm. */
+  near?: string;
+  limit?: number;
+  offset?: number;
+}
+
+/** Paginated hub discovery (ADR-030): the page plus the pre-pagination total. */
+export const searchHubs = (params: HubSearchParams) =>
+  apiFetch<{ hubs: Hub[]; total: number }>('/hubs', { query: { ...params } });
+
+export const getHub = (id: string) => apiFetch<Hub>(`/hubs/${id}`);
+
+/** One shipment waiting for a carrier at a hub (ADR-030 reverse trip
+ *  planning): indicative gross ceiling, never a frozen per-leg price. */
+export interface HubWaitingShipment {
+  shipmentId: string;
+  codename: string;
+  destHubId: string;
+  destHubName: string;
+  remainingKm: number;
+  dims: { lengthCm: number; widthCm: number; heightCm: number };
+  weightG: number;
+  undeclared: boolean;
+  custodyBondMsat: string;
+  maxGrossMsat: string;
+  eurRate: EurRate;
+}
+
+export const getHubWaitingShipments = (hubId: string) =>
+  apiFetch<{ hubId: string; shipments: HubWaitingShipment[] }>(
+    `/hubs/${hubId}/waiting-shipments`,
+  );
 
 // Response of GET /hubs/mine/requests (the hub owner's dashboard) — shaped
 // in the API route, typed here explicitly like the other non-DTO endpoints.

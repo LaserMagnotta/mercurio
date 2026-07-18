@@ -707,6 +707,16 @@ legend {
   border-style: dashed;
 }
 
+/* Hub discovery map (ADR-030): single hub dot + counted cluster dot. */
+.map-marker-hub {
+  background: #f7931a;
+}
+
+.map-marker-cluster {
+  background: #1c1a17;
+  font-size: 0.8rem;
+}
+
 /* ------------------------------------------------------------------ misc */
 
 .list-plain {
