@@ -11,6 +11,7 @@ import { useMemo, useState, type FormEvent } from 'react';
 import { useTranslations } from 'next-intl';
 import { createReview, type ShipmentDetail } from '../../../lib/api/endpoints';
 import { useApiErrorMessage } from '../../../lib/api-error-message';
+import { Icon } from '../../../components/Icon';
 import { isTerminal } from '../../../lib/shipment-status';
 
 const STARS = [1, 2, 3, 4, 5] as const;
@@ -126,7 +127,7 @@ export function ReviewsSection({
                 aria-label={t('starsAria', { n })}
                 onClick={() => setStars(n)}
               >
-                {stars >= n ? '★' : '☆'}
+                <Icon name="star" filled={stars >= n} />
               </button>
             ))}
           </div>

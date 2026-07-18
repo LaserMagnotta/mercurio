@@ -53,6 +53,13 @@ export interface TripMapProps {
   };
 }
 
+// Endpoint glyphs as inline SVG (not text characters, which render with
+// platform-dependent metrics): origin is a dot, destination a square.
+const DOT_SVG =
+  '<svg viewBox="0 0 10 10" width="10" height="10" aria-hidden="true"><circle cx="5" cy="5" r="4" fill="currentColor"/></svg>';
+const SQUARE_SVG =
+  '<svg viewBox="0 0 10 10" width="10" height="10" aria-hidden="true"><rect x="1" y="1" width="8" height="8" rx="1" fill="currentColor"/></svg>';
+
 function marker(html: string, kindClass: string, preview = false) {
   return divIcon({
     // Our own class names only — no user-controlled markup.
@@ -124,7 +131,7 @@ export default function TripMap({
         />
       )}
 
-      <Marker position={[origin.lat, origin.lng]} icon={marker('●', 'map-marker-endpoint')}>
+      <Marker position={[origin.lat, origin.lng]} icon={marker(DOT_SVG, 'map-marker-endpoint')}>
         <Popup>{labels.origin}</Popup>
       </Marker>
 
@@ -147,7 +154,7 @@ export default function TripMap({
 
       <Marker
         position={[destination.lat, destination.lng]}
-        icon={marker('■', 'map-marker-endpoint')}
+        icon={marker(SQUARE_SVG, 'map-marker-endpoint')}
       >
         <Popup>{labels.destination}</Popup>
       </Marker>

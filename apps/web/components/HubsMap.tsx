@@ -59,7 +59,8 @@ function clusterIcon(count: number) {
 
 function hubIcon() {
   return divIcon({
-    html: '<span class="map-marker map-marker-hub">●</span>',
+    // Inline SVG dot, not a text character (platform-dependent metrics).
+    html: '<span class="map-marker map-marker-hub"><svg viewBox="0 0 10 10" width="9" height="9" aria-hidden="true"><circle cx="5" cy="5" r="4" fill="currentColor"/></svg></span>',
     className: '',
     iconSize: [24, 24],
     iconAnchor: [12, 12],

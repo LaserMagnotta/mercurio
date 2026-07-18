@@ -4,6 +4,7 @@
 // chosen. Zero reviews reads "new", never a misleading 0-star average.
 
 import { useLocale, useTranslations } from 'next-intl';
+import { Icon } from './Icon';
 
 export interface RatingValue {
   averageStars: number | null;
@@ -22,7 +23,10 @@ export function RatingStars({ rating }: { rating: RatingValue }) {
   return (
     <span className="rating" aria-label={t('ratingAria', { stars, count: rating.reviewCount })}>
       <span aria-hidden="true">
-        <span className="rating-star">★</span> {stars}{' '}
+        <span className="rating-star">
+          <Icon name="star" filled size={14} />
+        </span>{' '}
+        {stars}{' '}
         {t('ratingCount', { count: rating.reviewCount })}
       </span>
     </span>
