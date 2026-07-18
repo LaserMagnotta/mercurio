@@ -92,6 +92,11 @@ export const rejectionStageEnum = pgEnum('rejection_stage', [
   'deposit_request',
 ]);
 
+// ADR-031: which metric froze a shipment's money distances. Chosen at
+// creation ('road' when OSRM resolves the route, 'haversine' otherwise) and
+// never changed afterwards — the pool math must never mix metrics.
+export const distanceMetricEnum = pgEnum('distance_metric', ['haversine', 'road']);
+
 // Wallet connection (ESCROW.md sec.5): the user's own wallet, never the platform's.
 export const walletKindEnum = pgEnum('wallet_kind', ['nwc', 'lnd_rest', 'fake']);
 export const walletStatusEnum = pgEnum('wallet_status', ['connected', 'disconnected', 'error']);

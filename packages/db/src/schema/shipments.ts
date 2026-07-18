@@ -10,7 +10,7 @@ import {
   timestamp,
   uuid,
 } from 'drizzle-orm/pg-core';
-import { shipmentStatusEnum } from './enums.js';
+import { distanceMetricEnum, shipmentStatusEnum } from './enums.js';
 import { hubs } from './hubs.js';
 import { users } from './users.js';
 
@@ -73,6 +73,10 @@ export const shipments = pgTable('shipments', {
   status: shipmentStatusEnum('status').notNull().default('draft'),
   // Frozen origin->destination distance (D in ECONOMICS.md); recomputed on `reroute`.
   distanceKm: doublePrecision('distance_km').notNull(),
+  // ADR-031: the metric that froze distanceKm — and prices every leg of this
+  // shipment for its whole life, reroutes included. 'road' only when OSRM
+  // resolved the route at creation; pre-ADR-031 rows default to 'haversine'.
+  distanceMetric: distanceMetricEnum('distance_metric').notNull().default('haversine'),
 
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });

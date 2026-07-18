@@ -20,3 +20,4 @@ export * from './shipment-timers.js';
 export * from './shipment-claims.js';
 export * from './instant-payments.js';
 export * from './escrow-intents.js';
+export * from './road-routing.js';
