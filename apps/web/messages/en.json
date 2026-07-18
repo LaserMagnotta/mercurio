@@ -420,8 +420,12 @@
     "lngLabel": "Longitude",
     "coordsHint": "The coordinates place the hub in leg pricing and on the carriers' map.",
     "hoursLegend": "Opening hours",
-    "hoursPlaceholder": "e.g. 8:00–20:00",
-    "hoursHint": "Leave closing days empty. At least one day is required.",
+    "hoursHint": "Leave a day with no intervals if it's a closing day. Add a second interval for a lunch break.",
+    "hoursClosed": "Closed",
+    "hoursAddInterval": "+ Add interval",
+    "hoursRemoveInterval": "Remove",
+    "hoursOpensLabel": "Opens, {day}",
+    "hoursClosesLabel": "Closes, {day}",
     "days": {
       "mon": "Monday",
       "tue": "Tuesday",
@@ -450,6 +454,8 @@
       "contactEmail": "The contact email is not valid.",
       "coords": "Invalid coordinates.",
       "hours": "Provide the hours of at least one day.",
+      "hoursIncomplete": "Finish or remove the unfinished interval.",
+      "hoursOrder": "The opening time must come before the closing time.",
       "dims": "Dimensions and weight must be positive integers.",
       "fee": "The percentage must be between 0 and {max}.",
       "storage": "Storage must be between 1 and {max} days."

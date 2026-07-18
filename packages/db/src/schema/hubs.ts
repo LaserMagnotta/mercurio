@@ -28,6 +28,11 @@ export const hubs = pgTable(
     contactEmail: text('contact_email'),
     lat: doublePrecision('lat').notNull(),
     lng: doublePrecision('lng').notNull(),
+    // Array of { day, opens, closes } intervals, one row per open interval so
+    // a split shift (lunch break) is just two entries sharing a day (ADR-032,
+    // shape borrowed from schema.org's OpeningHoursSpecification). Validated
+    // by @mercurio/shared's openingHoursDto at the API boundary; the column
+    // itself stays untyped jsonb like the rest of this table's free-form data.
     openingHours: jsonb('opening_hours').notNull(),
     maxDimCmL: integer('max_dim_cm_l').notNull(),
     maxDimCmW: integer('max_dim_cm_w').notNull(),

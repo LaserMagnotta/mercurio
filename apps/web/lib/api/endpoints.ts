@@ -14,6 +14,7 @@ import type {
   hubDto,
   meShipmentsDto,
   meTripsDto,
+  OpeningHoursEntry,
   photoUploadedDto,
   shipmentCreatedDto,
   shipmentDetailDto,
@@ -92,7 +93,7 @@ export interface RegisterHubInput {
   contactEmail?: string;
   lat: number;
   lng: number;
-  openingHours: Record<string, string>;
+  openingHours: OpeningHoursEntry[];
   maxDimCmL: number;
   maxDimCmW: number;
   maxDimCmH: number;

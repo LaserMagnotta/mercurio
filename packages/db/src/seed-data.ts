@@ -60,7 +60,11 @@ export async function seedDemoData(db: Db) {
       address: 'Via Torino 12, Milano',
       lat: 45.4642,
       lng: 9.19,
-      openingHours: { 'mon-sat': '07:00-20:00' },
+      openingHours: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat'].map((day) => ({
+        day,
+        opens: '07:00',
+        closes: '20:00',
+      })),
       maxDimCmL: 60,
       maxDimCmW: 60,
       maxDimCmH: 60,
@@ -81,7 +85,11 @@ export async function seedDemoData(db: Db) {
       address: 'Via Zamboni 5, Bologna',
       lat: 44.4949,
       lng: 11.3426,
-      openingHours: { 'mon-sat': '06:00-21:00' },
+      openingHours: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat'].map((day) => ({
+        day,
+        opens: '06:00',
+        closes: '21:00',
+      })),
       maxDimCmL: 50,
       maxDimCmW: 50,
       maxDimCmH: 50,
@@ -102,7 +110,14 @@ export async function seedDemoData(db: Db) {
       address: "Via de' Tornabuoni 3, Firenze",
       lat: 43.7696,
       lng: 11.2558,
-      openingHours: { 'mon-fri': '08:00-19:30', sat: '08:00-13:00' },
+      // Split shift with a lunch break (ADR-032): two intervals sharing a day.
+      openingHours: [
+        ...['mon', 'tue', 'wed', 'thu', 'fri'].flatMap((day) => [
+          { day, opens: '08:00', closes: '12:30' },
+          { day, opens: '15:00', closes: '19:30' },
+        ]),
+        { day: 'sat', opens: '08:00', closes: '13:00' },
+      ],
       maxDimCmL: 50,
       maxDimCmW: 50,
       maxDimCmH: 50,

@@ -380,6 +380,7 @@ input[type='email'],
 input[type='number'],
 input[type='url'],
 input[type='password'],
+input[type='time'],
 select,
 textarea {
   font: inherit;
@@ -509,6 +510,32 @@ legend {
 }
 .opening-hours li {
   display: contents;
+}
+
+/* Hub registration (ADR-032): one row of time inputs per open interval,
+ * grouped under its day; "+ Aggiungi intervallo" adds a second one for a
+ * lunch break. */
+.opening-hours-day {
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--border);
+}
+.opening-hours-day:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+.opening-hours-day-label {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+.opening-hours-interval {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+.opening-hours-interval input[type='time'] {
+  width: auto;
+  flex: 1;
 }
 
 /* ----------------------------------------------------------- venue photos */

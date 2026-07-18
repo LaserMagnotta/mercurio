@@ -26,7 +26,11 @@ export async function createEscrowWorld(): Promise<EscrowWorld> {
   if (!sender || !carrier || !hubOwnerA || !hubOwnerB) throw new Error('fixture: users failed');
 
   const hubDefaults = {
-    openingHours: { 'mon-sat': '08:00-20:00' },
+    openingHours: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat'].map((day) => ({
+      day,
+      opens: '08:00',
+      closes: '20:00',
+    })),
     maxDimCmL: 50,
     maxDimCmW: 50,
     maxDimCmH: 50,

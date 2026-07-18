@@ -2,7 +2,7 @@ import { count, desc, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import type { App } from '../app.js';
 import { carrierTrips, hubs, shipments, users } from '@mercurio/db';
-import { listQuery, MAX_STORAGE_DAYS } from '@mercurio/shared';
+import { listQuery, MAX_STORAGE_DAYS, openingHoursDto } from '@mercurio/shared';
 import { requireAuth } from '../plugins/auth-guard.js';
 import { activateCarrierRole, deleteAccount, exportUserData, getRoles } from '../lib/account.js';
 import { msat } from '../lib/serialize.js';
@@ -15,7 +15,7 @@ const hubBody = z.object({
   contactEmail: z.string().email().max(300).optional(),
   lat: z.number().min(-90).max(90),
   lng: z.number().min(-180).max(180),
-  openingHours: z.record(z.string()),
+  openingHours: openingHoursDto,
   maxDimCmL: z.number().int().positive(),
   maxDimCmW: z.number().int().positive(),
   maxDimCmH: z.number().int().positive(),

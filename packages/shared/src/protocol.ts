@@ -117,3 +117,13 @@ export type PhotoKind = (typeof PHOTO_KINDS)[number];
 /** MVP cap on a hub's venue photos (ADR-028): a small storefront gallery, not
  *  an album. Enforced by the upload route. */
 export const MAX_VENUE_PHOTOS = 6;
+
+/** Weekday keys for a hub's opening hours (ADR-032), Monday-first to match
+ *  ISO 8601 and the existing i18n catalogs (`hub.days.*`). */
+export const DAY_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const;
+export type DayKey = (typeof DAY_KEYS)[number];
+
+/** Max open intervals per single day (ADR-032): one for a straight day, two
+ *  for the common lunch-break split shift, a third as headroom — never a
+ *  hard "exactly 2". */
+export const MAX_OPENING_INTERVALS_PER_DAY = 3;

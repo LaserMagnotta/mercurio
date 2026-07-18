@@ -14,8 +14,10 @@ import { z } from 'zod';
 import {
   CARRIER_TRIP_STATUSES,
   CODENAME_PATTERN,
+  DAY_KEYS,
   DEFAULT_LIST_LIMIT,
   MAX_LIST_LIMIT,
+  MAX_OPENING_INTERVALS_PER_DAY,
   MAX_STORAGE_DAYS,
   PHOTO_KINDS,
   REVIEW_ROLES,
@@ -62,6 +64,50 @@ export const connectWalletBody = z.object({
    *  Stored encrypted at rest; never returned by any endpoint. */
   connectionSecret: z.string().min(1).max(10_000),
 });
+
+// ---------------------------------------------------------------------------
+// Hub opening hours (ADR-032)
+
+const openingHoursTimeString = z
+  .string()
+  .regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'HH:MM 24h time');
+
+/** One open interval of one weekday. A day with a lunch break is simply two
+ *  entries sharing the same `day` — the shape schema.org's
+ *  `OpeningHoursSpecification` uses for split shifts (ADR-032), adopted here
+ *  instead of a bespoke mini-language. */
+export const openingHoursEntryDto = z
+  .object({
+    day: z.enum(DAY_KEYS),
+    opens: openingHoursTimeString,
+    closes: openingHoursTimeString,
+  })
+  .refine((e) => e.opens < e.closes, { message: 'opens must be before closes', path: ['closes'] });
+
+/** A hub's full weekly schedule: any number of entries, at most
+ *  `MAX_OPENING_INTERVALS_PER_DAY` per day and never overlapping within a
+ *  day. A day with no entries is closed. */
+export const openingHoursDto = z.array(openingHoursEntryDto).superRefine((entries, ctx) => {
+  const byDay = new Map<string, (typeof entries)[number][]>();
+  for (const entry of entries) byDay.set(entry.day, [...(byDay.get(entry.day) ?? []), entry]);
+  for (const [day, dayEntries] of byDay) {
+    if (dayEntries.length > MAX_OPENING_INTERVALS_PER_DAY) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: `too many intervals on ${day}` });
+      continue;
+    }
+    const sorted = [...dayEntries].sort((a, b) => a.opens.localeCompare(b.opens));
+    for (let i = 1; i < sorted.length; i++) {
+      const curr = sorted[i]!;
+      const prev = sorted[i - 1]!;
+      if (curr.opens < prev.closes) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: `overlapping intervals on ${day}` });
+      }
+    }
+  }
+});
+
+export type OpeningHoursEntry = z.infer<typeof openingHoursEntryDto>;
+export type OpeningHours = z.infer<typeof openingHoursDto>;
 
 // ---------------------------------------------------------------------------
 // Shipments
@@ -479,7 +525,7 @@ export const dropHubOptionDto = z.object({
   hubName: z.string(),
   /** Opening hours of the drop hub (Fase 2 punto 5): the carrier decides where
    *  to deposit, so when the hub is open is decision-relevant. */
-  openingHours: z.record(z.string()),
+  openingHours: openingHoursDto,
   detourKm: z.number(),
   netMsat: msatString,
   /** The "premio consegna" line, shown separately on the card (ADR-014). */
@@ -590,10 +636,10 @@ export const hubDto = z.object({
   maxWeightG: z.number().int(),
   acceptsUndeclared: z.boolean(),
   maxStorageDays: z.number().int(),
-  /** Opening hours as a day/range → time-range map, e.g. { "mon-sat":
-   *  "08:00-20:00" } (Fase 2 punto 5). Shown so the sender knows when the hub
-   *  is actually reachable — already stored, now surfaced. */
-  openingHours: z.record(z.string()),
+  /** Opening hours as a list of per-day intervals (ADR-032), e.g.
+   *  [{ day: "mon", opens: "08:00", closes: "12:30" }, ...]. Shown so the
+   *  sender knows when the hub is actually reachable. */
+  openingHours: openingHoursDto,
   autoAccept: z.boolean(),
   walletConnected: z.boolean(),
   /** Hub-role rating of the owner — the sender picks hubs here. */

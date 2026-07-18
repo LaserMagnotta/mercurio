@@ -420,8 +420,12 @@
     "lngLabel": "Longitudine",
     "coordsHint": "Le coordinate posizionano l'hub nel calcolo delle tratte e sulla mappa dei vettori.",
     "hoursLegend": "Orari di apertura",
-    "hoursPlaceholder": "es. 8:00–20:00",
-    "hoursHint": "Lascia vuoti i giorni di chiusura. Serve almeno un giorno.",
+    "hoursHint": "Lascia un giorno senza intervalli se è di chiusura. Aggiungi un secondo intervallo per la pausa pranzo.",
+    "hoursClosed": "Chiuso",
+    "hoursAddInterval": "+ Aggiungi intervallo",
+    "hoursRemoveInterval": "Rimuovi",
+    "hoursOpensLabel": "Apertura, {day}",
+    "hoursClosesLabel": "Chiusura, {day}",
     "days": {
       "mon": "Lunedì",
       "tue": "Martedì",
@@ -450,6 +454,8 @@
       "contactEmail": "L'email di contatto non è valida.",
       "coords": "Coordinate non valide.",
       "hours": "Indica gli orari di almeno un giorno.",
+      "hoursIncomplete": "Completa o rimuovi l'intervallo non finito.",
+      "hoursOrder": "L'orario di apertura deve precedere quello di chiusura.",
       "dims": "Dimensioni e peso devono essere numeri interi positivi.",
       "fee": "La percentuale deve essere tra 0 e {max}.",
       "storage": "La giacenza deve essere tra 1 e {max} giorni."
