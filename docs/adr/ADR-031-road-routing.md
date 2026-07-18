@@ -1,7 +1,10 @@
 # ADR-031 — Routing stradale reale: motore delle geometrie e confine col motore dei prezzi
 
-- Stato: **proposto — in attesa delle decisioni di Giacomo** (§«Le decisioni
-  aperte») — 2026-07-18. Fase 4 della revisione UX.
+- Stato: **accettato — decisioni di Giacomo 2026-07-18** (§«Le decisioni
+  aperte»): **routing anche nel pricing** (contro la raccomandazione
+  display-only, registrata sotto per storia), **OSRM self-hosted**, **una
+  sola cifra in UI** (la metrica di prezzo). Disegno dell'implementazione in
+  §«Il disegno». Fase 4 della revisione UX.
 - Contesto: [ADR-007](ADR-007-haversine-distance.md) (haversine × 1.3 e
   l'argomento di coerenza prezzo/filtro), [ADR-015](ADR-015-carrier-route-map.md)
   (mappa del viaggio: polilinee rette, «il routing vero lo fa Google al click»),
@@ -167,64 +170,133 @@ Ordini di grandezza verificabili, da rimisurare al Task 2:
   (rete di compose, lo chiama solo l'API server-side). L'eccezione al «lo
   stack è Postgres + API + web + proxy, punto» dell'ADR-024 è dichiarata qui.
 
-## Raccomandazione e schizzo dell'MVP (se si sceglie A + E)
+## Le decisioni aperte (DECISE da Giacomo — 2026-07-18)
 
-**A + E: OSRM self-hosted opzionale, display-only.** Il motore dei prezzi non
-cambia di una riga; la mappa dice finalmente la verità sulla forma del
-percorso; il costo operativo è un container opzionale e una procedura
-trimestrale documentata.
+### A. Confine: display-only (E) o routing anche nel pricing (F)? → **F** ✅
 
-Schizzo (dettagli al Task 2, dopo la decisione):
+La raccomandazione era E (display-only); Giacomo ha scelto **F con piena
+cognizione dei quattro problemi** elencati sopra, che quindi smettono di
+essere obiezioni e diventano **requisiti del disegno**: l'implementazione
+deve risolverli, non ignorarli. Come li risolve è in §«Il disegno».
 
-- **Interfaccia separata** lato API (es. `RouteGeometryProvider`): input una
-  sequenza di punti, output polilinee per segmento con
-  `source: 'road' | 'straight'`. `OSRM_URL` assente o router giù/oltre
-  budget (~1,5 s) ⇒ `straight`, cioè il comportamento di oggi — la bacheca e
-  la mappa **non si bloccano mai**; in sviluppo e in CI non serve nulla.
-- **Cache delle geometrie** (Postgres): chiave = endpoint quantizzati
-  (~4 decimali ≈ 11 m) + profilo + versione mappa; le tratte hub–hub sono
-  quasi statiche, la cache le rende gratuite.
-- **UI**: `GET /trips/:id/route` si estende con le geometrie per segmento;
-  la mappa del viaggio disegna il percorso diretto `O → Dc` in tonalità
-  attenuata e il percorso reale tappa-per-tappa in tonalità piena — la
-  differenza visiva È la deviazione (requisito «deviazioni in tonalità
-  diversa»). «Apri in Google Maps» resta invariato.
-- **Cifre in UI**: una sola (raccomandazione, decisione C sotto) — i km
-  della metrica di prezzo, come oggi. La Bitcoin Design Guide chiede importi
-  mai ambigui: due chilometraggi in disaccordo sulla stessa card sono
-  l'ambiguità fatta numero.
+### B. Motore? → **OSRM self-hosted** ✅ (come raccomandato)
 
-## Le decisioni aperte (spettano a Giacomo)
+Container opzionale, mai esposto pubblicamente; Valhalla resta il ripiego
+se le misure di memoria sul VPS deludessero; API esterne escluse
+(privacy + ToS); le rette restano il fallback **di sola visualizzazione**.
 
-### A. Confine: display-only (E) o routing anche nel pricing (F)?
+### C. Cifre in UI? → **Solo la metrica di prezzo** ✅ (come raccomandato)
 
-Raccomando **E**. F rompe determinismo, conservazione sotto cambio metrica e
-il contratto «nessuna sorpresa dopo» della bacheca (argomenti sopra); resta
-possibile in futuro con un ADR dedicato quando i dati reali lo chiederanno.
+Una cifra sola, quella che congela i prezzi (che con la decisione A, per le
+spedizioni nuove, È la distanza stradale). La polilinea comunica la forma;
+«~X km su strada» come annotazione resta un'aggiunta solo-UI possibile poi.
 
-### B. Motore: OSRM self-hosted opzionale, Valhalla, API esterna, o rette?
+## Il disegno (Task 2 — come F diventa implementabile senza rompere il motore)
 
-Raccomando **OSRM self-hosted opzionale** con fallback strutturale alle
-rette. Valhalla è il ripiego se la RAM misurata deludesse; le API esterne
-sono escluse (privacy + ToS); restare alle rette non risponde al backlog.
+I quattro problemi di §Opzione F, uno per uno:
 
-### C. Cifre in UI: solo i km della metrica di prezzo, o anche i km stradali?
+### 1. Metrica congelata per spedizione
 
-Raccomando **solo la metrica di prezzo** (una cifra sola, quella che congela
-i prezzi; la polilinea comunica la forma). Aggiungere «~X km su strada» come
-annotazione secondaria resta una modifica solo-UI possibile in ogni momento.
+Nuova colonna `shipments.distance_metric` (`'haversine' | 'road'`), scelta
+**alla creazione** e mai più cambiata: `'road'` se il router risponde in quel
+momento (e la coppia origine→destinazione è instradabile), `'haversine'`
+altrimenti — per sempre, anche se il router torna su. Le spedizioni esistenti
+restano `'haversine'` (default di migrazione). Ogni numero monetario di una
+spedizione — `D`, `r`, `Δr`, detour dei candidati, surplus, prezzi congelati
+— usa la metrica della spedizione, dalla creazione alla consegna: numeratore
+e denominatore non si mischiano mai (problema 2 di §F risolto alla radice:
+niente switch in volo, quindi mai `r` nuova su `D` vecchia).
 
-## Conseguenze (se si accetta la raccomandazione)
+### 2. La verità è il DB, non il router: `road_distances` first-write-wins
 
-- ADR-007 resta la verità sui numeri, e questo ADR ne diventa il complemento
-  dichiarato per la parte visiva; ADR-015 va aggiornato (le polilinee rette
-  non sono più «coerenti per necessità» ma il fallback).
-- Il deploy (ADR-024/DEPLOY.md) guadagna un servizio **opzionale** e una
-  procedura di aggiornamento mappe; chi self-hosta senza OSRM perde solo le
-  polilinee stradali, nient'altro.
-- `packages/core` non cambia: nessun test di denaro da toccare, nessuna
-  migrazione del motore.
-- Il giorno in cui si vorrà F, l'interfaccia c'è già (`DistanceProvider`) e
-  questo ADR documenta esattamente cosa dovrà risolvere l'ADR che la
-  proporrà: versionamento della metrica, cutover delle calibrazioni,
-  politica di indisponibilità del router.
+Tabella append-only `road_distances`: chiave = coppia **ordinata** di punti
+quantizzati (10⁻⁴ gradi ≈ 11 m — coerente con la quantizzazione al metro del
+motore, ECONOMICS §6.3; ordinata perché le strade non sono simmetriche),
+valore = **metri interi**. Il router si interroga solo su cache miss
+(`/route` per coppie singole, `/table` per le matrici di bacheca); una volta
+scritta, una riga **non cambia mai** — nemmeno aggiornando le mappe: gli
+aggiornamenti migliorano solo le coppie mai viste. Conseguenze volute:
+
+- **Determinismo**: due macchine leggono la stessa riga ⇒ congelano gli
+  stessi msat. Il pool resta ricalcolabile da DB (riga spedizione + eventi di
+  boost + `road_distances`, che entra nel backup): l'auditabilità di
+  ECONOMICS §6 sopravvive senza archivio di snapshot cartografici.
+- **Conservazione**: sotto una metrica immutabile per spedizione la
+  monotonia di `r` e `Σ lordi ≤ 90% × (P + Σ boost)` valgono per gli stessi
+  argomenti di oggi (il progresso minimo garantisce `Δr > 0` nella stessa
+  metrica). `D` e `r` vengono dalle stesse righe immutabili.
+- **«Nessuna sorpresa dopo»** (MATCHING §7.3): card e congelamento leggono
+  le stesse righe ⇒ il netto mostrato è il netto congelato, come oggi.
+- Deriva pluriennale dalla realtà stradale: accettata e documentata (una
+  variante nuova non cambia i prezzi di coppie già viste — è un pregio per
+  un sistema di pagamenti, non un difetto).
+
+### 3. Il motore resta puro e sincrono: pre-risoluzione nell'API
+
+`packages/core` **non cambia**: `DistanceProvider` resta un'interfaccia
+sincrona e le funzioni restano pure. È l'API a pre-risolvere (cache →
+router) tutte le coppie che serviranno, costruire un provider in-memory
+(una `Map` coppia→metri) e solo allora chiamare `rankBoard`/`priceLeg`/
+`priceClaim`. La bacheca con metriche miste si calcola **per gruppi**:
+`rankBoard(spedizioni haversine, provider haversine)` +
+`rankBoard(spedizioni road, provider road)`, poi merge con lo stesso ordine
+totale di MATCHING §7.5 (match prima, surplus ↓, shipmentId) — zero modifiche
+al core, determinismo invariato. L'ordine di visita della mappa
+(`orderRouteWaypoints`) resta su haversine: è navigazione, non denaro, e
+tenerlo sincrono e gratuito evita matrici `/table` per un problema estetico.
+
+### 4. Politica di indisponibilità (il router giù non blocca mai la bacheca)
+
+| Operazione                              | Router giù / coppia irrisolvibile                                                                  |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| Creazione spedizione                     | si crea con metrica `'haversine'` (registrata, definitiva): il mittente non è mai bloccato           |
+| Bacheca                                  | i candidati/le spedizioni `road` con coppie fredde sono **omessi in quel refresh** (come le righe malformate, MATCHING §7.2); il resto della bacheca vive |
+| `leg_request` / reroute su coppie fredde | errore riprovabile (503): mai un prezzo di ripiego su una metrica diversa                            |
+| Numeri advisory (waiting-shipments, stima fee hub) | ripiego haversine dichiarato: sono tetti/stime, il prezzo vero si congela in bacheca (ADR-030) |
+| Geometrie (display)                      | fallback a linee rette, sempre: la forma non è denaro                                                |
+
+A regime la cache rende i miss rari (le coppie hub–hub si scaldano da sole);
+le coppie sempre fredde sono `O`/`Dc` dei viaggi nuovi — un `/table` per
+render di bacheca, budget di timeout breve, poi valgono le righe scritte.
+
+### 5. Costi accettati e documentati
+
+- **Calibrazioni miste**: per un po' il suggeritore di tariffa (MATCHING §4)
+  media osservazioni in km haversine e km stradali. È advisory, non denaro;
+  si accetta, e sparisce da solo man mano che il parco spedizioni diventa
+  `road`.
+- **Boards dipendenti dalla salute del router per le coppie fredde**: il
+  costo strutturale della decisione A, mitigato dalla cache; misurarlo coi
+  dati veri è parte del rodaggio.
+- **In sviluppo e in CI** non serve nulla: `OSRM_URL` assente ⇒ tutte le
+  spedizioni nascono `'haversine'` e il comportamento è quello di oggi; i
+  test del denaro girano senza rete come sempre, più test dedicati con un
+  finto OSRM deterministico.
+
+### Parte display (invariata rispetto allo schizzo della proposta)
+
+- Cache `route_geometries` separata (le geometrie non sono denaro: TTL e
+  invalidazione libere), polilinea per segmento con
+  `source: 'road' | 'straight'`, budget di timeout, fallback rette.
+- `GET /trips/:id/route` si estende con le geometrie; la mappa disegna il
+  percorso diretto `O → Dc` in tonalità attenuata e il percorso reale
+  tappa-per-tappa in tonalità piena — la differenza visiva È la deviazione.
+  «Apri in Google Maps» resta invariato.
+
+## Conseguenze
+
+- **ADR-007 è superato per le spedizioni nuove** quando il router è
+  disponibile: la metrica di prezzo diventa la distanza stradale OSRM,
+  congelata per spedizione. L'argomento di coerenza dell'ADR-007 resta il
+  motivo per cui la metrica è **una sola per spedizione** (mai road nel
+  filtro e haversine nel prezzo o viceversa) e resta la metrica di nascita
+  quando il router manca. ADR-015 va aggiornato (rette = fallback, non più
+  scelta).
+- Il deploy (ADR-024/DEPLOY.md) guadagna un servizio **opzionale** e la
+  procedura di preprocessing/aggiornamento mappe; chi self-hosta senza OSRM
+  ha esattamente il comportamento pre-ADR-031.
+- `packages/core` non cambia; il denaro nuovo (metrica per spedizione,
+  cache first-write-wins, omissioni di bacheca) vive nell'API **con test**
+  (regola CLAUDE.md: nessuna logica di denaro senza test).
+- Migrazione `0012`: colonna `distance_metric`, tabelle `road_distances` e
+  `route_geometries`.
