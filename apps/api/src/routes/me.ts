@@ -25,7 +25,10 @@ const hubBody = z.object({
   // above this an hub is never worth the matching surplus for a carrier.
   feePercent: z.number().min(0).max(30),
   maxStorageDays: z.number().int().positive().max(MAX_STORAGE_DAYS), // ESCROW.md sec.4 CLTV budget (ADR-026)
-  autoAccept: z.boolean().default(true),
+  // Default FALSE (ADR-029, decisione B): a new hub is manual and reviews
+  // every deposit before committing bond and shelf space; auto-accept is an
+  // explicit opt-in ("accetta sempre").
+  autoAccept: z.boolean().default(false),
 });
 
 export function registerMeRoutes(app: App) {

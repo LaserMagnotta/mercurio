@@ -215,10 +215,12 @@ describe('canonical shipment lifecycle (A→C→B with finalization bonus)', () 
       'created',
       'funded', // origin bond
       'hub_checkin',
-      'leg_accepted',
+      'deposit_requested', // ADR-029: every leg starts as a request…
+      'leg_accepted', // …auto-accepted here (auto_accept hubs)
       'funded', // leg 1
       'hub_checkout',
       'hub_checkin_intermediate',
+      'deposit_requested',
       'leg_accepted',
       'funded', // leg 2 (four holds)
       'hub_checkout',

@@ -25,6 +25,10 @@ function timerEvent(timer: TimerRow, nowIso: string): ShipmentEvent {
       return { type: 'storage_expiry', now: nowIso };
     case 'claim_funding':
       return { type: 'claim_funding_expired', now: nowIso };
+    case 'deposit_response':
+      // ADR-029: the manual arrival hub never answered — the request
+      // dissolves at zero cost and the shipment returns to the board.
+      return { type: 'deposit_request_expired', now: nowIso };
   }
 }
 

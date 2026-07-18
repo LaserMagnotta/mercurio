@@ -19,6 +19,9 @@ const LIFECYCLE_TEMPLATES = [
   // Addressed to the HUB owner, not a shipment party (Fase 2 punto 6, ADR-028):
   // a deposit request landed and awaits the hub's manual accept/refuse.
   'hub_deposit_request',
+  // Addressed to the CARRIER (ADR-029): their deposit request was refused or
+  // expired unanswered — the shipment is back on the board, pick another hub.
+  'deposit_request_rejected',
 ] as const;
 
 const MAX_ATTEMPTS = 5;
@@ -167,6 +170,25 @@ async function render(
       return {
         subject: `Mercurio ${codename} — giacenza in scadenza: il pacco sta per essere svincolato`,
         text: intro + action + `Spedizione: ${codename}` + privacyFooter(),
+      };
+    }
+    case 'deposit_request_rejected': {
+      // To the carrier whose leg_request died (ADR-029): zero money moved —
+      // the message is purely "pick another hub", with the reason when the
+      // hub gave one (outcome 'rejected') or the timeout notice ('expired').
+      const rejectedLine =
+        payload.outcome === 'rejected'
+          ? `L'hub ${await hubLabel(db, payload.hubId)} ha rifiutato la tua richiesta di deposito.\n` +
+            (payload.reason ? `Motivo: ${String(payload.reason)}\n` : '')
+          : `L'hub ${await hubLabel(db, payload.hubId)} non ha risposto in tempo alla tua richiesta di deposito.\n`;
+      return {
+        subject: `Mercurio ${codename} — richiesta di deposito non accolta`,
+        text:
+          rejectedLine +
+          `Nessun fondo è stato impegnato. La spedizione è di nuovo in bacheca:\n` +
+          `puoi scegliere un altro hub di consegna.\n\n` +
+          `Spedizione: ${codename}` +
+          privacyFooter(),
       };
     }
     case 'hub_deposit_request':

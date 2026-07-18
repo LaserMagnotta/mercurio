@@ -393,6 +393,8 @@ async function buildBoard(app: App, trip: typeof carrierTrips.$inferSelect, carr
     .where(eq(shipments.status, 'at_hub'));
 
   const atHubIds = atHub.map((r) => r.shipment.id);
+  // 'requested' counts as busy (ADR-029, decisione C): a pending deposit
+  // request is board-exclusive, like a pending or booked leg.
   const busy = new Set(
     atHubIds.length === 0
       ? []
@@ -403,7 +405,7 @@ async function buildBoard(app: App, trip: typeof carrierTrips.$inferSelect, carr
             .where(
               and(
                 inArray(legs.shipmentId, atHubIds),
-                inArray(legs.status, ['pending_funding', 'booked', 'picked_up']),
+                inArray(legs.status, ['requested', 'pending_funding', 'booked', 'picked_up']),
               ),
             )
         ).map((r) => r.shipmentId),
@@ -535,6 +537,9 @@ async function buildBoard(app: App, trip: typeof carrierTrips.$inferSelect, carr
       finalizationBonusMsat: msat(o.finalizationBonusMsat),
       surplusMsat: msat(o.surplusMsat),
       hubRating: hubRating(o.hubId),
+      // ADR-029 §3: the card marks manual hubs — choosing one opens a
+      // deposit request instead of booking instantly.
+      requiresConfirmation: o.requiresConfirmation,
     });
     return {
       shipmentId: c.shipmentId,

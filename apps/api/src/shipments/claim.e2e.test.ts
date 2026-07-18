@@ -185,7 +185,8 @@ describe('recipient claim (ADR-016)', () => {
       'created',
       'funded', // origin bond
       'hub_checkin',
-      'leg_accepted',
+      'deposit_requested', // ADR-029: the leg starts as a request…
+      'leg_accepted', // …auto-accepted (auto_accept hub)
       'funded', // leg 1
       'hub_checkout',
       'hub_checkin_intermediate',

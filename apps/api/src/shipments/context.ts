@@ -35,6 +35,7 @@ import type {
   ActiveLeg,
   Msat,
   PendingClaim,
+  PendingLegRequest,
   PoolBoost,
   ShipmentContext,
   ShipmentState,
@@ -117,6 +118,10 @@ export interface ShipmentBundle {
   currentStayRow: HubStayRow | null;
   /** The pending/booked/picked-up leg, if any. */
   activeLegRow: LegRow | null;
+  /** The leg in status 'requested' (ADR-029), if any: a deposit request the
+   *  arrival hub has not answered yet. NEVER an active leg — no conditional
+   *  payment exists for it. */
+  requestedLegRow: LegRow | null;
   /** The reserved stay at the active leg's arrival hub, if any. */
   arrivalStayRow: HubStayRow | null;
   /** The pending Π_h hold row of a final LEG (purpose finalization_bonus,
@@ -221,6 +226,9 @@ export async function loadShipmentBundle(
   const activeLegRow =
     shipmentLegs.find((l) => ['pending_funding', 'booked', 'picked_up'].includes(l.status)) ??
     null;
+  // A 'requested' leg (ADR-029) is NOT active: no holds, no arrival stay yet.
+  // At most one exists (leg_request is barred while one is pending).
+  const requestedLegRow = shipmentLegs.find((l) => l.status === 'requested') ?? null;
   // With a leg in flight the reserved stay is its arrival reservation; the
   // only other reserved stay ever is the origin one in AWAITING_DROPOFF.
   const arrivalStayRow = activeLegRow ? reservedStay : null;
@@ -277,9 +285,37 @@ export async function loadShipmentBundle(
       legPaymentId: mustCpId(activeLegRow.paymentConditionalPaymentId, activeLegRow.id, 'payment'),
       carrierBondId: mustCpId(activeLegRow.bondConditionalPaymentId, activeLegRow.id, 'bond'),
       arrivalHubBondId: mustBondId(arrivalStayRow),
-      fundingDeadlineAt: activeLegRow.fundingDeadlineAt.toISOString(),
+      fundingDeadlineAt: mustFundingDeadline(activeLegRow),
       pickupDeadlineAt: activeLegRow.pickupDeadlineAt?.toISOString() ?? null,
       transitDeadlineAt: activeLegRow.transitDeadlineAt?.toISOString() ?? null,
+    };
+  }
+
+  // --- pending deposit request (ADR-029): the frozen Π_h share lives in the
+  // deposit_requested chain payload — the chain is its only store, like the
+  // quota accumulators (boost/reroute are barred while a request is pending,
+  // so nothing can shift under the frozen value).
+  let pendingLegRequest: PendingLegRequest | null = null;
+  if (requestedLegRow) {
+    if (!requestedLegRow.responseDeadlineAt) {
+      throw new Error(`requested leg ${requestedLegRow.id} has no response deadline`);
+    }
+    pendingLegRequest = {
+      legId: requestedLegRow.id,
+      carrierId: requestedLegRow.carrierId,
+      fromHubId: requestedLegRow.fromHubId,
+      fromHubUserId: mustHub(requestedLegRow.fromHubId).userId,
+      toHubId: requestedLegRow.toHubId,
+      toHubUserId: mustHub(requestedLegRow.toHubId).userId,
+      pricing: {
+        grossMsat: requestedLegRow.grossMsat,
+        depHubFeeMsat: requestedLegRow.depHubFeeMsat,
+        arrHubFeeMsat: requestedLegRow.arrHubFeeMsat,
+        netMsat: requestedLegRow.netMsat,
+        finalizationBonusMsat: requestedLegRow.finalizationBonusMsat,
+      },
+      finalizationHubBonusMsat: requestedHubBonus(chain, requestedLegRow.id),
+      responseDeadlineAt: requestedLegRow.responseDeadlineAt.toISOString(),
     };
   }
 
@@ -353,6 +389,7 @@ export async function loadShipmentBundle(
       ? { paymentId: bonusHoldRow.id, amountMsat: bonusHoldRow.amountMsat }
       : null,
     pendingClaim,
+    pendingLegRequest,
   };
 
   return {
@@ -361,6 +398,7 @@ export async function loadShipmentBundle(
     ctx,
     currentStayRow,
     activeLegRow,
+    requestedLegRow,
     arrivalStayRow,
     bonusHoldRow,
     pendingClaimRow,
@@ -390,4 +428,26 @@ function mustClaimCpId(claim: ShipmentClaimRow): string {
     throw new Error(`claim ${claim.id} has no claim-payment conditional payment`);
   }
   return claim.paymentConditionalPaymentId;
+}
+
+/** Every leg past 'requested' has a funding window (deposit_accept set it);
+ *  nullable only for the ADR-029 request phase, which never builds ActiveLeg. */
+function mustFundingDeadline(leg: LegRow): string {
+  if (!leg.fundingDeadlineAt) {
+    throw new Error(`leg ${leg.id} in status ${leg.status} has no funding deadline`);
+  }
+  return leg.fundingDeadlineAt.toISOString();
+}
+
+/** The frozen Π_h of a requested leg, read back from its deposit_requested
+ *  chain event (canonical payload: bigints are decimal strings). */
+function requestedHubBonus(chain: readonly CustodyEventRow[], legId: string): Msat {
+  for (const event of chain) {
+    if (event.type !== 'deposit_requested' || event.legId !== legId) continue;
+    const raw = (event.payload as { finalizationHubBonusMsat?: string | number })
+      .finalizationHubBonusMsat;
+    if (typeof raw === 'string' || typeof raw === 'number') return BigInt(raw);
+    throw new Error(`deposit_requested event for leg ${legId} has a malformed hub-bonus payload`);
+  }
+  throw new Error(`requested leg ${legId} has no deposit_requested chain event`);
 }

@@ -16,13 +16,15 @@ import { randomUUID } from 'node:crypto';
 import { and, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import type { FastifyReply } from 'fastify';
-import { carrierTrips, custodyEvents, hubs, legs, rejections } from '@mercurio/db';
+import { carrierTrips, custodyEvents, emailOutbox, hubs, legs, rejections, users } from '@mercurio/db';
 import { EconomicsError, applyReroute, floorToSat, priceClaim, priceLeg, splitCommitment } from '@mercurio/core';
 import {
   boostBody,
   checkoutConfirmBody,
   CHECKOUT_CONFIRMATION_WINDOW_MINUTES,
   claimedPickupBody,
+  DEPOSIT_RESPONSE_WINDOW_MINUTES,
+  depositRejectBody,
   handoffRejectBody,
   hubFeePercentToBp,
   legAcceptBody,
@@ -150,6 +152,11 @@ export function registerShipmentLifecycleRoutes(app: App) {
   );
 
   // ------------------------------------------------------------- row 4
+  // ADR-029: choosing a drop hub opens a deposit REQUEST (leg_request, no
+  // money). When the hub auto-accepts, the API fires deposit_accept right
+  // away — the pre-consent that preserves the old instant booking; when it is
+  // manual, the request waits on the hub's dashboard (30-minute window) and
+  // the hub is notified with the ADR-028 deposit-request email.
   app.post(
     '/shipments/:id/legs',
     { schema: { params, body: legAcceptBody }, preHandler: requireAuth },
@@ -217,37 +224,94 @@ export function registerShipmentLifecycleRoutes(app: App) {
       }
       const finalizationHubBonusMsat = isFinal ? floorToSat(bundle.hubBonusAvailableMsat) : 0n;
 
+      // The hub auto-accepts only if it opted in AND can bond (wallet). A
+      // manual request notifies the hub (reusing the ADR-028 template) at its
+      // venue contact address, falling back to the account email — the outbox
+      // row rides the leg_request transaction (outbox invariant).
+      const toHubWalletConnected = await hasConnectedWallet(app.db, toHub.userId);
+      const willAutoAccept = toHub.autoAccept && toHubWalletConnected;
+      let depositRequestTo: string | null = null;
+      if (!willAutoAccept) {
+        const [owner] = await app.db
+          .select({ email: users.email })
+          .from(users)
+          .where(eq(users.id, toHub.userId));
+        depositRequestTo = toHub.contactEmail ?? owner?.email ?? null;
+      }
+
       const legId = randomUUID();
-      const arrivalHubStayId = randomUUID();
-      const fundingDeadlineAt = minutesFromNow(now, LEG_FUNDING_WINDOW_MINUTES);
+      const responseDeadlineAt = minutesFromNow(now, DEPOSIT_RESPONSE_WINDOW_MINUTES);
       try {
         await executeShipmentTransition(deps(), {
           shipmentId: s.id,
           event: {
-            type: 'leg_accept',
+            type: 'leg_request',
             legId,
             carrierId,
             carrierWalletConnected: await hasConnectedWallet(app.db, carrierId),
             carrierTripActive: tripActive,
             toHubId: toHub.id,
             toHubUserId: toHub.userId,
-            arrivalHubStayId,
-            arrivalHubAutoAccepts: toHub.autoAccept,
-            arrivalHubWalletConnected: await hasConnectedWallet(app.db, toHub.userId),
+            arrivalHubWalletConnected: toHubWalletConnected,
             pricing,
             finalizationHubBonusMsat,
-            fundingDeadlineAt: fundingDeadlineAt.toISOString(),
+            responseDeadlineAt: responseDeadlineAt.toISOString(),
           },
           legMeta: { tripId: trip.id, progressKm },
+          ...(depositRequestTo && {
+            persistBefore: async (tx: typeof app.db) => {
+              await tx.insert(emailOutbox).values({
+                to: depositRequestTo,
+                template: 'hub_deposit_request',
+                payload: {
+                  shipmentId: s.id,
+                  // The departure hub of the leg — where the parcel starts.
+                  hubId: currentHub.id,
+                  destHubId: s.destHubId,
+                  maxStorageDays: s.maxStorageDays,
+                  undeclared: s.undeclared,
+                  legId,
+                },
+              });
+            },
+          }),
         });
       } catch (err) {
         if (await replyLifecycleError(reply, err)) return;
         throw err;
       }
 
+      // Pre-consent (ADR-029 §2): fire the accept in its own transaction, as
+      // shipment creation does for the origin hub. A failure leaves the leg
+      // 'requested': the 30-minute window dissolves it back onto the board —
+      // never a half-booked leg.
+      let fundingDeadlineAt: Date | null = null;
+      if (willAutoAccept) {
+        const acceptNow = deps().now();
+        const deadline = minutesFromNow(acceptNow, LEG_FUNDING_WINDOW_MINUTES);
+        try {
+          await executeShipmentTransition(deps(), {
+            shipmentId: s.id,
+            event: {
+              type: 'deposit_accept',
+              now: acceptNow.toISOString(),
+              arrivalHubStayId: randomUUID(),
+              arrivalHubWalletConnected: true,
+              fundingDeadlineAt: deadline.toISOString(),
+            },
+          });
+          fundingDeadlineAt = deadline;
+        } catch (err) {
+          request.log.warn({ err }, 'auto deposit-accept failed; leg stays requested');
+        }
+      }
+
       return reply.code(201).send({
         legId,
-        fundingDeadlineAt: fundingDeadlineAt.toISOString(),
+        status: fundingDeadlineAt ? 'pending_funding' : 'requested',
+        responseDeadlineAt: responseDeadlineAt.toISOString(),
+        fundingDeadlineAt: fundingDeadlineAt?.toISOString() ?? null,
+        requiresHubConfirmation: !fundingDeadlineAt,
         pricing: {
           grossMsat: msat(pricing.grossMsat),
           depHubFeeMsat: msat(pricing.depHubFeeMsat),
@@ -257,6 +321,110 @@ export function registerShipmentLifecycleRoutes(app: App) {
         },
         finalizationHubBonusMsat: msat(finalizationHubBonusMsat),
       });
+    },
+  );
+
+  // ---------------------------------------------- ADR-029 deposit answers
+  // The arrival hub answers a pending request from its dashboard; the
+  // requesting carrier may withdraw. All three resolve the SAME requested
+  // leg, so they share the params shape and the pending-request lookup.
+  const legParams = z.object({ id: z.string().uuid(), legId: z.string().uuid() });
+
+  app.post(
+    '/shipments/:id/legs/:legId/deposit-accept',
+    { schema: { params: legParams }, preHandler: requireAuth },
+    async (request, reply) => {
+      const bundle = await loadOr404(request.params.id, reply);
+      if (!bundle) return;
+      const req = bundle.ctx.pendingLegRequest;
+      if (!req || req.legId !== request.params.legId) {
+        return reply.code(409).send({ error: 'no_pending_deposit_request' });
+      }
+      if (req.toHubUserId !== request.userId) {
+        return reply.code(403).send({ error: 'not_arrival_hub' });
+      }
+      // Same physical re-check as the origin accept: the hub's declared
+      // constraints must still hold at the moment it commits its bond.
+      const toHub = bundle.hubById.get(req.toHubId)!;
+      const problem =
+        parcelFitsHub(bundle.shipment, toHub) ??
+        storageFitsHub(bundle.shipment.maxStorageDays, toHub);
+      if (problem) return reply.code(422).send({ error: problem });
+
+      const now = deps().now();
+      const fundingDeadlineAt = minutesFromNow(now, LEG_FUNDING_WINDOW_MINUTES);
+      try {
+        await executeShipmentTransition(deps(), {
+          shipmentId: bundle.shipment.id,
+          event: {
+            type: 'deposit_accept',
+            now: now.toISOString(),
+            arrivalHubStayId: randomUUID(),
+            arrivalHubWalletConnected: await hasConnectedWallet(app.db, request.userId!),
+            fundingDeadlineAt: fundingDeadlineAt.toISOString(),
+          },
+        });
+      } catch (err) {
+        if (await replyLifecycleError(reply, err)) return;
+        throw err;
+      }
+      return { status: 'pending_funding', fundingDeadlineAt: fundingDeadlineAt.toISOString() };
+    },
+  );
+
+  app.post(
+    '/shipments/:id/legs/:legId/deposit-reject',
+    { schema: { params: legParams, body: depositRejectBody }, preHandler: requireAuth },
+    async (request, reply) => {
+      const bundle = await loadOr404(request.params.id, reply);
+      if (!bundle) return;
+      const req = bundle.ctx.pendingLegRequest;
+      if (!req || req.legId !== request.params.legId) {
+        return reply.code(409).send({ error: 'no_pending_deposit_request' });
+      }
+      if (req.toHubUserId !== request.userId) {
+        return reply.code(403).send({ error: 'not_arrival_hub' });
+      }
+      try {
+        await executeShipmentTransition(deps(), {
+          shipmentId: bundle.shipment.id,
+          event: {
+            type: 'deposit_reject',
+            rejectedById: request.userId!,
+            reason: request.body.reason,
+          },
+        });
+      } catch (err) {
+        if (await replyLifecycleError(reply, err)) return;
+        throw err;
+      }
+      return { status: 'AT_HUB' };
+    },
+  );
+
+  app.post(
+    '/shipments/:id/legs/:legId/deposit-cancel',
+    { schema: { params: legParams }, preHandler: requireAuth },
+    async (request, reply) => {
+      const bundle = await loadOr404(request.params.id, reply);
+      if (!bundle) return;
+      const req = bundle.ctx.pendingLegRequest;
+      if (!req || req.legId !== request.params.legId) {
+        return reply.code(409).send({ error: 'no_pending_deposit_request' });
+      }
+      if (req.carrierId !== request.userId) {
+        return reply.code(403).send({ error: 'not_the_requesting_carrier' });
+      }
+      try {
+        await executeShipmentTransition(deps(), {
+          shipmentId: bundle.shipment.id,
+          event: { type: 'deposit_request_cancel' },
+        });
+      } catch (err) {
+        if (await replyLifecycleError(reply, err)) return;
+        throw err;
+      }
+      return { status: 'AT_HUB' };
     },
   );
 

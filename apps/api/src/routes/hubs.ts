@@ -87,17 +87,19 @@ export function registerHubRoutes(app: App) {
     };
   });
 
-  /** The hub owner's dashboard: shipments waiting for this hub's acceptance
-   *  (manual hubs) and every stay currently reserved or hosted here. Each row
-   *  carries what the hub would earn from it (Fase 2 punto 7): the exact frozen
-   *  fee where an adjacent leg is priced, an estimated "from–to" range where the
-   *  leg split is not known yet. */
+  /** The hub owner's dashboard: deposit requests waiting for this hub's
+   *  answer — origin DRAFTs and, since ADR-029, arrival `requested` legs
+   *  (punto 9: pinned on top, ordered by response deadline) — and every stay
+   *  currently reserved or hosted here. Each row carries what the hub would
+   *  earn from it (Fase 2 punto 7): the exact frozen fee where an adjacent
+   *  leg is priced, an estimated "from–to" range where the leg split is not
+   *  known yet. */
   app.get('/hubs/mine/requests', { preHandler: requireAuth }, async (request, reply) => {
     const [hub] = await app.db.select().from(hubs).where(eq(hubs.userId, request.userId!));
     if (!hub) return reply.code(404).send({ error: 'not_a_hub' });
     const feeBp = hubFeePercentToBp(hub.feePercent);
 
-    const [pendingAccept, stays] = await Promise.all([
+    const [pendingAccept, stays, arrivalRequests] = await Promise.all([
       app.db
         .select()
         .from(shipments)
@@ -109,6 +111,13 @@ export function registerHubRoutes(app: App) {
         .where(
           and(eq(hubStays.hubId, hub.id), inArray(hubStays.status, ['reserved', 'active'])),
         ),
+      // ADR-029 / punto 9: deposit requests pending on THIS hub as the
+      // arrival of a requested leg — the manual accept/reject queue.
+      app.db
+        .select({ leg: legs, shipment: shipments })
+        .from(legs)
+        .innerJoin(shipments, eq(shipments.id, legs.shipmentId))
+        .where(and(eq(legs.toHubId, hub.id), eq(legs.status, 'requested'))),
     ]);
 
     // Frozen fees on the legs adjacent to these stays that touch THIS hub: the
@@ -153,6 +162,35 @@ export function registerHubRoutes(app: App) {
 
     return {
       hubId: hub.id,
+      // Arrival deposit requests (ADR-029), soonest response deadline first —
+      // punto 9 pins these on top: the 30-minute clock is already running.
+      // The earning is EXACT: the leg's arrival fee was frozen at the request.
+      depositRequests: arrivalRequests
+        .sort(
+          (a, b) =>
+            (a.leg.responseDeadlineAt?.getTime() ?? 0) -
+            (b.leg.responseDeadlineAt?.getTime() ?? 0),
+        )
+        .map(({ leg, shipment }) => ({
+          shipmentId: shipment.id,
+          legId: leg.id,
+          codename: shipment.codename,
+          fromHubId: leg.fromHubId,
+          destHubId: shipment.destHubId,
+          dims: { lengthCm: shipment.dimLCm, widthCm: shipment.dimWCm, heightCm: shipment.dimHCm },
+          weightG: shipment.weightG,
+          undeclared: shipment.undeclared,
+          custodyBondMsat: msat(shipment.custodyBondMsat),
+          maxStorageDays: shipment.maxStorageDays,
+          responseDeadlineAt: leg.responseDeadlineAt?.toISOString() ?? null,
+          projectedEarning: { kind: 'exact' as const, msat: msat(leg.arrHubFeeMsat) },
+          eurRate: {
+            satsPerEur: shipment.eurRateSnapshot,
+            source: shipment.eurRateSource,
+            at: shipment.eurRateAt.toISOString(),
+          },
+          requestedAt: leg.acceptedAt.toISOString(),
+        })),
       acceptRequests: pendingAccept.map((s) => ({
         shipmentId: s.id,
         codename: s.codename,

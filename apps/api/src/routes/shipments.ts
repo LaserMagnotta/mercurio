@@ -134,6 +134,7 @@ export function registerShipmentRoutes(app: App) {
         leg: null,
         finalizationBonusHold: null,
         pendingClaim: null,
+        pendingLegRequest: null,
       };
 
       try {
@@ -326,7 +327,10 @@ export function registerShipmentRoutes(app: App) {
             arrHubFeeMsat: msat(l.arrHubFeeMsat),
             netMsat: msat(l.netMsat),
             finalizationBonusMsat: msat(l.finalizationBonusMsat),
-            fundingDeadlineAt: l.fundingDeadlineAt.toISOString(),
+            // Null while 'requested' (ADR-029): the funding window opens at
+            // deposit_accept; the response window is the request's deadline.
+            fundingDeadlineAt: isoOrNull(l.fundingDeadlineAt),
+            responseDeadlineAt: isoOrNull(l.responseDeadlineAt),
             pickupDeadlineAt: isoOrNull(l.pickupDeadlineAt),
             transitDeadlineAt: isoOrNull(l.transitDeadlineAt),
           })),
