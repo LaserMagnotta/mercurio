@@ -31,6 +31,11 @@ const nextConfig = {
   // always on would break `pnpm build` on a dev machine to produce an
   // artifact only the container image ever consumes. The Dockerfile sets it.
   ...(process.env.NEXT_STANDALONE === 'true' && { output: 'standalone' }),
+  // Escape hatch for CI/second sessions: `next build` and `next dev` share
+  // `.next` and corrupt each other when run concurrently (a known trap of
+  // this repo). Setting NEXT_DIST_DIR lets a build write elsewhere while a
+  // dev server is live. Unset = the default `.next`, nothing changes.
+  ...(process.env.NEXT_DIST_DIR && { distDir: process.env.NEXT_DIST_DIR }),
   // Tracing must start at the monorepo root or the `@mercurio/shared` dist
   // that the app imports is left out of the bundle.
   outputFileTracingRoot: join(dirname(fileURLToPath(import.meta.url)), '../..'),
