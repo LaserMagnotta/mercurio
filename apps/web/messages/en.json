@@ -398,7 +398,9 @@
     "stopsEmpty": "No stops: accept a leg from the board or open a preview.",
     "unroutedTitle": "Stops beyond the route cap",
     "unroutedBody": "The itinerary routes at most {max} stops: plan these separately.",
-    "backToBoard": "Back to the board"
+    "backToBoard": "Back to the board",
+    "roadPathNote": "Solid line: the road path with the detours for your stops. Faint line: your direct journey with no stops.",
+    "straightFallback": "Dashed hops are indicative lines: the road path is unavailable right now."
   },
   "hub": {
     "title": "Your hub",
@@ -836,6 +838,7 @@
     "subject_role_not_effective": "This user did not hold that role in the shipment.",
     "already_reviewed": "You already reviewed this user in this role.",
     "subject_not_reviewable": "Only hubs can be reviewed.",
+    "road_routing_unavailable": "Road distance unavailable right now: retry in a moment.",
     "photo_not_certified": "This photo does not match any certified fingerprint of the shipment.",
     "photo_not_photographer": "Only the user who certified the photo can upload it.",
     "photo_hash_mismatch": "The uploaded bytes do not match the declared fingerprint.",

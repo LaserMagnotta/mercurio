@@ -398,7 +398,9 @@
     "stopsEmpty": "Nessuna tappa: accetta una tratta dalla bacheca o apri un'anteprima.",
     "unroutedTitle": "Tappe oltre il limite di percorso",
     "unroutedBody": "L'itinerario calcola al massimo {max} tappe: queste restano da pianificare a parte.",
-    "backToBoard": "Torna alla bacheca"
+    "backToBoard": "Torna alla bacheca",
+    "roadPathNote": "Linea piena: il percorso stradale con le deviazioni per le tappe. Linea tenue: il tuo viaggio diretto senza tappe.",
+    "straightFallback": "I tratti tratteggiati sono linee indicative: il percorso stradale non è disponibile in questo momento."
   },
   "hub": {
     "title": "Il tuo hub",
@@ -836,6 +838,7 @@
     "subject_role_not_effective": "Questo utente non ha avuto quel ruolo nella spedizione.",
     "already_reviewed": "Hai già recensito questo utente in questo ruolo.",
     "subject_not_reviewable": "Si possono recensire solo gli hub.",
+    "road_routing_unavailable": "Distanza stradale non disponibile in questo momento: riprova tra poco.",
     "photo_not_certified": "Questa foto non corrisponde a nessuna impronta certificata della spedizione.",
     "photo_not_photographer": "Solo chi ha certificato la foto può caricarla.",
     "photo_hash_mismatch": "I byte caricati non corrispondono all'impronta dichiarata.",

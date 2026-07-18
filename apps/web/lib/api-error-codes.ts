@@ -59,6 +59,9 @@ export const KNOWN_API_ERROR_CODES = [
   'self_review',
   'subject_role_not_effective',
   'already_reviewed',
+  // Road routing (ADR-031): retriable — a road-metric money op could not
+  // resolve a distance pair right now.
+  'road_routing_unavailable',
   // Photo blobs (ADR-020).
   'photo_not_certified',
   'photo_not_photographer',
