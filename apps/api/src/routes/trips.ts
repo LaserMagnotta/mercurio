@@ -290,11 +290,18 @@ export function registerTripRoutes(app: App) {
       // ADR-031 display part: road polylines for the direct O→Dc line (drawn
       // muted — the trip the carrier would make anyway) and for each hop of
       // the visit order (full tone). Any cold hop degrades to its straight
-      // chord: a line on a map, never money, never blocking.
+      // chord: a line on a map, never money, never blocking. Zero-extent hops
+      // (origin ON the first hub, drop+pickup at one hub) draw nothing and
+      // are dropped here — a degenerate 'straight' would wrongly trip the
+      // UI's "road path unavailable" note.
       const pointSeq: GeoPoint[] = [origin, ...ordered.map((s) => s.point), destination];
+      const hops = pointSeq
+        .slice(0, -1)
+        .map((p, i) => [p, pointSeq[i + 1]!] as const)
+        .filter(([a, b]) => pointKeyOf(a) !== pointKeyOf(b));
       const [direct, ...segments] = await Promise.all([
         app.roadRouting.geometry(app.db, origin, destination),
-        ...pointSeq.slice(0, -1).map((p, i) => app.roadRouting.geometry(app.db, p, pointSeq[i + 1]!)),
+        ...hops.map(([a, b]) => app.roadRouting.geometry(app.db, a, b)),
       ]);
 
       const stopDto = (s: StopWithMeta) => ({
