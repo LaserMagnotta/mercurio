@@ -118,6 +118,7 @@ acquisto di VPS e dominio; un check di uptime esterno su `/api/health`.
 | [ADR-026](adr/ADR-026-storage-in-days.md)           | Giacenza in giorni (cap 7 subito); i 30 giorni via bond a rinnovo rolling, da implementare a parte |
 | [ADR-027](adr/ADR-027-reviews-hub-only.md)          | Recensioni: l'unico soggetto recensibile è l'hub (emenda ADR-017) |
 | [ADR-028](adr/ADR-028-hub-venue-and-deposit-notice.md) | Foto del locale (tabella + store separati), email di contatto dell'hub, avviso di deposito via outbox |
+| [ADR-029](adr/ADR-029-arrival-hub-deposit-request.md) | **PROPOSTA (in attesa di decisione)**: accetta/rifiuta dell'hub d'arrivo sulle richieste di deposito (oggi solo `auto_accept`) |
 
 ## Stato delle decisioni
 
