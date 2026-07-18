@@ -78,6 +78,13 @@
       "when": 1784369621410,
       "tag": "0010_deposit_request",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1784372652842,
+      "tag": "0011_hubs_geo_index",
+      "breakpoints": true
     }
   ]
 }
