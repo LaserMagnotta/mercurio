@@ -40,7 +40,14 @@ echo "==> Foto → $DEST/photos-$STAMP.tar.gz"
 $COMPOSE exec -T api sh -c 'tar -czf - -C /var/lib/mercurio/photos .' \
   >"$DEST/photos-$STAMP.tar.gz"
 
+# Le foto del locale (ADR-028) vivono su un volume separato: backup separato.
+echo "==> Foto del locale → $DEST/venue-photos-$STAMP.tar.gz"
+$COMPOSE exec -T api sh -c 'tar -czf - -C /var/lib/mercurio/venue-photos .' \
+  >"$DEST/venue-photos-$STAMP.tar.gz"
+
 # Un dump vuoto è un backup che si scopre inutile il giorno del ripristino.
+# (Le foto del locale possono legittimamente essere assenti: nessun hub le ha
+# ancora caricate — quindi il suo archivio non è nel controllo di non-vuoto.)
 for f in "$DEST/postgres-$STAMP.dump" "$DEST/photos-$STAMP.tar.gz"; do
   if [ ! -s "$f" ]; then
     echo "ERRORE: $f è vuoto — backup NON riuscito" >&2
@@ -50,6 +57,7 @@ done
 
 echo
 echo "Fatto:"
-ls -lh "$DEST/postgres-$STAMP.dump" "$DEST/photos-$STAMP.tar.gz" | sed 's/^/  /'
+ls -lh "$DEST/postgres-$STAMP.dump" "$DEST/photos-$STAMP.tar.gz" \
+  "$DEST/venue-photos-$STAMP.tar.gz" | sed 's/^/  /'
 echo
 echo "Ricorda: COORDINATOR_KEY (in .env) va conservata a parte e fuori da questo host."

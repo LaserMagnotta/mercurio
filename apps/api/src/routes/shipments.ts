@@ -9,7 +9,7 @@
 import { randomUUID } from 'node:crypto';
 import { eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
-import { hubs, legs, shipmentClaims, shipments } from '@mercurio/db';
+import { emailOutbox, hubs, legs, shipmentClaims, shipments, users } from '@mercurio/db';
 import { splitCommitment } from '@mercurio/core';
 import {
   createShipmentBody,
@@ -101,6 +101,24 @@ export function registerShipmentRoutes(app: App) {
       const segmentWorkMsat = splitCommitment(offerMsat).workMsat;
       const senderWalletConnected = await hasConnectedWallet(app.db, senderId);
 
+      // The origin hub auto-accepts only if it opted in AND has a connected
+      // wallet to bond (checked once, reused for the accept below). When it does
+      // NOT, the shipment stays DRAFT as a real deposit REQUEST — so we notify
+      // the hub (Fase 2 punto 6, ADR-028) at its venue contact address, falling
+      // back to the account email. The outbox row is written in the SAME
+      // transaction as the shipment (outbox invariant): no mail for a shipment
+      // that failed to create.
+      const originHubWalletConnected = await hasConnectedWallet(app.db, originHub.userId);
+      const willAutoAccept = originHub.autoAccept && originHubWalletConnected;
+      let depositRequestTo: string | null = null;
+      if (!willAutoAccept) {
+        const [owner] = await app.db
+          .select({ email: users.email })
+          .from(users)
+          .where(eq(users.id, originHub.userId));
+        depositRequestTo = originHub.contactEmail ?? owner?.email ?? null;
+      }
+
       const createCtx: ShipmentContext = {
         shipmentId,
         senderId,
@@ -155,6 +173,19 @@ export function registerShipmentRoutes(app: App) {
               status: 'draft',
               distanceKm,
             });
+            if (depositRequestTo) {
+              await tx.insert(emailOutbox).values({
+                to: depositRequestTo,
+                template: 'hub_deposit_request',
+                payload: {
+                  shipmentId,
+                  hubId: originHub.id,
+                  destHubId: destHub.id,
+                  maxStorageDays: b.maxStorageDays,
+                  undeclared: b.undeclared,
+                },
+              });
+            }
           },
         });
       } catch (err) {
@@ -167,7 +198,7 @@ export function registerShipmentRoutes(app: App) {
       // constraints (already validated above). Failure leaves DRAFT and the
       // manual accept endpoint available: creation never rolls back for it.
       let originAccepted = false;
-      if (originHub.autoAccept && (await hasConnectedWallet(app.db, originHub.userId))) {
+      if (willAutoAccept) {
         try {
           await executeShipmentTransition(deps, {
             shipmentId,

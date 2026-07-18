@@ -15,6 +15,7 @@ import {
   originAccept,
   type Hub,
   type HubDashboard as HubDashboardData,
+  type ProjectedEarning,
 } from '../../lib/api/endpoints';
 import { useApiErrorMessage } from '../../lib/api-error-message';
 import { formatDateTime } from '../../lib/format';
@@ -22,6 +23,7 @@ import { Amount } from '../../components/Amount';
 import { Codename } from '../../components/Codename';
 import { StatusBadge } from '../../components/StatusBadge';
 import type { ShipmentState } from '../../lib/shipment-status';
+import { VenuePhotoManager } from './VenuePhotoManager';
 
 export function HubDashboard() {
   const t = useTranslations('hub');
@@ -56,6 +58,20 @@ export function HubDashboard() {
 
   const hubName = (hubId: string) =>
     hubs.find((h) => h.id === hubId)?.name ?? `${hubId.slice(0, 8)}…`;
+
+  // Fase 2 punto 7: what the hub earns from a row — an exact figure where a leg
+  // is priced, a "from–to" range where the split is not known yet.
+  const renderEarning = (earning: ProjectedEarning, satsPerEur: string | null) =>
+    earning.kind === 'exact' ? (
+      <span className="small">
+        {t('earningLabel')} <Amount msat={earning.msat} satsPerEur={satsPerEur} />
+      </span>
+    ) : (
+      <span className="small">
+        {t('earningEstimateLabel')} <Amount msat={earning.minMsat} satsPerEur={satsPerEur} />{' '}
+        {t('earningRangeTo')} <Amount msat={earning.maxMsat} satsPerEur={satsPerEur} />
+      </span>
+    );
 
   const accept = async (shipmentId: string) => {
     setAcceptingId(shipmentId);
@@ -125,6 +141,7 @@ export function HubDashboard() {
                       {' · '}
                       {formatDateTime(req.createdAt, locale)}
                     </p>
+                    <div>{renderEarning(req.projectedEarning, req.eurRate.satsPerEur)}</div>
                     <div className="row-between">
                       <span className="small">
                         {t('bondLine')}{' '}
@@ -174,6 +191,7 @@ export function HubDashboard() {
                       {t('bondLine')}{' '}
                       <Amount msat={stay.custodyBondMsat} satsPerEur={stay.eurRate.satsPerEur} />
                     </p>
+                    <div>{renderEarning(stay.projectedEarning, stay.eurRate.satsPerEur)}</div>
                     <Link className="btn btn-sm" href={`/hub/shipments/${stay.shipmentId}`}>
                       {t('openOps')}
                     </Link>
@@ -182,6 +200,8 @@ export function HubDashboard() {
               </ul>
             )}
           </section>
+
+          <VenuePhotoManager hubId={data.hubId} />
         </>
       )}
     </div>

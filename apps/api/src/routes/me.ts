@@ -10,6 +10,9 @@ import { msat } from '../lib/serialize.js';
 const hubBody = z.object({
   name: z.string().min(1).max(200),
   address: z.string().min(1).max(300),
+  // Optional venue contact address, distinct from the account email (ADR-028):
+  // deposit-request notifications go here when set. Never exposed publicly.
+  contactEmail: z.string().email().max(300).optional(),
   lat: z.number().min(-90).max(90),
   lng: z.number().min(-180).max(180),
   openingHours: z.record(z.string()),
@@ -61,6 +64,7 @@ export function registerMeRoutes(app: App) {
           userId: request.userId!,
           name: b.name,
           address: b.address,
+          contactEmail: b.contactEmail ?? null,
           lat: b.lat,
           lng: b.lng,
           openingHours: b.openingHours,

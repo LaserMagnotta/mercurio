@@ -87,6 +87,9 @@ export const activateCarrierRole = () =>
 export interface RegisterHubInput {
   name: string;
   address: string;
+  /** Optional venue contact address, distinct from the account email (ADR-028):
+   *  deposit-request notifications go here when set. */
+  contactEmail?: string;
   lat: number;
   lng: number;
   openingHours: Record<string, string>;
@@ -149,6 +152,13 @@ export interface EurRate {
   at: string;
 }
 
+/** What the hub earns from a dashboard row (Fase 2 punto 7): an exact figure
+ *  where an adjacent leg is priced, a "from–to" range where the leg split is
+ *  not known yet. Both in msat, rendered sats-first + indicative € via Amount. */
+export type ProjectedEarning =
+  | { kind: 'exact'; msat: string }
+  | { kind: 'range'; minMsat: string; maxMsat: string };
+
 export interface HubAcceptRequest {
   shipmentId: string;
   codename: string;
@@ -158,6 +168,7 @@ export interface HubAcceptRequest {
   undeclared: boolean;
   custodyBondMsat: string;
   maxStorageDays: number;
+  projectedEarning: ProjectedEarning;
   eurRate: EurRate;
   createdAt: string;
 }
@@ -171,6 +182,7 @@ export interface HubStaySummary {
   shipmentStatus: string;
   storageDeadlineAt: string | null;
   custodyBondMsat: string;
+  projectedEarning: ProjectedEarning;
   eurRate: EurRate;
   destHubId: string;
 }
@@ -182,6 +194,32 @@ export interface HubDashboard {
 }
 
 export const getMyHubRequests = () => apiFetch<HubDashboard>('/hubs/mine/requests');
+
+// --------------------------------------------------------- venue photos (ADR-028)
+
+export interface VenuePhoto {
+  sha256: string;
+  createdAt: string;
+}
+
+/** Public list of a hub's venue photos (bytes come from venuePhotoUrl). */
+export const getVenuePhotos = (hubId: string) =>
+  apiFetch<{ photos: VenuePhoto[] }>(`/hubs/${hubId}/venue-photos`);
+
+/** Same-origin URL of one venue photo's bytes (usable in <img src>). Public —
+ *  no session needed (ADR-028), unlike shipment photos. */
+export const venuePhotoUrl = (hubId: string, sha256: string) =>
+  `/api/hubs/${hubId}/venue-photos/${sha256}`;
+
+/** Owner-only: upload a re-encoded, EXIF-stripped venue photo (ADR-028). */
+export const uploadVenuePhoto = (photo: CapturedPhoto) =>
+  apiUploadJpeg<{ sha256: string; duplicated: boolean }>(
+    `/hubs/mine/venue-photos/${photo.sha256}`,
+    photo.blob,
+  );
+
+export const deleteVenuePhoto = (sha256: string) =>
+  apiFetch<{ deleted: true }>(`/hubs/mine/venue-photos/${sha256}`, { method: 'DELETE' });
 
 // ---------------------------------------------------------------- shipments
 

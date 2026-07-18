@@ -117,6 +117,7 @@
     "acceptsUndeclared": "Accepts undeclared content",
     "noUndeclared": "Declared content only",
     "walletOff": "Wallet not connected: cannot receive parcels",
+    "venuePhotoAlt": "Venue photo",
     "empty": "No active hubs at the moment."
   },
   "send": {
@@ -379,6 +380,8 @@
     "registerIntro": "A hub is a business with long opening hours that holds parcels in transit in exchange for a percentage of each leg's gross. Declare your constraints once: compatible requests will come by themselves.",
     "nameLabel": "Business name",
     "addressLabel": "Address",
+    "contactEmailLabel": "Venue contact email (optional)",
+    "contactEmailHint": "Distinct from your account email: deposit-request notices go here. Leave empty to use the account email.",
     "latLabel": "Latitude",
     "lngLabel": "Longitude",
     "coordsHint": "The coordinates place the hub in leg pricing and on the carriers' map.",
@@ -410,6 +413,7 @@
     "registering": "Registering…",
     "validation": {
       "required": "Name and address are required.",
+      "contactEmail": "The contact email is not valid.",
       "coords": "Invalid coordinates.",
       "hours": "Provide the hours of at least one day.",
       "dims": "Dimensions and weight must be positive integers.",
@@ -439,7 +443,17 @@
     },
     "storageUntil": "Storage until {time}",
     "storageNotStarted": "Storage not started yet",
-    "openOps": "Open operations"
+    "openOps": "Open operations",
+    "earningLabel": "Earning:",
+    "earningEstimateLabel": "Estimated earning from",
+    "earningRangeTo": "to",
+    "venueTitle": "Venue photos",
+    "venueIntro": "Show your venue to senders and carriers. Up to {max} photos; metadata (location) is stripped on the device before upload.",
+    "venuePhotoAlt": "Venue photo",
+    "venueRemove": "Remove",
+    "venueAdd": "Add photo",
+    "venueUploading": "Uploading…",
+    "venueFull": "Maximum reached"
   },
   "hubOps": {
     "title": "Parcel operations",

@@ -81,6 +81,7 @@ services:
       TRUST_PROXY: 'true'
     volumes:
       - photos:/var/lib/mercurio/photos
+      - venue-photos:/var/lib/mercurio/venue-photos
     depends_on:
       postgres:
         condition: service_healthy
@@ -125,5 +126,6 @@ services:
 volumes:
   postgres-data:
   photos: # PHOTO_STORAGE_DIR (ADR-020 fs driver); back up with the database
+  venue-photos: # VENUE_PHOTO_STORAGE_DIR (ADR-028); back up with the database
   caddy-data:
   caddy-config:

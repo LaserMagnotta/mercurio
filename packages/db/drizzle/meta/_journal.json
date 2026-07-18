@@ -64,6 +64,13 @@
       "when": 1784304515847,
       "tag": "0008_storage_in_days",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1784364177705,
+      "tag": "0009_venue_photos_and_contact",
+      "breakpoints": true
     }
   ]
 }

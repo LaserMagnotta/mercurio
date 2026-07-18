@@ -2,6 +2,7 @@ export * from './enums.js';
 export * from './users.js';
 export * from './auth.js';
 export * from './hubs.js';
+export * from './hub-photos.js';
 export * from './wallet-connections.js';
 export * from './carrier-trips.js';
 export * from './shipments.js';

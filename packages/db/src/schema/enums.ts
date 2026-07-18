@@ -59,12 +59,18 @@ export const custodyEventTypeEnum = pgEnum('custody_event_type', [
   'recipient_claimed',
 ]);
 
+// 'hub_venue' (appended: enum values only ever ADD) is the hub's own storefront
+// photo — tied to the hub, not a shipment, and publicly visible. It lives in a
+// separate `hub_photos` table with its own blob store, so the shipment photo
+// purge worker never touches it (ADR-028); the kind is shared here only to keep
+// one photo vocabulary.
 export const photoKindEnum = pgEnum('photo_kind', [
   'content',
   'sealed',
   'checkin',
   'checkout',
   'evidence',
+  'hub_venue',
 ]);
 
 export const rejectionStageEnum = pgEnum('rejection_stage', [

@@ -101,6 +101,19 @@ export const PHOTO_MAX_RETENTION_DAYS = 90;
 
 /** Photo kinds (mirrors the Postgres enum `photo_kind`). `content`/`sealed`
  *  are the sender's creation photos, certified by the `created` custody
- *  event (ADR-022); the rest map from handoff events (ADR-020 §3). */
-export const PHOTO_KINDS = ['content', 'sealed', 'checkin', 'checkout', 'evidence'] as const;
+ *  event (ADR-022); the handoff kinds map from custody events (ADR-020 §3);
+ *  `hub_venue` is the hub's own storefront photo, public and shipment-less
+ *  (ADR-028) — it lives in `hub_photos`, never in the shipment `photos` table. */
+export const PHOTO_KINDS = [
+  'content',
+  'sealed',
+  'checkin',
+  'checkout',
+  'evidence',
+  'hub_venue',
+] as const;
 export type PhotoKind = (typeof PHOTO_KINDS)[number];
+
+/** MVP cap on a hub's venue photos (ADR-028): a small storefront gallery, not
+ *  an album. Enforced by the upload route. */
+export const MAX_VENUE_PHOTOS = 6;

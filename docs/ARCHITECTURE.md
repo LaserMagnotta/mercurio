@@ -141,9 +141,11 @@ erDiagram
 **users** — `id, email (unique), lnurl_pubkey?, locale, created_at, gdpr_consent_at, deleted_at?`
 (cancellazione = anonimizzazione: il ledger non si cancella, si scollega — vedi RISKS §GDPR).
 
-**hubs** — `id, user_id, name, address, lat, lng, opening_hours (jsonb), max_dim_cm (l/w/h),
-max_weight_g, accepts_undeclared (bool), fee_percent (numeric), max_storage_days,
-auto_accept (bool), active`. `fee_percent` è la percentuale configurabile dall'hub,
+**hubs** — `id, user_id, name, address, contact_email?, lat, lng, opening_hours (jsonb),
+max_dim_cm (l/w/h), max_weight_g, accepts_undeclared (bool), fee_percent (numeric),
+max_storage_days, auto_accept (bool), active`. `contact_email` (ADR-028) è
+l'indirizzo del **locale**, distinto dall'account: riceve gli avvisi di deposito
+(`hub_deposit_request` in outbox), mai esposto pubblicamente. `fee_percent` è la percentuale configurabile dall'hub,
 applicata al **lordo delle tratte adiacenti** (ECONOMICS.md §2); `auto_accept` abilita l'accettazione automatica dei depositi che
 rispettano i vincoli dichiarati (necessaria perché l'hub di arrivo di una tratta
 "accetta quando il pacco parte" senza interazione umana in tempo reale).
@@ -204,6 +206,14 @@ checkin|checkout|evidence), storage_key, sha256, taken_by, created_at, purge_aft
 (blob content-addressed dietro l'interfaccia `BlobStore` — driver filesystem
 di default o S3-compatibile da config, retention limitata con purge worker —
 ADR-020, ADR-023, RISKS.md §6).
+
+**hub_photos** — `id, hub_id, kind (hub_venue), storage_key, sha256, created_at`
+(ADR-028). Le foto **del locale**: legate all'hub, non a una spedizione,
+**pubbliche** e permanenti. Tabella e blob store (`venueBlobStore`) separati da
+`photos` apposta, così il purge worker delle spedizioni (che cancella i blob
+senza riga `photos`) non le tocca mai. Riusa `BlobStore`, l'indirizzamento per
+contenuto e la validazione JPEG/EXIF di ADR-020; cambia solo l'authz (upload
+solo del proprietario, lettura pubblica) e il ciclo di vita (niente purge).
 
 **wallet_connections** — `id, user_id, kind (nwc|lnd_rest|fake), connection_secret
 (cifrato), capabilities (hold_invoice bool…), status, created_at`. Il wallet

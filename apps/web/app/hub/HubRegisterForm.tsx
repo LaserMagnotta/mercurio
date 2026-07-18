@@ -26,6 +26,7 @@ export function HubRegisterForm({ onRegistered }: { onRegistered: () => Promise<
 
   const [name, setName] = useState('');
   const [address, setAddress] = useState('');
+  const [contactEmail, setContactEmail] = useState('');
   const [lat, setLat] = useState('');
   const [lng, setLng] = useState('');
   const [hours, setHours] = useState<Record<string, string>>({});
@@ -52,7 +53,12 @@ export function HubRegisterForm({ onRegistered }: { onRegistered: () => Promise<
       DAY_KEYS.map((day) => [day, (hours[day] ?? '').trim()]).filter(([, v]) => v !== ''),
     );
 
+    const contact = contactEmail.trim();
     if (name.trim() === '' || address.trim() === '') return setError(t('validation.required'));
+    // Optional, but if given it must look like an email (mirrors the API).
+    if (contact !== '' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact)) {
+      return setError(t('validation.contactEmail'));
+    }
     if (!Number.isFinite(latNum) || Math.abs(latNum) > 90) return setError(t('validation.coords'));
     if (!Number.isFinite(lngNum) || Math.abs(lngNum) > 180) return setError(t('validation.coords'));
     if (Object.keys(openingHours).length === 0) return setError(t('validation.hours'));
@@ -69,6 +75,7 @@ export function HubRegisterForm({ onRegistered }: { onRegistered: () => Promise<
       await registerHubRole({
         name: name.trim(),
         address: address.trim(),
+        ...(contact !== '' && { contactEmail: contact }),
         lat: latNum,
         lng: lngNum,
         openingHours,
@@ -106,6 +113,17 @@ export function HubRegisterForm({ onRegistered }: { onRegistered: () => Promise<
             value={address}
             onChange={(e) => setAddress(e.target.value)}
           />
+        </div>
+        <div className="field">
+          <label htmlFor="hub-contact">{t('contactEmailLabel')}</label>
+          <input
+            id="hub-contact"
+            type="email"
+            inputMode="email"
+            value={contactEmail}
+            onChange={(e) => setContactEmail(e.target.value)}
+          />
+          <span className="hint">{t('contactEmailHint')}</span>
         </div>
 
         <div className="dims-grid">

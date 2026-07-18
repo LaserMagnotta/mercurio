@@ -515,6 +515,35 @@ legend {
   display: contents;
 }
 
+/* ----------------------------------------------------------- venue photos */
+/* A hub's storefront gallery (Fase 2 punto 6): a small strip of square
+ * thumbnails. The owner's manager variant stacks a remove button under each;
+ * the read-only card variant is images only. */
+.venue-gallery {
+  list-style: none;
+  margin: var(--space-1) 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.venue-gallery li {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.venue-gallery img {
+  width: 96px;
+  height: 96px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+}
+.venue-gallery-readonly img {
+  width: 84px;
+  height: 84px;
+}
+
 /* --------------------------------------------------------------- codename */
 /* Shipment codename ("Tasso-Ambrato-742"): a human-sayable label, set in a
  * monospace face so its hyphenated parts read as one token and never blur

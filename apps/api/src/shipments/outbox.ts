@@ -16,6 +16,9 @@ const LIFECYCLE_TEMPLATES = [
   'parcel_delivered',
   'handoff_rejected',
   'storage_expiry_warning',
+  // Addressed to the HUB owner, not a shipment party (Fase 2 punto 6, ADR-028):
+  // a deposit request landed and awaits the hub's manual accept/refuse.
+  'hub_deposit_request',
 ] as const;
 
 const MAX_ATTEMPTS = 5;
@@ -166,6 +169,23 @@ async function render(
         text: intro + action + `Spedizione: ${codename}` + privacyFooter(),
       };
     }
+    case 'hub_deposit_request':
+      // To the hub owner (its venue contact address, or the account email —
+      // ADR-028). The numbers that decide the accept (bond, projected earning
+      // with sats + €) live on the dashboard, which is authoritative; the mail
+      // carries what matters at a glance and a link.
+      return {
+        subject: `Mercurio ${codename} — nuova richiesta di deposito nel tuo hub`,
+        text:
+          `Una nuova spedizione ti chiede di custodire un pacco in partenza da ${await hubLabel(db, payload.hubId)}.\n` +
+          `Destinazione: ${await hubLabel(db, payload.destHubId)}.\n` +
+          `Giacenza massima richiesta: ${String(payload.maxStorageDays ?? '?')} giorni.\n` +
+          (payload.undeclared ? `Contenuto NON dichiarato dal mittente.\n` : '') +
+          `\nApri la dashboard del tuo hub per vedere bond, guadagno stimato e\n` +
+          `accettare o rifiutare: ${webUrl()}/hub\n` +
+          `Spedizione: ${codename}` +
+          privacyFooter(),
+      };
     default:
       return null;
   }

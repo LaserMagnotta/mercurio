@@ -19,6 +19,10 @@ export const hubs = pgTable('hubs', {
     .references(() => users.id),
   name: text('name').notNull(),
   address: text('address').notNull(),
+  // Optional contact address for the VENUE, distinct from the account email
+  // (ADR-028): deposit-request notifications go here when set, otherwise to the
+  // owner's account email. Never exposed publicly (GDPR minimization).
+  contactEmail: text('contact_email'),
   lat: doublePrecision('lat').notNull(),
   lng: doublePrecision('lng').notNull(),
   openingHours: jsonb('opening_hours').notNull(),

@@ -72,6 +72,13 @@ Le variabili `PHOTO_STORAGE_*` servono solo per passare al driver S3
 (ADR-023): il default `fs` è quello giusto per questo deploy e non richiede
 configurazione.
 
+Le **foto del locale** (ADR-028) usano uno storage **separato** da quello delle
+foto delle spedizioni, così il purge worker non le tocca mai: con il driver `fs`
+il default è `VENUE_PHOTO_STORAGE_DIR=./data/venue-photos` (un volume proprio,
+da backuppare come quello delle foto); con il driver `s3` serve un bucket
+dedicato in `PHOTO_STORAGE_S3_VENUE_BUCKET` (le altre `PHOTO_STORAGE_S3_*` sono
+condivise). Un volume mancante fa sparire le foto del locale a ogni redeploy.
+
 ### Il cambio EUR→sats: perché l'API si rifiuta di partire senza (ADR-025)
 
 Quel numero fa due cose serie: dimensiona il **tetto ToS del bond** (1000 €) e
@@ -252,6 +259,10 @@ $C exec -T postgres sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --no
 # 3. Foto (un container temporaneo che monta il volume)
 $C run --rm --no-deps -T api sh -c 'tar -xzf - -C /var/lib/mercurio/photos' \
   < /var/backups/mercurio/photos-<stamp>.tar.gz
+
+# 3-bis. Foto del locale (volume separato, ADR-028)
+$C run --rm --no-deps -T api sh -c 'tar -xzf - -C /var/lib/mercurio/venue-photos' \
+  < /var/backups/mercurio/venue-photos-<stamp>.tar.gz
 
 # 4. Rimetti su
 $C up -d

@@ -5,7 +5,7 @@
 // ratings visible wherever a counterparty is chosen).
 
 import { useTranslations } from 'next-intl';
-import type { Hub } from '../lib/api/endpoints';
+import { type Hub, venuePhotoUrl } from '../lib/api/endpoints';
 import { OpeningHours } from './OpeningHours';
 import { RatingStars } from './RatingStars';
 
@@ -17,6 +17,15 @@ export function HubCard({ hub }: { hub: Hub }) {
         <h3>{hub.name}</h3>
         <RatingStars rating={hub.rating} />
       </div>
+      {hub.venuePhotos.length > 0 && (
+        <ul className="venue-gallery venue-gallery-readonly">
+          {hub.venuePhotos.map((sha256) => (
+            <li key={sha256}>
+              <img src={venuePhotoUrl(hub.id, sha256)} alt={t('venuePhotoAlt')} loading="lazy" />
+            </li>
+          ))}
+        </ul>
+      )}
       <p className="muted small">{hub.address}</p>
       <p className="small">
         {t('fee', { percent: hub.feePercent })} ·{' '}

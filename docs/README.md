@@ -62,7 +62,14 @@ emersi e chiusi due difetti che solo la produzione avrebbe rivelato: l'output di
 `tsc` non era eseguibile da Node (import relativi senza estensione — la `dist/`
 non era mai stata eseguita: `pnpm dev` gira su tsx e i test su vitest) e i
 **rate limit anti-abuso erano inerti** (`@fastify/rate-limit` registrato senza
-`await`: nessun limite di RISKS §7 veniva applicato). **Da implementare**: app
+`await`: nessun limite di RISKS §7 veniva applicato). Sul branch
+`feat/ux-overhaul-1` è in corso la **revisione UX/prodotto** (backlog UX):
+Fase 1 completa (codename delle spedizioni, giacenza in giorni — ADR-026,
+recensioni solo hub — ADR-027, audit importi EUR+sats) e Fase 2 in corso —
+orari di apertura dell'hub, **foto del locale + email di contatto + avviso di
+deposito via outbox** ([ADR-028](adr/ADR-028-hub-venue-and-deposit-notice.md))
+e **guadagno stimato/puntuale su ogni richiesta della dashboard hub**
+(`estimateHubFeeRange`, ECONOMICS §7). **Da implementare**: app
 mobile. **Todo umano**: revisione dei testi legali da parte di un legale;
 acquisto di VPS e dominio; un check di uptime esterno su `/api/health`.
 
@@ -110,6 +117,7 @@ acquisto di VPS e dominio; un check di uptime esterno su `/api/health`.
 | [ADR-025](adr/ADR-025-eur-rate-market-provider.md)  | Cambio EUR→sats reale: mediana di ticker pubblici senza chiave, cache in processo, fisso solo per dev |
 | [ADR-026](adr/ADR-026-storage-in-days.md)           | Giacenza in giorni (cap 7 subito); i 30 giorni via bond a rinnovo rolling, da implementare a parte |
 | [ADR-027](adr/ADR-027-reviews-hub-only.md)          | Recensioni: l'unico soggetto recensibile è l'hub (emenda ADR-017) |
+| [ADR-028](adr/ADR-028-hub-venue-and-deposit-notice.md) | Foto del locale (tabella + store separati), email di contatto dell'hub, avviso di deposito via outbox |
 
 ## Stato delle decisioni
 

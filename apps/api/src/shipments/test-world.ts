@@ -170,8 +170,10 @@ export async function createLifecycleWorld(): Promise<LifecycleWorld> {
     fakeNetwork: network,
     waitAttempts: 5,
     waitDelayMs: 1,
-    // Photo blobs stay in memory (ADR-020): tests never touch the disk.
+    // Photo blobs stay in memory (ADR-020, ADR-028): tests never touch the
+    // disk, and the venue store is its OWN memory store (never shared).
     blobStore: createMemoryBlobStore(now),
+    venueBlobStore: createMemoryBlobStore(now),
   });
   await app.ready();
 

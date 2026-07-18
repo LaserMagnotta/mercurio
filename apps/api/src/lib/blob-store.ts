@@ -236,3 +236,32 @@ export function createBlobStoreFromEnv(): BlobStore {
   }
   throw new Error(`blob store: unknown PHOTO_STORAGE_DRIVER "${driver}" (expected fs or s3)`);
 }
+
+/**
+ * Venue-photo store (ADR-028): the SAME driver as the shipment photo store but
+ * a SEPARATE location. It must never share the shipment store's directory or
+ * bucket, because the shipment purge worker's orphan sweep (ADR-020 §5) deletes
+ * any blob with no `photos` row — and venue blobs have none. So the venue store
+ * gets its own root (`VENUE_PHOTO_STORAGE_DIR`, default `./data/venue-photos`)
+ * or its own bucket (`PHOTO_STORAGE_S3_VENUE_BUCKET`), and the purge worker only
+ * ever sees the shipment store.
+ */
+export function createVenueBlobStoreFromEnv(): BlobStore {
+  const driver = process.env.PHOTO_STORAGE_DRIVER ?? 'fs';
+  if (driver === 'fs') {
+    return createFsBlobStore(process.env.VENUE_PHOTO_STORAGE_DIR ?? './data/venue-photos');
+  }
+  if (driver === 's3') {
+    return createS3BlobStore({
+      endpoint: requireEnv('PHOTO_STORAGE_S3_ENDPOINT'),
+      bucket: requireEnv('PHOTO_STORAGE_S3_VENUE_BUCKET'),
+      ...(process.env.PHOTO_STORAGE_S3_REGION !== undefined && {
+        region: process.env.PHOTO_STORAGE_S3_REGION,
+      }),
+      accessKeyId: requireEnv('PHOTO_STORAGE_S3_ACCESS_KEY_ID'),
+      secretAccessKey: requireEnv('PHOTO_STORAGE_S3_SECRET_ACCESS_KEY'),
+      forcePathStyle: process.env.PHOTO_STORAGE_S3_FORCE_PATH_STYLE !== 'false',
+    });
+  }
+  throw new Error(`blob store: unknown PHOTO_STORAGE_DRIVER "${driver}" (expected fs or s3)`);
+}

@@ -117,6 +117,7 @@
     "acceptsUndeclared": "Accetta contenuto non dichiarato",
     "noUndeclared": "Solo contenuto dichiarato",
     "walletOff": "Wallet non collegato: non può ricevere pacchi",
+    "venuePhotoAlt": "Foto del locale",
     "empty": "Nessun hub attivo al momento."
   },
   "send": {
@@ -379,6 +380,8 @@
     "registerIntro": "Un hub è un'attività con orari lunghi che custodisce pacchi in transito in cambio di una percentuale sul lordo di ogni tratta. Dichiara una volta i tuoi vincoli: le richieste compatibili arriveranno da sole.",
     "nameLabel": "Nome dell'attività",
     "addressLabel": "Indirizzo",
+    "contactEmailLabel": "Email di contatto del locale (opzionale)",
+    "contactEmailHint": "Distinta dall'email del tuo account: ricevi qui gli avvisi di nuove richieste di deposito. Vuota per usare l'email dell'account.",
     "latLabel": "Latitudine",
     "lngLabel": "Longitudine",
     "coordsHint": "Le coordinate posizionano l'hub nel calcolo delle tratte e sulla mappa dei vettori.",
@@ -410,6 +413,7 @@
     "registering": "Registrazione…",
     "validation": {
       "required": "Nome e indirizzo sono obbligatori.",
+      "contactEmail": "L'email di contatto non è valida.",
       "coords": "Coordinate non valide.",
       "hours": "Indica gli orari di almeno un giorno.",
       "dims": "Dimensioni e peso devono essere numeri interi positivi.",
@@ -439,7 +443,17 @@
     },
     "storageUntil": "Giacenza fino a {time}",
     "storageNotStarted": "Giacenza non ancora iniziata",
-    "openOps": "Apri le operazioni"
+    "openOps": "Apri le operazioni",
+    "earningLabel": "Guadagno:",
+    "earningEstimateLabel": "Guadagno stimato da",
+    "earningRangeTo": "a",
+    "venueTitle": "Foto del locale",
+    "venueIntro": "Mostra il tuo locale a mittenti e vettori. Massimo {max} foto; i metadati (posizione) vengono rimossi dal dispositivo prima del caricamento.",
+    "venuePhotoAlt": "Foto del locale",
+    "venueRemove": "Rimuovi",
+    "venueAdd": "Aggiungi foto",
+    "venueUploading": "Caricamento…",
+    "venueFull": "Raggiunto il massimo"
   },
   "hubOps": {
     "title": "Operazioni sul pacco",

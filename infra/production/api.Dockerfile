@@ -45,8 +45,12 @@ ENV NODE_ENV=production
 # Created in the image and owned by `node` so that Docker seeds the volume
 # with that ownership on first run — otherwise it would be root-owned and the
 # unprivileged process could not write a single blob.
+# Venue photos (ADR-028) use a SEPARATE dir/volume so the shipment photo purge
+# worker never sweeps them.
 ENV PHOTO_STORAGE_DIR=/var/lib/mercurio/photos
-RUN mkdir -p "$PHOTO_STORAGE_DIR" && chown -R node:node /var/lib/mercurio
+ENV VENUE_PHOTO_STORAGE_DIR=/var/lib/mercurio/venue-photos
+RUN mkdir -p "$PHOTO_STORAGE_DIR" "$VENUE_PHOTO_STORAGE_DIR" \
+  && chown -R node:node /var/lib/mercurio
 
 WORKDIR /app
 COPY --from=builder --chown=node:node /app .

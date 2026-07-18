@@ -29,7 +29,11 @@ import { registerShipmentRoutes } from './routes/shipments.js';
 import { registerShipmentLifecycleRoutes } from './routes/shipment-lifecycle.js';
 import { registerReviewRoutes } from './routes/reviews.js';
 import { registerPhotoRoutes } from './routes/photos.js';
-import { createBlobStoreFromEnv, type BlobStore } from './lib/blob-store.js';
+import {
+  createBlobStoreFromEnv,
+  createVenueBlobStoreFromEnv,
+  type BlobStore,
+} from './lib/blob-store.js';
 import { createMailer, type SendMail } from './lib/mailer.js';
 import { createDbWalletResolver } from './lib/wallets.js';
 import { createEurRateProviderFromEnv, type EurRateProvider } from './lib/eur-rate.js';
@@ -55,6 +59,9 @@ declare module 'fastify' {
     lifecycleConfig: LifecycleConfig;
     eurRate: EurRateProvider;
     blobStore: BlobStore;
+    /** Venue photos (ADR-028): a SEPARATE store from `blobStore`, isolated from
+     *  the shipment photo purge worker. */
+    venueBlobStore: BlobStore;
   }
 }
 
@@ -85,6 +92,9 @@ export interface BuildAppOptions {
   /** Injected by tests (memory store); defaults to the driver selected by
    *  PHOTO_STORAGE_DRIVER (ADR-020 fs / ADR-023 s3). */
   blobStore?: BlobStore;
+  /** Injected by tests (memory store); the venue photo store (ADR-028), always
+   *  distinct from `blobStore`. */
+  venueBlobStore?: BlobStore;
   /** Read `X-Forwarded-For` as the client address; defaults to TRUST_PROXY. */
   trustProxy?: boolean;
 }
@@ -153,6 +163,9 @@ export async function buildApp(options: BuildAppOptions = {}) {
   // Photo blobs (ADR-020, ADR-023): fs or S3-compatible driver from config,
   // content-addressed by sha256.
   app.decorate('blobStore', options.blobStore ?? createBlobStoreFromEnv());
+  // Venue photos (ADR-028): same driver, separate location — never swept by the
+  // shipment photo purge worker.
+  app.decorate('venueBlobStore', options.venueBlobStore ?? createVenueBlobStoreFromEnv());
 
   // Photo uploads are raw JPEG bodies (ADR-020 §3): parsed as a Buffer, with
   // the per-route bodyLimit as the size cap. The whitelist itself is decided

@@ -558,6 +558,23 @@ export const hubDto = z.object({
   walletConnected: z.boolean(),
   /** Hub-role rating of the owner — the sender picks hubs here. */
   rating: ratingDto,
+  /** sha256 of each public venue photo (ADR-028, Fase 2 punto 6): the bytes
+   *  come from GET /hubs/:id/venue-photos/:sha256 (public — no session). */
+  venuePhotos: z.array(sha256String),
+});
+
+/** Public list of a hub's venue photos (ADR-028): hashes only; the bytes are a
+ *  second, public request. Reused by the owner's management view. */
+export const venuePhotosDto = z.object({
+  photos: z.array(z.object({ sha256: sha256String, createdAt: z.string() })),
+});
+
+/** Response of POST /hubs/mine/venue-photos/:sha256 (ADR-028): `duplicated` is
+ *  true when the same bytes were already stored for this hub (content-addressed
+ *  store makes the retry a no-op). */
+export const venuePhotoUploadedDto = z.object({
+  sha256: sha256String,
+  duplicated: z.boolean(),
 });
 
 export type CreateShipmentBody = z.infer<typeof createShipmentBody>;
