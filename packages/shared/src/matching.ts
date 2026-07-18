@@ -126,6 +126,14 @@ export const MAX_ROUTE_WAYPOINTS = 9;
 /** Road/great-circle circuity factor k: d = haversine × k (ADR-007). */
 export const ROAD_CIRCUITY_FACTOR = 1.3;
 
+/** Which metric froze a shipment's money distances (ADR-031). Chosen at
+ *  creation — 'road' when the OSRM router resolves the route, 'haversine'
+ *  (ADR-007) otherwise — and never changed afterwards, reroutes included:
+ *  the pool math divides distances by distances, and numerator and
+ *  denominator must never come from different metrics. */
+export const DISTANCE_METRICS = ['haversine', 'road'] as const;
+export type DistanceMetric = (typeof DISTANCE_METRICS)[number];
+
 /** Alternative drop hubs shown on a board card ("2–3", MATCHING.md §2). */
 export const MAX_ALTERNATIVE_DROP_HUBS = 3;
 

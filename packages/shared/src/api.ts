@@ -21,6 +21,8 @@ import {
   REVIEW_ROLES,
   SHIPMENT_STATES,
 } from './protocol.js';
+// Same leaf-module rule as './protocol.js' above.
+import { DISTANCE_METRICS } from './matching.js';
 
 // ---------------------------------------------------------------------------
 // Scalars
@@ -399,6 +401,9 @@ export const shipmentDetailDto = z.object({
   custodyBondMsat: msatString,
   maxStorageDays: z.number().int(),
   distanceKm: z.number(),
+  /** Which metric froze distanceKm — and prices every leg (ADR-031):
+   *  'road' = OSRM road metres, 'haversine' = ADR-007 estimate. */
+  distanceMetric: z.enum(DISTANCE_METRICS),
   remainingKm: z.number().nullable(),
   eurRate: eurRateDto,
   createdAt: z.string(),
@@ -500,6 +505,9 @@ export const boardCardDto = z.object({
   destHubId: uuidString,
   remainingKm: z.number(),
   totalKm: z.number(),
+  /** The shipment's frozen metric (ADR-031): every km and msat on this card
+   *  is computed with it — road km for 'road', ADR-007 estimate otherwise. */
+  distanceMetric: z.enum(DISTANCE_METRICS),
   custodyBondMsat: msatString,
   dims: dimensionsSchema,
   weightG: z.number().int(),
@@ -544,6 +552,14 @@ export const routeStopDto = z.object({
   preview: z.boolean(),
 });
 
+/** One drawable segment of the trip map (ADR-031, display part): the road
+ *  shape when the router (or its cache) has it, the straight chord otherwise.
+ *  Points are [lat, lng] tuples. Display only — never money. */
+export const routeGeometrySegmentDto = z.object({
+  source: z.enum(['road', 'straight']),
+  points: z.array(z.tuple([z.number(), z.number()])),
+});
+
 /** Response of GET /trips/:id/route (ADR-015, data part): the stops in the
  *  computed visit order plus the Google Maps deep link. Stops beyond
  *  MAX_ROUTE_WAYPOINTS come back in `unroutedStops` for the UI to list. */
@@ -554,6 +570,13 @@ export const tripRouteDto = z.object({
   stops: z.array(routeStopDto),
   unroutedStops: z.array(routeStopDto),
   googleMapsUrl: z.string(),
+  /** ADR-031: the direct O→Dc line (drawn muted) and the actual stop-by-stop
+   *  path (full tone) — the visual difference between the two IS the
+   *  deviation the carrier accepted. */
+  routeGeometry: z.object({
+    direct: routeGeometrySegmentDto,
+    segments: z.array(routeGeometrySegmentDto),
+  }),
 });
 
 export const hubDto = z.object({
