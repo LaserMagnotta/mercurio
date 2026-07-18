@@ -27,12 +27,12 @@ async function listHubs(
 }
 
 describe('hub discovery (ADR-030)', () => {
-  it('no params: legacy full list; bbox, q and pagination bound the page but total counts all', async () => {
+  it('no params: first page (default limit 50 — legacy full list retired, Fase 5); bbox, q and pagination bound the page but total counts all', async () => {
     const world = await createLifecycleWorld();
 
-    const legacy = await listHubs(world, '');
-    expect(legacy.hubs).toHaveLength(3);
-    expect(legacy.total).toBe(3);
+    const firstPage = await listHubs(world, '');
+    expect(firstPage.hubs).toHaveLength(3);
+    expect(firstPage.total).toBe(3);
 
     // bbox around A (lng 0) and C (lng 40) excludes B (lng 100).
     const boxed = await listHubs(world, '?bbox=-1,-1,1,50');

@@ -27,7 +27,9 @@ case-insensitive su nome E indirizzo, wildcard LIKE escapate), `near`
 `total` pre-paginazione («N hub in quest'area» senza renderizzarli).
 **Compatibilità**: senza NESSUN parametro il contratto legacy (lista intera)
 resta — i picker interni (spedisci, reroute, viaggi) ne dipendono; a 10k hub
-andranno migrati a una ricerca, fuori dallo scope di questa fase. Nuove rotte:
+andranno migrati a una ricerca, fuori dallo scope di questa fase.
+*(Superato: il legacy è stato ritirato con la Fase 5 — v. «Aggiornamento
+2026-07-18» in fondo.)* Nuove rotte:
 `GET /hubs/:id` (dettaglio pubblico, stessa forma della lista) e
 `GET /hubs/:id/waiting-shipments` (sotto).
 
@@ -86,8 +88,32 @@ viaggio che passa di qui».
 
 - La pagina hub regge 10k hub per costruzione: il client non riceve mai più
   di 200 righe, il DOM mai più di ~20 card + cluster.
-- I picker interni restano sul contratto legacy: debito noto e documentato,
-  da saldare con una search-UX quando i volumi lo impongono (Fase 5+).
+- ~~I picker interni restano sul contratto legacy: debito noto e documentato,
+  da saldare con una search-UX quando i volumi lo impongono (Fase 5+).~~
+  Saldato — v. «Aggiornamento 2026-07-18».
 - Il flusso vettore guadagna l'ingresso «prima l'hub, poi il viaggio»
   (reverse trip planning) senza toccare il protocollo: nessun denaro, nessun
   nuovo stato — solo lettura.
+
+## Aggiornamento 2026-07-18 — Fase 5: debito dei picker saldato, legacy ritirato
+
+- **Picker su ricerca.** I tre picker interni (spedisci origine/destinazione,
+  reroute, dichiarazione viaggio) sono un combobox ARIA
+  (`apps/web/components/HubPicker.tsx`) sul contratto paginato: `q` +
+  `limit=20`, e `near` dove esiste un punto di riferimento naturale
+  (destinazione ordinata dalla partenza scelta; reroute ordinato dalla
+  destinazione corrente). A campo vuoto mostra la prima pagina (i più vicini
+  se `near` c'è): con pochi hub l'esperienza resta «vedo tutto», a 10k regge
+  per costruzione.
+- **Nomi hub per id senza lista.** Le pagine che risolvevano nomi dalla lista
+  intera (dettaglio spedizione, tracking, dashboard e operazioni hub) usano
+  `GET /hubs/:id` con una cache client per pagina
+  (`apps/web/lib/hub-lookup.ts`): una manciata di lookup mirati, mai la
+  tabella.
+- **Legacy ritirato.** Con l'ultimo consumatore migrato, `GET /hubs` senza
+  parametri non restituisce più la lista intera ma la prima pagina (default
+  `limit 50`), stessa forma `{hubs, total}`. È un breaking change SOLO per
+  client terzi che dipendevano dalla lista illimitata: la risposta resta
+  identica fino a 50 hub, e `total` dice sempre quanti sono. Motivo: nessun
+  percorso di codice deve poter pagare l'intera tabella, nemmeno per sbaglio
+  (il problema originario di questo ADR).

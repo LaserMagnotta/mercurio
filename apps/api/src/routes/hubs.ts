@@ -111,19 +111,14 @@ export function registerHubRoutes(app: App) {
   }
 
   /** Public hub discovery (ADR-030) — the sender picks origin/destination
-   *  here and the carrier scouts the network. With no query param the route
-   *  keeps its legacy shape (full list, the internal pickers rely on it);
-   *  any param switches to the paginated contract: bbox viewport filter,
-   *  case-insensitive text search, distance sort from `near`, limit/offset
-   *  with the pre-pagination `total`. */
+   *  here and the carrier scouts the network. Always paginated: bbox
+   *  viewport filter, case-insensitive text search, distance sort from
+   *  `near`, limit/offset with the pre-pagination `total`. The unbounded
+   *  legacy list (no params = whole table) retired with Fase 5, once the
+   *  last internal picker moved to search: a bare GET /hubs now returns the
+   *  first page of 50. */
   app.get('/hubs', { schema: { querystring: hubsListQuery } }, async (request, reply) => {
     const { bbox, q, near, limit, offset } = request.query;
-    const paginated =
-      bbox !== undefined ||
-      q !== undefined ||
-      near !== undefined ||
-      limit !== undefined ||
-      offset !== undefined;
 
     const conditions = [eq(hubs.active, true)];
     if (bbox) {
@@ -162,10 +157,8 @@ export function registerHubRoutes(app: App) {
           d(nearPoint!, { lat: a.lat, lng: a.lng }) - d(nearPoint!, { lat: b.lat, lng: b.lng }),
       );
     }
-    if (paginated) {
-      const start = offset ?? 0;
-      rows = rows.slice(start, start + (limit ?? 50));
-    }
+    const start = offset ?? 0;
+    rows = rows.slice(start, start + (limit ?? 50));
     return { hubs: await hubDtos(rows, nearPoint), total };
   });
 
