@@ -1,14 +1,19 @@
 'use client';
 
-// Deposit-request dashboard (CLAUDE.md "Hub — dettagli"): shipments waiting
-// for this hub's MANUAL acceptance (auto_accept hubs never see one) and the
-// stays currently reserved/hosted here, each with its storage deadline and
-// a door into the per-shipment operations page.
+// Deposit-request dashboard (CLAUDE.md "Hub — dettagli"). One pinned,
+// highlighted section collects EVERY request awaiting this hub's answer
+// (punto 9): arrival deposit requests (ADR-029 — a carrier wants to drop a
+// parcel here, 30-minute response window, accept/reject) first, ordered by
+// response deadline, then origin drafts (accept only). Below, the stays
+// currently reserved/hosted here with their storage deadlines and a door
+// into the per-shipment operations page.
 
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import {
+  depositAccept,
+  depositReject,
   getHubs,
   getMyHubRequests,
   getWallet,
@@ -36,6 +41,11 @@ export function HubDashboard() {
   const [walletConnected, setWalletConnected] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
+  // Arrival-request answer state (ADR-029): which leg is being answered and,
+  // for a refusal, the reason being typed (documentation, ADR-012).
+  const [answeringLegId, setAnsweringLegId] = useState<string | null>(null);
+  const [rejectingLegId, setRejectingLegId] = useState<string | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
 
   const load = useCallback(async () => {
     try {
@@ -86,6 +96,25 @@ export function HubDashboard() {
     }
   };
 
+  // ADR-029: answer an ARRIVAL deposit request. Accept creates the holds
+  // (the money phase starts only now); reject requires a reason and moves
+  // zero money — the shipment simply returns to the board.
+  const answerArrival = async (shipmentId: string, legId: string, reason: string | null) => {
+    setAnsweringLegId(legId);
+    setError(null);
+    try {
+      if (reason === null) await depositAccept(shipmentId, legId);
+      else await depositReject(shipmentId, legId, reason);
+      setRejectingLegId(null);
+      setRejectReason('');
+      await load();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setAnsweringLegId(null);
+    }
+  };
+
   return (
     <div className="stack">
       <div className="row-between">
@@ -113,20 +142,122 @@ export function HubDashboard() {
 
       {data && (
         <>
-          <section className="card stack-sm">
+          {/* Punto 9: EVERY pending request in one pinned, highlighted card —
+              arrival requests first (their 30-minute clock is running),
+              origin drafts after. */}
+          <section className="card card-highlight stack-sm">
             <h2>{t('acceptTitle')}</h2>
-            <p className="muted small">{t('acceptIntro')}</p>
-            {data.acceptRequests.length === 0 ? (
+            <p className="muted small">{t('requestsIntro')}</p>
+            {data.depositRequests.length === 0 && data.acceptRequests.length === 0 && (
               <p className="muted">{t('acceptEmpty')}</p>
-            ) : (
+            )}
+            {data.depositRequests.length > 0 && (
+              <ul className="list-plain">
+                {data.depositRequests.map((req) => (
+                  <li key={req.legId} className="stack-sm">
+                    <div className="row-between">
+                      <Codename value={req.codename} />
+                      <span className="row">
+                        <span className="badge badge-info">{t('arrivalBadge')}</span>
+                        {req.undeclared && (
+                          <span className="badge badge-warning">{t('undeclaredBadge')}</span>
+                        )}
+                      </span>
+                    </div>
+                    <strong>
+                      {t('arrivalLine', {
+                        from: hubName(req.fromHubId),
+                        to: hubName(req.destHubId),
+                      })}
+                    </strong>
+                    <p className="small muted">
+                      {t('parcelLine', {
+                        l: req.dims.lengthCm,
+                        w: req.dims.widthCm,
+                        h: req.dims.heightCm,
+                        g: req.weightG,
+                      })}
+                      {' · '}
+                      {t('storageLine', { days: req.maxStorageDays })}
+                    </p>
+                    {req.responseDeadlineAt && (
+                      <p className="small">
+                        <strong>
+                          {t('respondBy', {
+                            time: formatDateTime(req.responseDeadlineAt, locale),
+                          })}
+                        </strong>
+                      </p>
+                    )}
+                    <div>{renderEarning(req.projectedEarning, req.eurRate.satsPerEur)}</div>
+                    <div className="row-between">
+                      <span className="small">
+                        {t('bondLine')}{' '}
+                        <Amount msat={req.custodyBondMsat} satsPerEur={req.eurRate.satsPerEur} />
+                      </span>
+                      <span className="row">
+                        <button
+                          type="button"
+                          className="btn btn-sm"
+                          disabled={answeringLegId !== null}
+                          onClick={() => {
+                            setRejectingLegId(rejectingLegId === req.legId ? null : req.legId);
+                            setRejectReason('');
+                          }}
+                        >
+                          {t('rejectCta')}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-primary btn-sm"
+                          disabled={answeringLegId !== null}
+                          onClick={() => void answerArrival(req.shipmentId, req.legId, null)}
+                        >
+                          {answeringLegId === req.legId ? t('accepting') : t('acceptCta')}
+                        </button>
+                      </span>
+                    </div>
+                    {rejectingLegId === req.legId && (
+                      <div className="stack-sm">
+                        <label className="small" htmlFor={`reject-${req.legId}`}>
+                          {t('rejectReasonLabel')}
+                        </label>
+                        <input
+                          id={`reject-${req.legId}`}
+                          type="text"
+                          value={rejectReason}
+                          maxLength={500}
+                          onChange={(e) => setRejectReason(e.target.value)}
+                          placeholder={t('rejectReasonPlaceholder')}
+                        />
+                        <button
+                          type="button"
+                          className="btn btn-danger btn-sm"
+                          disabled={answeringLegId !== null || rejectReason.trim() === ''}
+                          onClick={() =>
+                            void answerArrival(req.shipmentId, req.legId, rejectReason.trim())
+                          }
+                        >
+                          {answeringLegId === req.legId ? t('rejecting') : t('rejectConfirm')}
+                        </button>
+                      </div>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {data.acceptRequests.length > 0 && (
               <ul className="list-plain">
                 {data.acceptRequests.map((req) => (
                   <li key={req.shipmentId} className="stack-sm">
                     <div className="row-between">
                       <Codename value={req.codename} />
-                      {req.undeclared && (
-                        <span className="badge badge-warning">{t('undeclaredBadge')}</span>
-                      )}
+                      <span className="row">
+                        <span className="badge badge-neutral">{t('originBadge')}</span>
+                        {req.undeclared && (
+                          <span className="badge badge-warning">{t('undeclaredBadge')}</span>
+                        )}
+                      </span>
                     </div>
                     <strong>{t('acceptDest', { hub: hubName(req.destHubId) })}</strong>
                     <p className="small muted">

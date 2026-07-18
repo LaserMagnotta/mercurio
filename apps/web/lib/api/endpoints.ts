@@ -187,8 +187,30 @@ export interface HubStaySummary {
   destHubId: string;
 }
 
+/** An arrival deposit request (ADR-029): a carrier asked to drop a parcel at
+ *  this hub; the leg sits in 'requested' until the hub answers, and the
+ *  earning is EXACT (the leg's arrival fee was frozen at the request). */
+export interface HubDepositRequest {
+  shipmentId: string;
+  legId: string;
+  codename: string;
+  fromHubId: string;
+  destHubId: string;
+  dims: { lengthCm: number; widthCm: number; heightCm: number };
+  weightG: number;
+  undeclared: boolean;
+  custodyBondMsat: string;
+  maxStorageDays: number;
+  responseDeadlineAt: string | null;
+  projectedEarning: ProjectedEarning;
+  eurRate: EurRate;
+  requestedAt: string;
+}
+
 export interface HubDashboard {
   hubId: string;
+  /** ADR-029 / punto 9: pinned on top, soonest response deadline first. */
+  depositRequests: HubDepositRequest[];
   acceptRequests: HubAcceptRequest[];
   stays: HubStaySummary[];
 }
@@ -382,8 +404,39 @@ export interface LegPricing {
   finalizationBonusMsat: string;
 }
 
+/** ADR-029: opening a leg toward an auto-accept hub books it instantly
+ *  ('pending_funding'); toward a manual hub it opens a deposit REQUEST
+ *  ('requested') the hub must answer within responseDeadlineAt. */
 export const acceptLeg = (shipmentId: string, tripId: string, toHubId: string) =>
-  apiFetch<{ legId: string; fundingDeadlineAt: string; pricing: LegPricing }>(
-    `/shipments/${shipmentId}/legs`,
-    { method: 'POST', body: { tripId, toHubId } },
+  apiFetch<{
+    legId: string;
+    status: 'pending_funding' | 'requested';
+    responseDeadlineAt: string;
+    fundingDeadlineAt: string | null;
+    requiresHubConfirmation: boolean;
+    pricing: LegPricing;
+  }>(`/shipments/${shipmentId}/legs`, { method: 'POST', body: { tripId, toHubId } });
+
+// ----------------------------------------- deposit-request answers (ADR-029)
+
+/** Arrival hub: accept the pending deposit request — creates the holds and
+ *  opens the funding window (the money moves only from here on). */
+export const depositAccept = (shipmentId: string, legId: string) =>
+  apiFetch<{ status: string; fundingDeadlineAt: string }>(
+    `/shipments/${shipmentId}/legs/${legId}/deposit-accept`,
+    { method: 'POST' },
   );
+
+/** Arrival hub: refuse the request (documentation, ADR-012 — a reason is
+ *  required). Zero money moves; the shipment returns to the board. */
+export const depositReject = (shipmentId: string, legId: string, reason: string) =>
+  apiFetch<{ status: string }>(`/shipments/${shipmentId}/legs/${legId}/deposit-reject`, {
+    method: 'POST',
+    body: { reason },
+  });
+
+/** Carrier: withdraw the pending request to re-target another hub. */
+export const depositCancel = (shipmentId: string, legId: string) =>
+  apiFetch<{ status: string }>(`/shipments/${shipmentId}/legs/${legId}/deposit-cancel`, {
+    method: 'POST',
+  });

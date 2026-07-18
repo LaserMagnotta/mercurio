@@ -37,7 +37,9 @@ export function HubRegisterForm({ onRegistered }: { onRegistered: () => Promise<
   const [acceptsUndeclared, setAcceptsUndeclared] = useState(false);
   const [feePercent, setFeePercent] = useState('10');
   const [maxStorageDays, setMaxStorageDays] = useState('2');
-  const [autoAccept, setAutoAccept] = useState(true);
+  // Default FALSE (ADR-029, decisione B): a new hub is manual and reviews
+  // every deposit; "always accept" is an explicit opt-in.
+  const [autoAccept, setAutoAccept] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
