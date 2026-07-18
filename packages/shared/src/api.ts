@@ -111,8 +111,17 @@ export const originCheckinBody = z.object({
 export const legAcceptBody = z.object({
   /** The carrier's declared trip (MATCHING.md §1) — must be active. */
   tripId: uuidString,
-  /** The drop hub H chosen from the board (H* or any alternative). */
+  /** The drop hub H chosen from the board (H* or any alternative). Since
+   *  ADR-029 this opens a deposit REQUEST: instant booking when the hub
+   *  auto-accepts, a pending `requested` leg when it is manual. */
   toHubId: uuidString,
+});
+
+/** Body of POST /shipments/:id/legs/:legId/deposit-reject (ADR-029): the
+ *  refusal is documentation (ADR-012), so a reason is required — it lands in
+ *  the rejections row and in the carrier's notification. */
+export const depositRejectBody = z.object({
+  reason: z.string().trim().min(1).max(500),
 });
 
 export const checkoutConfirmBody = z.object({
@@ -337,6 +346,8 @@ export const legDto = z.object({
     'returned',
     'expired',
     'failed',
+    // ADR-029: awaiting the arrival hub's answer (no holds exist yet).
+    'requested',
   ]),
   carrierId: uuidString,
   fromHubId: uuidString,
@@ -348,6 +359,8 @@ export const legDto = z.object({
   netMsat: msatString,
   finalizationBonusMsat: msatString,
   fundingDeadlineAt: z.string().nullable(),
+  /** ADR-029: the arrival hub's answer deadline while status is 'requested'. */
+  responseDeadlineAt: z.string().nullable(),
   pickupDeadlineAt: z.string().nullable(),
   transitDeadlineAt: z.string().nullable(),
 });
@@ -470,6 +483,10 @@ export const dropHubOptionDto = z.object({
   /** Hub-role rating of the hub's owner (CLAUDE.md: visible wherever a
    *  counterparty is chosen), computed from the reviews table on read. */
   hubRating: ratingDto,
+  /** ADR-029 §3: true for a MANUAL hub — choosing it opens a deposit request
+   *  the hub must confirm (the card marks it "richiede conferma") instead of
+   *  booking instantly. */
+  requiresConfirmation: z.boolean(),
 });
 
 export const boardCardDto = z.object({
@@ -579,6 +596,7 @@ export const venuePhotoUploadedDto = z.object({
 
 export type CreateShipmentBody = z.infer<typeof createShipmentBody>;
 export type LegAcceptBody = z.infer<typeof legAcceptBody>;
+export type DepositRejectBody = z.infer<typeof depositRejectBody>;
 export type CreateTripBody = z.infer<typeof createTripBody>;
 export type ShipmentDetailDto = z.infer<typeof shipmentDetailDto>;
 export type BoardCardDto = z.infer<typeof boardCardDto>;
