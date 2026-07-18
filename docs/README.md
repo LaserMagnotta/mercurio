@@ -72,8 +72,10 @@ deposito via outbox** ([ADR-028](adr/ADR-028-hub-venue-and-deposit-notice.md)),
 (`estimateHubFeeRange`, ECONOMICS §7) e **accetta/rifiuta dell'hub d'arrivo
 sulle richieste di deposito** ([ADR-029](adr/ADR-029-arrival-hub-deposit-request.md):
 fase `requested` senza denaro, finestra di risposta 30 min, `auto_accept`
-default false, richieste pendenti in cima alla dashboard). **Da implementare**:
-app mobile. **Todo umano**: revisione dei testi legali da parte di un legale;
+default false, richieste pendenti in cima alla dashboard); Fase 3: **hub
+discovery a scala 10k** ([ADR-030](adr/ADR-030-hub-discovery-scale.md):
+mappa navigabile con clustering, bbox+ricerca+paginazione, spedizioni in
+attesa per hub — reverse trip planning). **Da implementare**: app mobile. **Todo umano**: revisione dei testi legali da parte di un legale;
 acquisto di VPS e dominio; un check di uptime esterno su `/api/health`.
 
 ## Documenti
@@ -122,6 +124,7 @@ acquisto di VPS e dominio; un check di uptime esterno su `/api/health`.
 | [ADR-027](adr/ADR-027-reviews-hub-only.md)          | Recensioni: l'unico soggetto recensibile è l'hub (emenda ADR-017) |
 | [ADR-028](adr/ADR-028-hub-venue-and-deposit-notice.md) | Foto del locale (tabella + store separati), email di contatto dell'hub, avviso di deposito via outbox |
 | [ADR-029](adr/ADR-029-arrival-hub-deposit-request.md) | Accetta/rifiuta dell'hub d'arrivo sulle richieste di deposito: fase `requested` senza denaro, `leg_accept` → `leg_request`+`deposit_accept`, `auto_accept` default false |
+| [ADR-030](adr/ADR-030-hub-discovery-scale.md) | Hub discovery a scala 10k: bbox+ricerca+paginazione su GET /hubs, mappa con clustering a griglia, spedizioni in attesa per hub (reverse trip planning) |
 
 ## Stato delle decisioni
 
