@@ -1,7 +1,11 @@
 # ADR-015 — Mappa del percorso del vettore con export verso Google Maps
 
 - Stato: accettato (richiesta utente) — 2026-07-13; **implementato per
-  intero** (2026-07-14)
+  intero** (2026-07-14). **Aggiornato dall'[ADR-031](ADR-031-road-routing.md)
+  (2026-07-18)**: la mappa disegna le polilinee stradali reali (percorso
+  diretto in tonalità attenuata, percorso con le tappe in tonalità piena);
+  le «linee rette» della decisione 1 restano come **fallback** quando il
+  router o la coppia mancano. «Apri in Google Maps» invariato.
 - Contesto UI: bacheca e viaggio del vettore (MATCHING.md §8)
 - Implementazione: parte dati (2026-07-14): `orderRouteWaypoints` in
   `@mercurio/core` e `GET /trips/:id/route` in `apps/api` (tappe ordinate +

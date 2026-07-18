@@ -25,6 +25,12 @@ piattaforma — non esiste `bitcoind`, non esiste LND, la piattaforma non ha un
 wallet e non tocca mai fondi (ADR-013); nessuna replica multipla dell'API;
 nessun Kubernetes; nessun dato demo.
 
+**Opzionale — routing stradale** (ADR-031): un quinto servizio `osrm`, dietro
+il profilo compose `routing`. Con OSRM attivo le spedizioni **nuove**
+congelano nei prezzi la distanza stradale; senza, tutto funziona come prima
+(stima haversine, mappe a linee rette). Procedura in §10 — richiede una
+preparazione dei dati **fuori dall'host**.
+
 ## 2. Prerequisiti
 
 - Un host Linux con **Docker Engine** e il plugin **compose v2**
@@ -299,3 +305,65 @@ risponde, non che Postgres stia bene — è voluto (ADR-024 §11).
 - **Il deploy è manuale.** La CI costruisce le immagini a ogni push per
   accorgersi subito se un Dockerfile si rompe, ma non pubblica né deploya:
   non c'è nessun registry né host reale a cui parlare (ADR-024 §Conseguenze).
+
+## 10. Routing stradale OSRM (opzionale — ADR-031)
+
+Con il servizio `osrm` attivo, le spedizioni **nuove** nascono con
+`distance_metric = 'road'`: prezzi, deviazioni e surplus usano la distanza
+stradale, congelata coppia per coppia nella tabella `road_distances`
+(first-write-wins: una coppia scritta non cambia MAI, nemmeno aggiornando le
+mappe — è ciò che rende i prezzi deterministici e ricalcolabili dal solo
+database). Senza il servizio non cambia nulla rispetto a prima.
+
+### Preparare il grafo (NON sull'host: servono 10–16 GB di RAM)
+
+Su una macchina capiente (la tua workstation o una VM usa-e-getta), pipeline
+MLD sull'estratto Geofabrik dell'Italia (~2 GB di `.pbf`, artefatti finali
+~5–8 GB):
+
+```bash
+mkdir osrm-data && cd osrm-data
+curl -LO https://download.geofabrik.de/europe/italy-latest.osm.pbf
+docker run --rm -v .:/data ghcr.io/project-osrm/osrm-backend:v5.27.1 \
+  osrm-extract -p /opt/car.lua /data/italy-latest.osm.pbf
+docker run --rm -v .:/data ghcr.io/project-osrm/osrm-backend:v5.27.1 \
+  osrm-partition /data/italy-latest.osrm
+docker run --rm -v .:/data ghcr.io/project-osrm/osrm-backend:v5.27.1 \
+  osrm-customize /data/italy-latest.osrm
+rm italy-latest.osm.pbf   # il .pbf non serve a runtime
+```
+
+Poi copia gli artefatti sull'host e attiva profilo e variabile:
+
+```bash
+rsync -a osrm-data/ host:/opt/mercurio/infra/production/osrm-data/
+# in .env:  OSRM_URL=http://osrm:5000
+docker compose -f infra/production/docker-compose.yml --profile routing up -d
+```
+
+`osrm-routed` gira con `--mmap`: il grafo resta su disco e la memoria
+residente sta in poche centinaia di MB (page cache permettendo) — è ciò che
+lo fa stare sul VPS da 2 GB. Se le latenze deludono, l'upgrade a 4 GB è il
+primo rimedio; Valhalla il secondo (ADR-031, opzione B).
+
+### Aggiornare le mappe (trimestrale è abbondante)
+
+Ripeti la pipeline fuori dall'host con un estratto fresco, sostituisci i file
+in `osrm-data/` e riavvia il solo servizio `osrm`. Le coppie già congelate in
+`road_distances` **restano quelle che sono** (per progetto): l'aggiornamento
+migliora solo le coppie mai viste. Le geometrie della mappa (tabella
+`route_geometries`) si possono svuotare senza toccare denaro:
+`TRUNCATE route_geometries;` se si vogliono forme fresche.
+
+### Cose da sapere
+
+- **Il router giù non ferma niente**: bacheca e mappe degradano (carte road
+  fredde omesse in quel refresh, linee rette al posto delle polilinee);
+  creazioni e advisory ripiegano su haversine; le operazioni di denaro road
+  su coppie fredde rispondono 503 e si riprovano.
+- **Mai un OSRM pubblico o di terzi** in `OSRM_URL`: le coordinate di utenti
+  e hub non devono lasciare l'host (GDPR; stessa ragione per cui `osrm` non
+  pubblica porte).
+- **Backup**: `road_distances` viaggia dentro `pg_dump` come tutto il resto
+  (§7) — è parte della verità dei prezzi. Gli artefatti OSRM invece NON
+  vanno nel backup: si rigenerano dalla pipeline.

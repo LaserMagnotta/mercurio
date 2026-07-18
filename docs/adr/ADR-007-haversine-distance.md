@@ -1,6 +1,11 @@
 # ADR-007 — Distanze: haversine × fattore di circuità, dietro `DistanceProvider`
 
-- Stato: proposto (in revisione) — 2026-07-12
+- Stato: accettato — 2026-07-12; **parzialmente superato dall'[ADR-031](ADR-031-road-routing.md)
+  (2026-07-18)**: con un router OSRM disponibile le spedizioni NUOVE congelano
+  la distanza stradale; haversine × 1.3 resta la metrica di nascita quando il
+  router manca e la metrica di tutte le spedizioni precedenti. L'argomento di
+  coerenza di questo ADR sopravvive come regola «una sola metrica per
+  spedizione, dalla creazione alla consegna».
 - Uso nel matching: [MATCHING.md](../MATCHING.md) §2
 
 ## Contesto

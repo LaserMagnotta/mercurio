@@ -1,10 +1,12 @@
 # ADR-031 — Routing stradale reale: motore delle geometrie e confine col motore dei prezzi
 
-- Stato: **accettato — decisioni di Giacomo 2026-07-18** (§«Le decisioni
-  aperte»): **routing anche nel pricing** (contro la raccomandazione
-  display-only, registrata sotto per storia), **OSRM self-hosted**, **una
-  sola cifra in UI** (la metrica di prezzo). Disegno dell'implementazione in
-  §«Il disegno». Fase 4 della revisione UX.
+- Stato: **IMPLEMENTATO — 2026-07-18** (decisioni di Giacomo, stesso giorno,
+  §«Le decisioni aperte»): **routing anche nel pricing** (contro la
+  raccomandazione display-only, registrata sotto per storia), **OSRM
+  self-hosted**, **una sola cifra in UI** (la metrica di prezzo). Disegno in
+  §«Il disegno», scostamenti minori in §«Precisazioni implementative».
+  Migrazione `0012` (`distance_metric`, `road_distances`,
+  `route_geometries`); deploy in DEPLOY §10. Fase 4 della revisione UX.
 - Contesto: [ADR-007](ADR-007-haversine-distance.md) (haversine × 1.3 e
   l'argomento di coerenza prezzo/filtro), [ADR-015](ADR-015-carrier-route-map.md)
   (mappa del viaggio: polilinee rette, «il routing vero lo fa Google al click»),
@@ -302,3 +304,45 @@ render di bacheca, budget di timeout breve, poi valgono le righe scritte.
   (regola CLAUDE.md: nessuna logica di denaro senza test).
 - Migrazione `0012`: colonna `distance_metric`, tabelle `road_distances` e
   `route_geometries`.
+
+## Precisazioni implementative (2026-07-18)
+
+Decisioni minori emerse implementando, nella direzione più semplice coerente
+col disegno:
+
+1. **`apps/api/src/lib/road-routing.ts`** è l'unico punto di contatto:
+   client OSRM (`/table` con `annotations=distance`, `/route` con geometrie
+   geojson, timeout 2,5 s), quantizzazione delle chiavi (10⁻⁴ gradi ≈ 11 m,
+   coppie DIRETTE — le strade non sono simmetriche), `resolveMatrix`
+   cache-first con `INSERT … ON CONFLICT DO NOTHING` + rilettura (è la
+   rilettura a garantire il first-write-wins sotto concorrenza),
+   `providerFromPairMap` che **lancia** su coppie non risolte (una coppia
+   fredda che raggiunge il motore è un bug del chiamante, mai un fallback).
+2. **«Risolvibile alla creazione» = cache O router**: una coppia già in
+   `road_distances` fa nascere `road` anche a router giù — la fonte di
+   verità è la tabella, non il processo (test e2e dedicato).
+3. **La bacheca fonde i gruppi** con `compareCandidates` esportato da
+   `@mercurio/core` (stesso ordine totale di MATCHING §7.5; unica modifica a
+   core: la parola `export`). Il gruppo road si rank-a per spedizione, con i
+   soli hub le cui coppie sono tutte risolte per QUELLA spedizione.
+4. **Un solo `rankBoard` per il gruppo haversine**: il percorso pre-ADR-031,
+   byte per byte. In sviluppo e CI (`OSRM_URL` assente) non cambia nulla.
+5. **`orderRouteWaypoints` resta su haversine**: l'ordine di visita è
+   navigazione, non denaro; le polilinee disegnano comunque le strade vere.
+6. **Osservazioni di tariffa** (MATCHING §4): il detour si registra nella
+   metrica della spedizione via cache **cache-only** (mai HTTP dentro una
+   transazione di denaro), con ripiego haversine se una coppia è fredda —
+   best-effort dichiarato, come l'osservazione stessa.
+7. **NoRoute e router giù producono lo stesso 503** sulle operazioni di
+   denaro strette (reroute/boost/claim/leg_request su coppie fredde): l'API
+   non distingue ancora l'irraggiungibilità permanente (isola senza
+   traghetto) da quella transitoria. Accettato per l'MVP; il copy dice
+   «riprova tra poco».
+8. **Il fallback advisory clampa `r ≤ D`**: la stima haversine di una
+   spedizione road può superare la `D` stradale (circuità reale < 1.3) e il
+   pool nozionale vuole `r ≤ D`; vale solo per le cifre di visualizzazione
+   (dettaglio, waiting-shipments), mai per i congelamenti.
+9. **`osrm` nel compose** dietro il profilo `routing`, `--mmap` e
+   `--max-table-size 8000` (il default 100 non copre le matrici di bacheca);
+   nessun `depends_on` verso di esso, per costruzione. `osrm-data/` è
+   ignorata da git; procedura completa in DEPLOY §10.

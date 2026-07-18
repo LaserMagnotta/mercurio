@@ -75,8 +75,12 @@ fase `requested` senza denaro, finestra di risposta 30 min, `auto_accept`
 default false, richieste pendenti in cima alla dashboard); Fase 3: **hub
 discovery a scala 10k** ([ADR-030](adr/ADR-030-hub-discovery-scale.md):
 mappa navigabile con clustering, bbox+ricerca+paginazione, spedizioni in
-attesa per hub — reverse trip planning). **Da implementare**: app mobile. **Todo umano**: revisione dei testi legali da parte di un legale;
-acquisto di VPS e dominio; un check di uptime esterno su `/api/health`.
+attesa per hub — reverse trip planning); Fase 4: **routing stradale nel
+pricing** ([ADR-031](adr/ADR-031-road-routing.md): metrica per spedizione,
+OSRM self-hosted opzionale, polilinee reali sulla mappa del viaggio).
+**Da implementare**: app mobile. **Todo umano**: revisione dei testi legali da parte di un legale;
+acquisto di VPS e dominio; un check di uptime esterno su `/api/health`;
+preparazione del grafo OSRM quando ci sarà l'host (DEPLOY §10).
 
 ## Documenti
 
@@ -125,6 +129,7 @@ acquisto di VPS e dominio; un check di uptime esterno su `/api/health`.
 | [ADR-028](adr/ADR-028-hub-venue-and-deposit-notice.md) | Foto del locale (tabella + store separati), email di contatto dell'hub, avviso di deposito via outbox |
 | [ADR-029](adr/ADR-029-arrival-hub-deposit-request.md) | Accetta/rifiuta dell'hub d'arrivo sulle richieste di deposito: fase `requested` senza denaro, `leg_accept` → `leg_request`+`deposit_accept`, `auto_accept` default false |
 | [ADR-030](adr/ADR-030-hub-discovery-scale.md) | Hub discovery a scala 10k: bbox+ricerca+paginazione su GET /hubs, mappa con clustering a griglia, spedizioni in attesa per hub (reverse trip planning) |
+| [ADR-031](adr/ADR-031-road-routing.md) | Routing stradale OSRM **nel pricing** (decisione utente): metrica congelata per spedizione, cache `road_distances` first-write-wins, polilinee reali sulla mappa del viaggio, router opzionale con degrado dichiarato |
 
 ## Stato delle decisioni
 

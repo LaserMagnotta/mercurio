@@ -33,7 +33,7 @@ Confermata la proposta di partenza, con alcune precisazioni. Motivazioni estese 
 | Contabilità    | Ledger a partita doppia in Postgres, nessun movimento fuori ledger                                                     | [ADR-010](adr/ADR-010-double-entry-ledger.md)                               |
 | Job/timeout    | pg-boss (code su Postgres, niente Redis)                                                                               | [ADR-011](adr/ADR-011-pg-boss-jobs.md)                                      |
 | Auth           | Magic link email (obbligatoria) + LNURL-auth opzionale                                                                 | [ADR-009](adr/ADR-009-auth-email-lnurl.md)                                  |
-| Distanze       | Haversine × fattore di circuità 1.3, dietro interfaccia `DistanceProvider`                                             | [ADR-007](adr/ADR-007-haversine-distance.md)                                |
+| Distanze       | Metrica congelata per spedizione: stradale OSRM (cache `road_distances` first-write-wins) o haversine × 1.3; sempre dietro `DistanceProvider` | [ADR-031](adr/ADR-031-road-routing.md), [ADR-007](adr/ADR-007-haversine-distance.md) |
 | Email          | Adapter SMTP; Mailpit in dev; outbox pattern (invii solo post-commit)                                                  | —                                                                           |
 | Deploy         | Immagini multi-stage per api e web; compose su singolo VPS, Caddy unica origin pubblica (niente nodi Lightning)        | [ADR-024](adr/ADR-024-production-deploy.md), [DEPLOY.md](DEPLOY.md)         |
 
@@ -143,7 +143,10 @@ erDiagram
 
 **hubs** — `id, user_id, name, address, contact_email?, lat, lng, opening_hours (jsonb),
 max_dim_cm (l/w/h), max_weight_g, accepts_undeclared (bool), fee_percent (numeric),
-max_storage_days, auto_accept (bool), active`. `contact_email` (ADR-028) è
+max_storage_days, auto_accept (bool), active`. `opening_hours` è un array di
+intervalli `{ day, opens, closes }`, un elemento per intervallo aperto — un
+giorno con la pausa pranzo è due elementi con lo stesso `day` (ADR-032).
+`contact_email` (ADR-028) è
 l'indirizzo del **locale**, distinto dall'account: riceve gli avvisi di deposito
 (`hub_deposit_request` in outbox), mai esposto pubblicamente. `fee_percent` è la percentuale configurabile dall'hub,
 applicata al **lordo delle tratte adiacenti** (ECONOMICS.md §2); `auto_accept`

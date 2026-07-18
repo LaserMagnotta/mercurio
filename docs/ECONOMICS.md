@@ -48,9 +48,13 @@ destinazione solo dall'ultima (come hub di arrivo), gli hub intermedi da due tra
 `P` è un **impegno di spesa**, non un fondo prefinanziato: si paga tratta per tratta
 con hold invoice dirette mittente→vettore (ADR-013). Tutti i calcoli reali sono in
 **msat** sul valore in sats congelato alla creazione (ADR-008); qui si usano € per
-leggibilità. Le distanze sono quelle del
-`DistanceProvider` (haversine × 1.3, ADR-007): la stessa metrica per prezzo e
-matching, così le distorsioni si annullano a vicenda.
+leggibilità. Le distanze sono quelle della **metrica congelata della
+spedizione** ([ADR-031](adr/ADR-031-road-routing.md)): stradale OSRM
+(`'road'`, dalla cache first-write-wins `road_distances`) per le spedizioni
+nate col router disponibile, haversine × 1.3 (ADR-007) per le altre — sempre
+la STESSA metrica per prezzo e matching, dalla creazione alla consegna, così
+le distorsioni si annullano a vicenda e ogni importo resta ricalcolabile dal
+solo database (§6.3).
 
 ## 3. I tre modelli
 

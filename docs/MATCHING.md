@@ -27,10 +27,24 @@ peso, contenuto non dichiarato sì/no).
 
 ## 2. Distanza e deviazione
 
-### Metrica: haversine × fattore di circuità (MVP)
+### Metrica: congelata per spedizione (ADR-031); haversine × 1.3 come base
 
-`d(x, y) = haversine(x, y) × k`, con `k = 1.3` (rapporto tipico strada/linea d'aria in
-Europa). Scelta motivata in ADR-007, in sintesi:
+Dall'[ADR-031](adr/ADR-031-road-routing.md) (decisione utente, 2026-07-18)
+ogni spedizione ha una **metrica congelata alla creazione**
+(`shipments.distance_metric`): `'road'` — distanze stradali OSRM, lette dalla
+cache first-write-wins `road_distances` — quando la coppia
+origine→destinazione è risolvibile in quel momento, `'haversine'` altrimenti.
+TUTTI i numeri di questo documento (D, r, Δr, detour, surplus, prezzi
+congelati) usano la metrica della spedizione, mai un misto; la bacheca
+calcola per gruppi di metrica e fonde con lo stesso ordine totale (§3). Un
+router irraggiungibile non blocca mai la bacheca: le carte road con coppie
+fredde sono omesse in quel refresh, le operazioni di denaro su coppie fredde
+rispondono 503 riprovabile, i numeri advisory ripiegano dichiaratamente su
+haversine.
+
+La metrica di base resta `d(x, y) = haversine(x, y) × k`, con `k = 1.3`
+(rapporto tipico strada/linea d'aria in Europa). Scelta motivata in ADR-007,
+in sintesi:
 
 - **Coerenza interna**: la stessa metrica è usata sia per il **prezzo** della tratta
   (`Δr`, ECONOMICS.md) sia per il **filtro** di deviazione. Gli errori sistematici

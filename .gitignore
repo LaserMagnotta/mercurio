@@ -25,3 +25,4 @@ Thumbs.db
 
 # Local assistant/tooling configuration
 .claude/
+infra/production/osrm-data/
