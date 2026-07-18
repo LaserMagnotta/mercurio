@@ -13,7 +13,6 @@ import { useLocale, useTranslations } from 'next-intl';
 import {
   claimedPickup,
   confirmCheckout,
-  getHubs,
   getMyHubRequests,
   getShipment,
   getShipmentPhotos,
@@ -25,7 +24,6 @@ import {
   rejectHandoff,
   shipmentPhotoUrl,
   uploadShipmentPhotos,
-  type Hub,
   type ShipmentDetail,
   type ShipmentPhoto,
 } from '../../../../lib/api/endpoints';
@@ -40,6 +38,7 @@ import { PhotoHashInput } from '../../../../components/PhotoHashInput';
 import { QrScanInput } from '../../../../components/QrScanInput';
 import { StatusBadge } from '../../../../components/StatusBadge';
 import type { CapturedPhoto } from '../../../../lib/photo-capture';
+import { useHubs, hubNameFrom } from '../../../../lib/hub-lookup';
 
 type RejectStage = 'hub_checkin' | 'recipient_pickup';
 
@@ -55,7 +54,6 @@ export function HubOpsClient({ id }: { id: string }) {
 
   const [detail, setDetail] = useState<ShipmentDetail | null>(null);
   const [myHubId, setMyHubId] = useState<string | null>(null);
-  const [hubs, setHubs] = useState<Hub[]>([]);
   const [shipmentPhotos, setShipmentPhotos] = useState<ShipmentPhoto[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -91,11 +89,8 @@ export function HubOpsClient({ id }: { id: string }) {
     if (!sessionLoading && user) void load();
   }, [sessionLoading, user, load]);
 
-  useEffect(() => {
-    getHubs()
-      .then((res) => setHubs(res.hubs))
-      .catch(() => setHubs([]));
-  }, []);
+  // Targeted lookups (ADR-030): the header names origin and destination.
+  const hubs = useHubs([detail?.originHubId, detail?.destHubId]);
 
   if (sessionLoading) return <p className="muted">{tCommon('loading')}</p>;
   if (!user) {
@@ -122,8 +117,7 @@ export function HubOpsClient({ id }: { id: string }) {
   }
   if (!detail || !myHubId) return <p className="muted">{tCommon('loading')}</p>;
 
-  const hubName = (hubId: string | null) =>
-    hubId ? (hubs.find((h) => h.id === hubId)?.name ?? `${hubId.slice(0, 8)}…`) : '—';
+  const hubName = (hubId: string | null) => hubNameFrom(hubs, hubId);
 
   const qrToken = parseQrInput(qrRaw);
   const activeLeg = detail.legs.find((l) => l.status === 'picked_up');

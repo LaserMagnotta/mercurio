@@ -12,13 +12,14 @@ import { useLocale, useTranslations } from 'next-intl';
 import {
   boostShipment,
   cancelShipment,
-  getHubs,
   getShipment,
   getShipmentPhotos,
   rerouteShipment,
   type Hub,
   type ShipmentDetail,
 } from '../../../lib/api/endpoints';
+import { useHubs, hubNameFrom } from '../../../lib/hub-lookup';
+import { HubPicker } from '../../../components/HubPicker';
 import { useApiErrorMessage } from '../../../lib/api-error-message';
 import { useSession } from '../../../lib/session';
 import { formatDateTime, formatKm, formatSatsPerEur, satsToMsat } from '../../../lib/format';
@@ -64,14 +65,13 @@ export function ShipmentClient({
   const errorMessage = useApiErrorMessage();
 
   const [detail, setDetail] = useState<ShipmentDetail | null>(null);
-  const [hubs, setHubs] = useState<Hub[]>([]);
   const [availablePhotos, setAvailablePhotos] = useState<ReadonlySet<string>>(new Set());
   const [loadError, setLoadError] = useState<string | null>(null);
   const [showQr, setShowQr] = useState(justCreated);
   const [qrOrigin, setQrOrigin] = useState('');
   const [panel, setPanel] = useState<ActionPanel>(null);
   const [boostSats, setBoostSats] = useState('');
-  const [rerouteDest, setRerouteDest] = useState('');
+  const [rerouteDestHub, setRerouteDestHub] = useState<Hub | null>(null);
   const [rerouteEmail, setRerouteEmail] = useState('');
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionDone, setActionDone] = useState(false);
@@ -96,16 +96,18 @@ export function ShipmentClient({
   }, [sessionLoading, user, load]);
 
   useEffect(() => {
-    getHubs()
-      .then((res) => setHubs(res.hubs))
-      .catch(() => setHubs([]));
     setQrOrigin(window.location.origin);
   }, []);
 
-  const hubName = useMemo(() => {
-    const byId = new Map(hubs.map((h) => [h.id, h.name]));
-    return (hubId: string | null) => (hubId ? (byId.get(hubId) ?? `${hubId.slice(0, 8)}…`) : '—');
-  }, [hubs]);
+  // Targeted lookups (ADR-030): only the hubs this shipment touches.
+  const hubs = useHubs([
+    detail?.originHubId,
+    detail?.destHubId,
+    detail?.currentHubId,
+    ...(detail?.legs.flatMap((l) => [l.fromHubId, l.toHubId]) ?? []),
+    ...(detail?.ratings.map((p) => p.hubId) ?? []),
+  ]);
+  const hubName = useMemo(() => (hubId: string | null) => hubNameFrom(hubs, hubId), [hubs]);
 
   if (sessionLoading) return <p className="muted">{tCommon('loading')}</p>;
   if (!user) {
@@ -146,7 +148,7 @@ export function ShipmentClient({
       setActionDone(true);
       setPanel(null);
       setBoostSats('');
-      setRerouteDest('');
+      setRerouteDestHub(null);
       setRerouteEmail('');
       await load();
     } catch (err) {
@@ -169,13 +171,13 @@ export function ShipmentClient({
 
   const submitReroute = (e: FormEvent) => {
     e.preventDefault();
-    if (!rerouteDest && rerouteEmail.trim() === '') {
+    if (!rerouteDestHub && rerouteEmail.trim() === '') {
       setActionError(t('rerouteNeedChange'));
       return;
     }
     void runAction(() =>
       rerouteShipment(detail.id, {
-        ...(rerouteDest && { newDestHubId: rerouteDest }),
+        ...(rerouteDestHub && { newDestHubId: rerouteDestHub.id }),
         ...(rerouteEmail.trim() !== '' && { newRecipientEmail: rerouteEmail.trim() }),
       }),
     );
@@ -475,23 +477,30 @@ export function ShipmentClient({
 
           {panel === 'reroute' && (
             <form onSubmit={submitReroute} className="stack-sm">
-              <div className="field">
-                <label htmlFor="reroute-dest">{t('rerouteNewDest')}</label>
-                <select
-                  id="reroute-dest"
-                  value={rerouteDest}
-                  onChange={(e) => setRerouteDest(e.target.value)}
+              {/* Results sort by distance from the CURRENT destination: a
+                  reroute usually lands nearby. Empty picker = keep it. */}
+              <HubPicker
+                id="reroute-dest"
+                label={t('rerouteNewDest')}
+                value={rerouteDestHub}
+                onChange={setRerouteDestHub}
+                near={(() => {
+                  const dest = hubs.get(detail.destHubId);
+                  return dest ? { lat: dest.lat, lng: dest.lng } : undefined;
+                })()}
+                excludeIds={[detail.destHubId]}
+              />
+              {rerouteDestHub ? (
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  onClick={() => setRerouteDestHub(null)}
                 >
-                  <option value="">{t('rerouteKeepDest')}</option>
-                  {hubs
-                    .filter((h) => h.id !== detail.destHubId)
-                    .map((h) => (
-                      <option key={h.id} value={h.id}>
-                        {h.name} — {h.address}
-                      </option>
-                    ))}
-                </select>
-              </div>
+                  {t('rerouteKeepDest')}
+                </button>
+              ) : (
+                <span className="hint">{t('rerouteKeepDestHint')}</span>
+              )}
               <div className="field">
                 <label htmlFor="reroute-email">{t('rerouteNewRecipient')}</label>
                 <input

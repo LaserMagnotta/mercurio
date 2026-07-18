@@ -14,14 +14,13 @@ import { useLocale, useTranslations } from 'next-intl';
 import {
   depositAccept,
   depositReject,
-  getHubs,
   getMyHubRequests,
   getWallet,
   originAccept,
-  type Hub,
   type HubDashboard as HubDashboardData,
   type ProjectedEarning,
 } from '../../lib/api/endpoints';
+import { useHubs, hubNameFrom } from '../../lib/hub-lookup';
 import { useApiErrorMessage } from '../../lib/api-error-message';
 import { formatDateTime } from '../../lib/format';
 import { Amount } from '../../components/Amount';
@@ -37,7 +36,6 @@ export function HubDashboard() {
   const errorMessage = useApiErrorMessage();
 
   const [data, setData] = useState<HubDashboardData | null>(null);
-  const [hubs, setHubs] = useState<Hub[]>([]);
   const [walletConnected, setWalletConnected] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
@@ -58,16 +56,18 @@ export function HubDashboard() {
 
   useEffect(() => {
     void load();
-    getHubs()
-      .then((res) => setHubs(res.hubs))
-      .catch(() => setHubs([]));
     getWallet()
       .then((res) => setWalletConnected(res.wallet !== null))
       .catch(() => setWalletConnected(false));
   }, [load]);
 
-  const hubName = (hubId: string) =>
-    hubs.find((h) => h.id === hubId)?.name ?? `${hubId.slice(0, 8)}…`;
+  // Targeted lookups (ADR-030): only the hubs the dashboard rows mention.
+  const hubs = useHubs([
+    ...(data?.depositRequests.flatMap((r) => [r.fromHubId, r.destHubId]) ?? []),
+    ...(data?.acceptRequests.map((r) => r.destHubId) ?? []),
+    ...(data?.stays.map((s) => s.destHubId) ?? []),
+  ]);
+  const hubName = (hubId: string) => hubNameFrom(hubs, hubId);
 
   // Fase 2 punto 7: what the hub earns from a row — an exact figure where a leg
   // is priced, a "from–to" range where the split is not known yet.
