@@ -35,7 +35,10 @@ export const hubs = pgTable('hubs', {
   feePercent: numeric('fee_percent', { precision: 5, scale: 2 }).notNull(),
   maxStorageDays: integer('max_storage_days').notNull(), // ADR-026: storage window in days
 
-  // Required so a leg's arrival hub can accept a bond hold without a human in the loop (ARCHITECTURE.md sec.4).
-  autoAccept: boolean('auto_accept').notNull().default(true),
+  // Pre-consent to deposit_accept (ADR-029): an auto_accept hub books deposits
+  // instantly; a manual hub reviews each request from its dashboard. Default
+  // FALSE (decisione B): a new hub is manual, opting into "always accept" on
+  // purpose. Existing hubs keep their explicit value.
+  autoAccept: boolean('auto_accept').notNull().default(false),
   active: boolean('active').notNull().default(true),
 });

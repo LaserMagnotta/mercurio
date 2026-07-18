@@ -71,6 +71,13 @@
       "when": 1784364177705,
       "tag": "0009_venue_photos_and_contact",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1784369621410,
+      "tag": "0010_deposit_request",
+      "breakpoints": true
     }
   ]
 }

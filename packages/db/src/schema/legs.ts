@@ -44,7 +44,11 @@ export const legs = pgTable('legs', {
 
   status: legStatusEnum('status').notNull().default('pending_funding'),
   acceptedAt: timestamp('accepted_at', { withTimezone: true }).notNull().defaultNow(),
-  fundingDeadlineAt: timestamp('funding_deadline_at', { withTimezone: true }).notNull(),
+  // Nullable since ADR-029: a 'requested' leg has no funding window yet —
+  // deposit_accept sets it (and refreshes accepted_at to the accept instant).
+  fundingDeadlineAt: timestamp('funding_deadline_at', { withTimezone: true }),
+  // ADR-029: the manual arrival hub's answer deadline, set at leg_request.
+  responseDeadlineAt: timestamp('response_deadline_at', { withTimezone: true }),
   pickupDeadlineAt: timestamp('pickup_deadline_at', { withTimezone: true }),
   transitDeadlineAt: timestamp('transit_deadline_at', { withTimezone: true }),
 

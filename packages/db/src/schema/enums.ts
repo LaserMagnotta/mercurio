@@ -22,6 +22,11 @@ export const shipmentStatusEnum = pgEnum('shipment_status', [
   'claimed',
 ]);
 
+// 'requested' (appended: enum values only ever ADD) is the ADR-029 money-free
+// phase: the carrier asked a MANUAL arrival hub to host the parcel and the
+// hub has not answered yet. No conditional payment exists for a requested
+// leg; deposit_accept moves it to pending_funding (with the holds), any
+// negative outcome moves it to 'expired' (reused — zero money either way).
 export const legStatusEnum = pgEnum('leg_status', [
   'pending_funding',
   'booked',
@@ -30,6 +35,7 @@ export const legStatusEnum = pgEnum('leg_status', [
   'returned',
   'expired',
   'failed',
+  'requested',
 ]);
 
 export const hubStayStatusEnum = pgEnum('hub_stay_status', [
@@ -57,6 +63,10 @@ export const custodyEventTypeEnum = pgEnum('custody_event_type', [
   // ADR-016 (appended: enum values only ever ADD).
   'claim_requested',
   'recipient_claimed',
+  // ADR-029 (appended): only the deposit REQUEST gets a new type — the accept
+  // reuses 'leg_accepted', the reject 'handoff_rejected', expiry/cancel
+  // 'expired' with a payload reason.
+  'deposit_requested',
 ]);
 
 // 'hub_venue' (appended: enum values only ever ADD) is the hub's own storefront
@@ -73,10 +83,13 @@ export const photoKindEnum = pgEnum('photo_kind', [
   'hub_venue',
 ]);
 
+// 'deposit_request' (appended, ADR-029): a manual arrival hub refusing — or
+// silently letting expire — a deposit request. Documentation, never money.
 export const rejectionStageEnum = pgEnum('rejection_stage', [
   'hub_checkin',
   'pickup_checkout',
   'recipient_pickup',
+  'deposit_request',
 ]);
 
 // Wallet connection (ESCROW.md sec.5): the user's own wallet, never the platform's.
@@ -137,6 +150,8 @@ export const shipmentTimerKindEnum = pgEnum('shipment_timer_kind', [
   'transit',
   'storage',
   'claim_funding',
+  // ADR-029 (appended): the manual arrival hub's 30-minute answer window.
+  'deposit_response',
 ]);
 
 // On-the-spot instant payments (hub fees, cancellation compensation —
