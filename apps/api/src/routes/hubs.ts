@@ -1,11 +1,21 @@
 // Hub discovery, the hub owner's deposit-request dashboard, and venue photos
-// (ARCHITECTURE.md §4, CLAUDE.md "Hub — dettagli"; ADR-028 for Fase 2 punto 6).
+// (ARCHITECTURE.md §4, CLAUDE.md "Hub — dettagli"; ADR-028 for Fase 2 punto 6;
+// ADR-030 for discovery at 10k-hub scale: bbox + text search + pagination and
+// the per-hub "waiting shipments" view for reverse trip planning).
 
-import { and, asc, eq, inArray } from 'drizzle-orm';
+import { and, eq, gte, ilike, inArray, lte, or, asc } from 'drizzle-orm';
 import { z } from 'zod';
-import { hubPhotos, hubs, hubStays, legs, shipments, walletConnections } from '@mercurio/db';
+import {
+  hubPhotos,
+  hubs,
+  hubStays,
+  legs,
+  shipmentClaims,
+  shipments,
+  walletConnections,
+} from '@mercurio/db';
 import { estimateHubFeeRange, splitCommitment } from '@mercurio/core';
-import { hubFeePercentToBp, MAX_VENUE_PHOTOS, sha256String } from '@mercurio/shared';
+import { hubFeePercentToBp, hubsListQuery, MAX_VENUE_PHOTOS, sha256String } from '@mercurio/shared';
 import type { App } from '../app.js';
 import { requireAuth } from '../plugins/auth-guard.js';
 import { msat } from '../lib/serialize.js';
@@ -13,10 +23,14 @@ import { loadRatings, ratingOf } from '../lib/reviews.js';
 import { sha256Hex } from '../lib/blob-store.js';
 import { isJpeg, jpegHasGpsExif } from '../lib/photo-validation.js';
 import { PHOTO_MAX_BYTES } from '@mercurio/shared';
+import { loadShipmentBundle, remainingWorkPool } from '../shipments/context.js';
 
 const hubParams = z.object({ id: z.string().uuid() });
 const venuePhotoParams = z.object({ id: z.string().uuid(), sha256: sha256String });
 const mineVenuePhotoParams = z.object({ sha256: sha256String });
+
+/** Escape LIKE wildcards in user text: a search for "100%" must not scan. */
+const escapeLike = (q: string) => q.replace(/[\\%_]/g, '\\$&');
 
 // Leg statuses whose frozen hub fees are a REAL earning for the hub: a leg that
 // reached LEG_BOOKED (bond held) or beyond. pending_funding/expired/failed/
@@ -24,11 +38,11 @@ const mineVenuePhotoParams = z.object({ sha256: sha256String });
 const EARNING_LEG_STATUSES = ['booked', 'picked_up', 'completed'] as const;
 
 export function registerHubRoutes(app: App) {
-  /** Public list of active hubs — the sender picks origin/destination here,
-   *  so each hub carries its owner's hub-role rating (CLAUDE.md: rating
-   *  visible wherever a counterparty is chosen) and its venue photos. */
-  app.get('/hubs', async () => {
-    const rows = await app.db.select().from(hubs).where(eq(hubs.active, true));
+  type HubRow = typeof hubs.$inferSelect;
+
+  /** Ratings, wallet flags and venue photos for ONE PAGE of hubs — never for
+   *  the whole table (ADR-030: the page is bounded, the table is not). */
+  async function hubDtos(rows: HubRow[], nearPoint: { lat: number; lng: number } | null) {
     const owners = rows.map((h) => h.userId);
     const hubIds = rows.map((h) => h.id);
     const ratings = await loadRatings(
@@ -66,26 +80,202 @@ export function registerHubRoutes(app: App) {
       list.push(v.sha256);
       venueByHub.set(v.hubId, list);
     }
-    return {
-      hubs: rows.map((h) => ({
-        id: h.id,
-        name: h.name,
-        address: h.address,
-        lat: h.lat,
-        lng: h.lng,
-        feePercent: h.feePercent,
-        maxDims: { lengthCm: h.maxDimCmL, widthCm: h.maxDimCmW, heightCm: h.maxDimCmH },
-        maxWeightG: h.maxWeightG,
-        acceptsUndeclared: h.acceptsUndeclared,
-        maxStorageDays: h.maxStorageDays,
-        openingHours: h.openingHours as Record<string, string>,
-        autoAccept: h.autoAccept,
-        walletConnected: connected.has(h.userId),
-        rating: ratingOf(ratings, h.userId, 'hub'),
-        venuePhotos: venueByHub.get(h.id) ?? [],
-      })),
-    };
+    const d = app.lifecycle.distance.distanceKm.bind(app.lifecycle.distance);
+    return rows.map((h) => ({
+      id: h.id,
+      name: h.name,
+      address: h.address,
+      lat: h.lat,
+      lng: h.lng,
+      feePercent: h.feePercent,
+      maxDims: { lengthCm: h.maxDimCmL, widthCm: h.maxDimCmW, heightCm: h.maxDimCmH },
+      maxWeightG: h.maxWeightG,
+      acceptsUndeclared: h.acceptsUndeclared,
+      maxStorageDays: h.maxStorageDays,
+      openingHours: h.openingHours as Record<string, string>,
+      autoAccept: h.autoAccept,
+      walletConnected: connected.has(h.userId),
+      rating: ratingOf(ratings, h.userId, 'hub'),
+      venuePhotos: venueByHub.get(h.id) ?? [],
+      ...(nearPoint && {
+        distanceKm: d(nearPoint, { lat: h.lat, lng: h.lng }),
+      }),
+    }));
+  }
+
+  /** Public hub discovery (ADR-030) — the sender picks origin/destination
+   *  here and the carrier scouts the network. With no query param the route
+   *  keeps its legacy shape (full list, the internal pickers rely on it);
+   *  any param switches to the paginated contract: bbox viewport filter,
+   *  case-insensitive text search, distance sort from `near`, limit/offset
+   *  with the pre-pagination `total`. */
+  app.get('/hubs', { schema: { querystring: hubsListQuery } }, async (request, reply) => {
+    const { bbox, q, near, limit, offset } = request.query;
+    const paginated =
+      bbox !== undefined ||
+      q !== undefined ||
+      near !== undefined ||
+      limit !== undefined ||
+      offset !== undefined;
+
+    const conditions = [eq(hubs.active, true)];
+    if (bbox) {
+      const [minLat, minLng, maxLat, maxLng] = bbox.split(',').map(Number) as [
+        number,
+        number,
+        number,
+        number,
+      ];
+      if (!(minLat < maxLat) || !(minLng < maxLng)) {
+        return reply.code(400).send({ error: 'invalid_bbox' });
+      }
+      conditions.push(
+        gte(hubs.lat, minLat),
+        lte(hubs.lat, maxLat),
+        gte(hubs.lng, minLng),
+        lte(hubs.lng, maxLng),
+      );
+    }
+    if (q) {
+      const like = `%${escapeLike(q)}%`;
+      conditions.push(or(ilike(hubs.name, like), ilike(hubs.address, like))!);
+    }
+
+    // The filtered set is bounded by the viewport/search; the distance sort
+    // runs on it in process (ADR-007 haversine — no PostGIS in the MVP).
+    let rows = await app.db.select().from(hubs).where(and(...conditions));
+    const total = rows.length;
+    let nearPoint: { lat: number; lng: number } | null = null;
+    if (near) {
+      const [lat, lng] = near.split(',').map(Number) as [number, number];
+      nearPoint = { lat, lng };
+      const d = app.lifecycle.distance.distanceKm.bind(app.lifecycle.distance);
+      rows = [...rows].sort(
+        (a, b) =>
+          d(nearPoint!, { lat: a.lat, lng: a.lng }) - d(nearPoint!, { lat: b.lat, lng: b.lng }),
+      );
+    }
+    if (paginated) {
+      const start = offset ?? 0;
+      rows = rows.slice(start, start + (limit ?? 50));
+    }
+    return { hubs: await hubDtos(rows, nearPoint), total };
   });
+
+  /** Public single-hub detail (ADR-030): same shape as one list entry. */
+  app.get('/hubs/:id', { schema: { params: hubParams } }, async (request, reply) => {
+    const [hub] = await app.db
+      .select()
+      .from(hubs)
+      .where(and(eq(hubs.id, request.params.id), eq(hubs.active, true)));
+    if (!hub) return reply.code(404).send({ error: 'not_found' });
+    const [dto] = await hubDtos([hub], null);
+    return dto;
+  });
+
+  /** Shipments waiting for a carrier at this hub (ADR-030 "reverse trip
+   *  planning"): a carrier browsing the network sees what they could pick up
+   *  HERE before declaring a trip. Requires a session (the shipment inventory
+   *  of a hub is for participants, not for the open web) but no trip: the
+   *  numbers are indicative ceilings — the frozen per-leg price still comes
+   *  only from the board. */
+  app.get(
+    '/hubs/:id/waiting-shipments',
+    { schema: { params: hubParams }, preHandler: requireAuth },
+    async (request, reply) => {
+      const [hub] = await app.db
+        .select()
+        .from(hubs)
+        .where(and(eq(hubs.id, request.params.id), eq(hubs.active, true)));
+      if (!hub) return reply.code(404).send({ error: 'not_found' });
+
+      const atHub = await app.db
+        .select({ shipment: shipments, stay: hubStays })
+        .from(shipments)
+        .innerJoin(
+          hubStays,
+          and(eq(hubStays.shipmentId, shipments.id), eq(hubStays.status, 'active')),
+        )
+        .where(and(eq(shipments.status, 'at_hub'), eq(hubStays.hubId, hub.id)));
+      const ids = atHub.map((r) => r.shipment.id);
+
+      // Same board-exclusion rules as MATCHING §3: a leg in flight (requested
+      // included, ADR-029) or a live claim takes the shipment off the shelf.
+      const busy = new Set<string>();
+      if (ids.length > 0) {
+        for (const row of await app.db
+          .select({ shipmentId: legs.shipmentId })
+          .from(legs)
+          .where(
+            and(
+              inArray(legs.shipmentId, ids),
+              inArray(legs.status, ['requested', 'pending_funding', 'booked', 'picked_up']),
+            ),
+          )) {
+          busy.add(row.shipmentId);
+        }
+        for (const row of await app.db
+          .select({ shipmentId: shipmentClaims.shipmentId })
+          .from(shipmentClaims)
+          .where(
+            and(
+              inArray(shipmentClaims.shipmentId, ids),
+              inArray(shipmentClaims.status, ['pending_funding', 'funded']),
+            ),
+          )) {
+          busy.add(row.shipmentId);
+        }
+      }
+
+      const destIds = [...new Set(atHub.map((r) => r.shipment.destHubId))];
+      const destRows =
+        destIds.length === 0
+          ? []
+          : await app.db.select().from(hubs).where(inArray(hubs.id, destIds));
+      const destById = new Map(destRows.map((h) => [h.id, h]));
+      const d = app.lifecycle.distance.distanceKm.bind(app.lifecycle.distance);
+
+      const waiting = [];
+      for (const { shipment } of atHub) {
+        if (busy.has(shipment.id)) continue;
+        const dest = destById.get(shipment.destHubId);
+        if (!dest) continue;
+        const remainingKm = d({ lat: hub.lat, lng: hub.lng }, { lat: dest.lat, lng: dest.lng });
+        if (!(remainingKm > 0)) continue;
+        const bundle = await loadShipmentBundle(app.db, shipment.id);
+        if (!bundle) continue;
+        // Indicative ceiling: the whole remaining work pool (what a single
+        // delivering leg would gross) plus the accrued carrier bonus Π_v.
+        const maxGrossMsat =
+          remainingWorkPool(bundle, remainingKm) + bundle.carrierBonusAvailableMsat;
+        waiting.push({
+          shipmentId: shipment.id,
+          codename: shipment.codename,
+          destHubId: dest.id,
+          destHubName: dest.name,
+          remainingKm,
+          dims: { lengthCm: shipment.dimLCm, widthCm: shipment.dimWCm, heightCm: shipment.dimHCm },
+          weightG: shipment.weightG,
+          undeclared: shipment.undeclared,
+          custodyBondMsat: msat(shipment.custodyBondMsat),
+          maxGrossMsat: msat(maxGrossMsat),
+          eurRate: {
+            satsPerEur: shipment.eurRateSnapshot,
+            source: shipment.eurRateSource,
+            at: shipment.eurRateAt.toISOString(),
+          },
+        });
+      }
+      // Most attractive first — deterministic tiebreaker on the id.
+      waiting.sort((a, b) => {
+        const ga = BigInt(a.maxGrossMsat);
+        const gb = BigInt(b.maxGrossMsat);
+        if (ga !== gb) return gb > ga ? 1 : -1;
+        return a.shipmentId < b.shipmentId ? -1 : 1;
+      });
+      return { hubId: hub.id, shipments: waiting };
+    },
+  );
 
   /** The hub owner's dashboard: deposit requests waiting for this hub's
    *  answer — origin DRAFTs and, since ADR-029, arrival `requested` legs
