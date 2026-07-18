@@ -15,6 +15,7 @@ import {
   EconomicsError,
   applyReroute,
   cancellationCompensation,
+  estimateHubFeeRange,
   floorToSat,
   minLegProgressKm,
   priceClaim,
@@ -509,5 +510,72 @@ describe('guards', () => {
     expect(() => remainingPool(P, D, 101)).toThrow(EconomicsError);
     expect(() => remainingPool(-1n, D, 50)).toThrow(EconomicsError);
     expect(remainingPool(P, D, 0)).toBe(0n);
+  });
+});
+
+describe('Fase 2 punto 7 — estimateHubFeeRange (hub dashboard earning bracket)', () => {
+  // Canonical: work pool 4.50 €, D = 100 km, hub at 10% (1000 bp).
+  it('brackets the canonical origin-hub fee: min = shortest leg, max = single leg', () => {
+    const range = estimateHubFeeRange({
+      poolMsat: WORK,
+      totalKm: D,
+      remainingKm: D,
+      hubFeeBp: 1000,
+    });
+    // MAX: single leg on the whole pool → 10% × 4.50 € = 0.45 €.
+    expect(range.maxMsat).toBe(450_000n);
+    // MIN: shortest leg Δr = max(5 km, 5% × 100) = 5 km → gross 0.225 €, fee
+    // 22.5 sats floored to a whole sat = 22 sats (same floor as priceLeg).
+    expect(range.minMsat).toBe(22_000n);
+    expect(range.minMsat <= range.maxMsat).toBe(true);
+  });
+
+  // The bounds must be real prices the engine could freeze, never above them:
+  // the max equals a single delivering leg's dep fee, the min a shortest leg's.
+  it('agrees exactly with priceLeg at both ends of the range', () => {
+    const legBase = {
+      poolMsat: WORK,
+      totalKm: D,
+      remainingKm: D,
+      depHubFeeBp: 1000,
+      arrHubFeeBp: 1000,
+      carrierBonusMsat: 0n,
+    };
+    const single = priceLeg({ ...legBase, progressKm: D });
+    const shortest = priceLeg({ ...legBase, progressKm: minLegProgressKm(D) });
+    const range = estimateHubFeeRange({
+      poolMsat: WORK,
+      totalKm: D,
+      remainingKm: D,
+      hubFeeBp: 1000,
+    });
+    expect(range.maxMsat).toBe(single.depHubFeeMsat);
+    expect(range.minMsat).toBe(shortest.depHubFeeMsat);
+  });
+
+  it('collapses to a point when the parcel is closer than the min-progress floor', () => {
+    // D = 4 km ⇒ min progress = max(5 km, 0.2 km) = 5 km > r: only the final
+    // delivering leg is admissible, so the earning is a single figure.
+    const range = estimateHubFeeRange({
+      poolMsat: 1_000_000n,
+      totalKm: 4,
+      remainingKm: 4,
+      hubFeeBp: 1000,
+    });
+    expect(range.minMsat).toBe(range.maxMsat);
+    expect(range.maxMsat).toBe(100_000n); // 10% × 1.00 €
+  });
+
+  it('a 0% hub earns nothing across the whole range', () => {
+    const range = estimateHubFeeRange({ poolMsat: WORK, totalKm: D, remainingKm: D, hubFeeBp: 0 });
+    expect(range).toEqual({ minMsat: 0n, maxMsat: 0n });
+  });
+
+  it('validates its inputs', () => {
+    const ok = { poolMsat: WORK, totalKm: D, remainingKm: D, hubFeeBp: 1000 };
+    expect(() => estimateHubFeeRange({ ...ok, hubFeeBp: 3001 })).toThrow(EconomicsError);
+    expect(() => estimateHubFeeRange({ ...ok, hubFeeBp: -1 })).toThrow(EconomicsError);
+    expect(() => estimateHubFeeRange({ ...ok, remainingKm: 0 })).toThrow(EconomicsError);
+    expect(() => estimateHubFeeRange({ ...ok, poolMsat: -1n })).toThrow(EconomicsError);
   });
 });

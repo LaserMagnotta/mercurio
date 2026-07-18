@@ -365,3 +365,60 @@ export function cancellationCompensation(workCommitmentMsat: Msat, originHubFeeB
   const feeBp = assertValidHubFeeBp(originHubFeeBp, 'originHubFeeBp');
   return floorToSat((workCommitmentMsat * feeBp) / BP_DENOMINATOR);
 }
+
+export interface HubFeeRange {
+  /** Fee on the shortest admissible leg from here (Δr = min progress). */
+  minMsat: Msat;
+  /** Fee on a single leg that reaches the destination from here (Δr = r). */
+  maxMsat: Msat;
+}
+
+/**
+ * Bracket what a hub would earn on ONE adjacent leg whose split is not yet
+ * known (Fase 2 punto 7 — the hub dashboard shows a "from–to" figure where no
+ * leg is booked yet). The fee is f × gross and gross = pool × Δr / r
+ * (ECONOMICS.md §3 Model B); the free variable is the drop distance Δr, which
+ * ranges over the admissible legs:
+ *
+ *   - MAX: a single leg all the way to the destination, Δr = r ⇒ gross = pool;
+ *   - MIN: the shortest admissible leg, Δr = max(5 km, 5% D) (minLegProgressKm),
+ *     clamped to r for a parcel already within min-progress of the goal (there
+ *     the only admissible leg IS the delivering one, so the range collapses).
+ *
+ * Same downward rounding ladder as priceLeg (gross then fee floored to a whole
+ * sat): this is an estimate, but it is bounded by real prices the engine could
+ * freeze, never above them. Pure display math — it moves no money — but it is
+ * money-shaped, so it lives here with the rest and is property-tested against
+ * priceLeg.
+ */
+export function estimateHubFeeRange(input: {
+  /** Remaining WORK pool available at this hub (remainingPool() at r; = the
+   *  full work split of the offer for the origin hub, where r = D). */
+  poolMsat: Msat;
+  /** Segment distance D — sets the 5%-of-D floor of min progress. */
+  totalKm: number;
+  /** Remaining distance r from this hub to the destination (= D at origin). */
+  remainingKm: number;
+  /** This hub's fee, integer basis points (hubFeePercentToBp). */
+  hubFeeBp: number;
+}): HubFeeRange {
+  assertNonNegativeMsat(input.poolMsat, 'poolMsat');
+  const feeBp = assertValidHubFeeBp(input.hubFeeBp, 'hubFeeBp');
+  const remainingM = kmToMeters(input.remainingKm, 'remainingKm');
+  if (remainingM <= 0n) {
+    throw new EconomicsError('invalid_distance', `remainingKm must be > 0, got ${input.remainingKm}`);
+  }
+  // min(minLegProgress, r): a parcel closer than the floor can only be
+  // delivered in one final leg, so its min and max coincide.
+  const minProgM = min(BigInt(Math.round(minLegProgressKm(input.totalKm) * 1000)), remainingM);
+  const grossMax = floorToSat(input.poolMsat);
+  const grossMin = floorToSat((input.poolMsat * minProgM) / remainingM);
+  return {
+    minMsat: floorToSat((grossMin * feeBp) / BP_DENOMINATOR),
+    maxMsat: floorToSat((grossMax * feeBp) / BP_DENOMINATOR),
+  };
+}
+
+function min(a: bigint, b: bigint): bigint {
+  return a < b ? a : b;
+}
