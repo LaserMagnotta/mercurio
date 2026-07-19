@@ -131,6 +131,31 @@ describe('hub venue photos (ADR-028)', () => {
     });
     expect(gone.statusCode).toBe(404);
   });
+
+  it('GDPR erasure kills the gallery: rows, blobs, and the public routes go dark', async () => {
+    // Review C6: DELETE /me only flips the hub inactive, so "photos live and
+    // die with the hub row" never fired — the storefront bytes of a deleted
+    // owner stayed publicly retrievable forever.
+    const world = await createLifecycleWorld();
+    const jpeg = buildJpeg('venue-gdpr');
+    const sha = sha256Hex(jpeg);
+    await uploadVenue(world, world.mario, sha, jpeg);
+
+    await world.api({ method: 'DELETE', url: '/me', cookie: world.mario.cookie, expect: 200 });
+
+    expect(await world.db.select().from(hubPhotos)).toHaveLength(0);
+    expect(await world.app.venueBlobStore.get(sha)).toBeNull();
+    const bytes = await world.app.inject({
+      method: 'GET',
+      url: `/hubs/${world.hubA}/venue-photos/${sha}`,
+    });
+    expect(bytes.statusCode).toBe(404);
+    const list = await world.app.inject({
+      method: 'GET',
+      url: `/hubs/${world.hubA}/venue-photos`,
+    });
+    expect((list.json() as { photos: unknown[] }).photos).toHaveLength(0);
+  });
 });
 
 describe('deposit-request email (ADR-028)', () => {

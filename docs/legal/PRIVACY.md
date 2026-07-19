@@ -85,6 +85,9 @@ software, non solo dichiarato:
    spedizioni già chiuse sono eliminate **subito**; quelle di spedizioni in
    corso restano fino alla scadenza naturale del punto 3, come tutela
    documentale delle controparti (art. 6(1)(f)).
+5. Le foto della vetrina di un hub (il locale, non i pacchi) restano
+   pubblicate finché l'hub è attivo e sono eliminate **subito** — file
+   compresi — alla cancellazione dell'account del gestore.
 
 ## 6. Destinatari dei dati e trasferimenti
 

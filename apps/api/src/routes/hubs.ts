@@ -466,11 +466,15 @@ export function registerHubRoutes(app: App) {
   // Public read: the storefront is decision-relevant when picking a hub, so no
   // session is required (ADR-028) — unlike shipment photos (ADR-020 §4).
 
+  // Both public venue routes filter on hubs.active: an inactive hub is not a
+  // pickable counterparty, so its gallery has no business being servable —
+  // and GDPR erasure only flips the hub inactive (review C6).
   app.get('/hubs/:id/venue-photos', { schema: { params: hubParams } }, async (request) => {
     const rows = await app.db
       .select({ sha256: hubPhotos.sha256, createdAt: hubPhotos.createdAt })
       .from(hubPhotos)
-      .where(eq(hubPhotos.hubId, request.params.id))
+      .innerJoin(hubs, eq(hubs.id, hubPhotos.hubId))
+      .where(and(eq(hubPhotos.hubId, request.params.id), eq(hubs.active, true)))
       .orderBy(asc(hubPhotos.createdAt));
     return {
       photos: rows.map((p) => ({ sha256: p.sha256, createdAt: p.createdAt.toISOString() })),
@@ -485,7 +489,8 @@ export function registerHubRoutes(app: App) {
       const [row] = await app.db
         .select({ storageKey: hubPhotos.storageKey })
         .from(hubPhotos)
-        .where(and(eq(hubPhotos.hubId, id), eq(hubPhotos.sha256, sha256)));
+        .innerJoin(hubs, eq(hubs.id, hubPhotos.hubId))
+        .where(and(eq(hubPhotos.hubId, id), eq(hubPhotos.sha256, sha256), eq(hubs.active, true)));
       const bytes = row ? await app.venueBlobStore.get(row.storageKey) : null;
       if (!bytes) return reply.code(404).send({ error: 'not_found' });
       // Public asset: a shared cache is fine (unlike private shipment photos).

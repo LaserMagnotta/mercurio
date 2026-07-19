@@ -199,7 +199,7 @@ export function registerMeRoutes(app: App) {
   });
 
   app.delete('/me', { preHandler: requireAuth }, async (request, reply) => {
-    await deleteAccount(app.db, request.userId!, app.blobStore);
+    await deleteAccount(app.db, request.userId!, app.blobStore, app.venueBlobStore);
     reply.clearCookie('mercurio_session', { path: '/' });
     return { ok: true };
   });

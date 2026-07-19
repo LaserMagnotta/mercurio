@@ -81,9 +81,13 @@ proprietario** (`POST`/`DELETE /hubs/mine/venue-photos/:sha256`). Tetto
 `MAX_VENUE_PHOTOS = 6`: una vetrina, non un album. Le foto compaiono sulla card
 dell'hub (`GET /hubs` porta gli sha256) e si gestiscono dalla dashboard.
 
-Nessun purge: le foto del locale vivono e muoiono con l'hub. La cancellazione
-account passa già da `DELETE /me`; una pulizia esplicita dei blob del locale
-alla cancellazione dell'hub è un ritocco futuro (oggi l'hub non si cancella).
+Nessun purge periodico: le foto del locale vivono e muoiono con l'hub.
+
+**Aggiornamento 2026-07-19** — la cancellazione account (`DELETE /me`) ora
+elimina subito righe `hub_photos` e blob del venue store (l'hub viene solo
+disattivato, quindi «muoiono con l'hub» non scattava mai da solo), e le due
+rotte pubbliche della vetrina servono solo hub `active`: la galleria di un
+hub disattivato o cancellato non è più raggiungibile.
 
 ### 4. Email di contatto del locale, distinta e privata
 

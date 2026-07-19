@@ -381,7 +381,7 @@ describe('photo upload → download (ADR-020)', () => {
       expect: 200,
     });
     const { deleteAccount } = await import('../lib/account.js');
-    await deleteAccount(world.db, world.mario.id, world.app.blobStore);
+    await deleteAccount(world.db, world.mario.id, world.app.blobStore, world.app.venueBlobStore);
     expect(await world.db.select().from(photos)).toHaveLength(0);
     expect(await world.app.blobStore.get(hash)).toBeNull();
   });
