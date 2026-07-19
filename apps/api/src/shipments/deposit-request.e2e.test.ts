@@ -202,6 +202,26 @@ describe('deposit request on a manual arrival hub (ADR-029)', () => {
     const timers = await world.db.select().from(shipmentTimers);
     expect(timers.map((t) => t.kind).sort()).toEqual(['leg_funding', 'storage']);
 
+    // While the leg waits for funding, Carla's reserved stay already shows
+    // the EXACT frozen arrival fee — not an origin-style estimate over the
+    // whole route (review C2: the fee froze at leg_request, deposit_accept
+    // only reserved the shelf).
+    const dash = await world.api({
+      method: 'GET',
+      url: '/hubs/mine/requests',
+      cookie: world.carla.cookie,
+      expect: 200,
+    });
+    const { stays } = dash.json() as {
+      stays: { shipmentId: string; status: string; projectedEarning: { kind: string; msat: string } }[];
+    };
+    const reserved = stays.find((s) => s.shipmentId === id);
+    expect(reserved?.status).toBe('reserved');
+    expect(reserved?.projectedEarning).toEqual({
+      kind: 'exact',
+      msat: legRow!.arrHubFeeMsat.toString(),
+    });
+
     // Wallet events fund the leg exactly as in the auto-accept flow.
     expect((await pumpWalletEvents(world.app.lifecycle)).funded).toEqual([id]);
     expect(await shipmentStatus(world, id)).toBe('leg_booked');

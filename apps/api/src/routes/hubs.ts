@@ -39,10 +39,13 @@ const mineVenuePhotoParams = z.object({ sha256: sha256String });
 /** Escape LIKE wildcards in user text: a search for "100%" must not scan. */
 const escapeLike = (q: string) => q.replace(/[\\%_]/g, '\\$&');
 
-// Leg statuses whose frozen hub fees are a REAL earning for the hub: a leg that
-// reached LEG_BOOKED (bond held) or beyond. pending_funding/expired/failed/
-// returned never certified an adjacent handoff for this hub.
-const EARNING_LEG_STATUSES = ['booked', 'picked_up', 'completed'] as const;
+// Leg statuses whose adjacent hub fees are already FROZEN and belong in the
+// stay's projection: everything from deposit_accept on (the fee froze at
+// leg_request; pending_funding merely waits for the wallets, and if funding
+// expires the stay dissolves with the leg — the dashboard just refreshes).
+// 'requested' stays out: its arrival side is surfaced as a depositRequest,
+// and its departure fee would price a hop the arrival hub never confirmed.
+const PRICED_LEG_STATUSES = ['pending_funding', 'booked', 'picked_up', 'completed'] as const;
 
 export function registerHubRoutes(app: App) {
   type HubRow = typeof hubs.$inferSelect;
@@ -350,23 +353,24 @@ export function registerHubRoutes(app: App) {
             .where(
               and(
                 inArray(legs.shipmentId, stayShipmentIds),
-                inArray(legs.status, [...EARNING_LEG_STATUSES]),
+                inArray(legs.status, [...PRICED_LEG_STATUSES]),
               ),
             );
-    const frozenFeeFor = (shipmentId: string): bigint => {
-      let total = 0n;
+    // null = no priced adjacent leg touches this hub (distinct from a leg
+    // priced at 0 msat: a 0%-fee hub earns an EXACT zero, not an estimate).
+    const frozenFeeFor = (shipmentId: string): bigint | null => {
+      let total: bigint | null = null;
       for (const leg of adjacentLegs) {
         if (leg.shipmentId !== shipmentId) continue;
-        if (leg.toHubId === hub.id) total += leg.arrHubFeeMsat;
-        if (leg.fromHubId === hub.id) total += leg.depHubFeeMsat;
+        if (leg.toHubId === hub.id) total = (total ?? 0n) + leg.arrHubFeeMsat;
+        if (leg.fromHubId === hub.id) total = (total ?? 0n) + leg.depHubFeeMsat;
       }
       return total;
     };
 
-    // Range for a leg whose split is not known: origin drop, r = D and the pool
-    // is the whole work split of the offer. (A stay with no frozen adjacent fee
-    // is necessarily at the origin — every other hub the parcel reaches did so
-    // through a completed check-in, whose arrival fee is already frozen.)
+    // Range for a stay with no priced adjacent leg yet — an origin stay
+    // before its first leg_request: r = D and the pool is the whole work
+    // split of the offer.
     const rangeFromOffer = (offerMsat: bigint, distanceKm: number) => {
       const r = estimateHubFeeRange({
         poolMsat: splitCommitment(offerMsat).workMsat,
@@ -438,10 +442,11 @@ export function registerHubRoutes(app: App) {
           shipmentStatus: shipment.status,
           storageDeadlineAt: stay.storageDeadlineAt?.toISOString() ?? null,
           custodyBondMsat: msat(shipment.custodyBondMsat),
-          // Exact where an adjacent leg is priced; otherwise a range (origin
-          // stay before the first leg).
+          // Exact where an adjacent leg is priced (0 msat included — a
+          // 0%-fee hub earns an exact zero); otherwise a range (origin stay
+          // before the first leg_request).
           projectedEarning:
-            frozen > 0n
+            frozen !== null
               ? { kind: 'exact' as const, msat: msat(frozen) }
               : rangeFromOffer(shipment.offerMsat, shipment.distanceKm),
           eurRate: {
