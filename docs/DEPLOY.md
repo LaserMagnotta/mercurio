@@ -35,10 +35,30 @@ preparazione dei dati **fuori dall'host**.
 
 - Un host Linux con **Docker Engine** e il plugin **compose v2**
   (`docker compose version`). 2 vCPU / 2 GB di RAM sono abbondanti per l'MVP.
+  Se l'host è vergine (Debian/Ubuntu), lo script convenience ufficiale basta:
+  ```sh
+  curl -fsSL https://get.docker.com | sh
+  sudo usermod -aG docker "$USER"   # rifai login per applicarlo
+  docker compose version            # conferma il plugin v2
+  ```
 - Un **dominio** con record A (e AAAA se hai IPv6) che punta all'host: Caddy
   ottiene il certificato con la sfida HTTP.
 - **Porte 80 e 443 aperte** dall'esterno. La 80 non è opzionale: serve al
   rinnovo ACME, oltre che al redirect verso HTTPS.
+- **Firewall dell'host**: solo SSH, 80 e 443 vanno esposti — tutto il resto
+  (Postgres, API, web) non pubblica porte per costruzione (`docker-compose.yml`
+  §1). Con `ufw`:
+  ```sh
+  sudo ufw allow OpenSSH   # o la porta SSH reale se non è la 22
+  sudo ufw allow 80/tcp
+  sudo ufw allow 443/tcp
+  sudo ufw enable
+  ```
+  **Nessuna porta LND va aperta**: la piattaforma non gira mai un nodo
+  Lightning proprio (ADR-013 zero custodia, ADR-024 §Non requisiti) — anche
+  con un vettore/hub che usa un nodo LND vero, quel nodo è **suo**, sta fuori
+  da questo host e collega l'utente via NWC o via un endpoint LND REST che
+  l'utente fornisce lui stesso (§11).
 - Un **relay SMTP** con credenziali (le email sono l'unico modo in cui un
   utente entra e riceve gli avvisi del ciclo di vita).
 - **Uscita HTTPS** verso `api.kraken.com`, `www.bitstamp.net` e
@@ -179,6 +199,12 @@ L'API pubblica e la sua OpenAPI (ADR-002) stanno sulla stessa origin del web:
 
 Il primo account si crea da solo: dal browser, `Accedi` → arriva il magic link
 via email (primo accesso = registrazione).
+
+**Nota sui volumi foto**: `api-entrypoint.sh` sistema da solo la proprietà di
+`photos` e `venue-photos` a ogni avvio (ADR-024 §12 — il seeding automatico di
+Docker su un volume nuovo non è affidabile su ogni storage driver): non serve
+nessun intervento manuale, ma se un giorno un caricamento fallisse con un
+errore di permessi, quel paragrafo è il punto da cui ripartire.
 
 ### Se qualcosa non parte
 
@@ -367,3 +393,61 @@ migliora solo le coppie mai viste. Le geometrie della mappa (tabella
 - **Backup**: `road_distances` viaggia dentro `pg_dump` come tutto il resto
   (§7) — è parte della verità dei prezzi. Gli artefatti OSRM invece NON
   vanno nel backup: si rigenerano dalla pipeline.
+
+## 11. Wallet reali: dal fake al vero, senza toccare `COORDINATOR_KEY`
+
+**In questo compose `FAKE_WALLETS` non è una scelta da fare**: `NODE_ENV` è
+fissato a `production` nel servizio `api` (non viene da `.env`), e
+`assertProductionSafeEnv` rifiuta l'avvio se `FAKE_WALLETS=true` con quel
+`NODE_ENV` (ADR-013, ADR-024) — non esiste un modo di accenderlo su questo
+host senza modificare il codice della guardia, cosa che questo deploy non
+fa. Uno staging su questo compose gira quindi **sempre** senza rete
+Lightning finta, a prescindere da quanti utenti reali ci siano già.
+
+Questo è meno limitante di quanto sembri, perché **la piattaforma non ha mai
+un proprio wallet** (ADR-013 zero custodia): "passare a un nodo reale" non è
+un interruttore lato server, è ogni singolo utente (mittente, vettore, hub)
+che collega il **proprio** wallet da `/wallet`. Cosa funziona prima che
+qualcuno lo faccia, e cosa no:
+
+- **Non richiedono nessun wallet collegato**: registrazione/login (magic
+  link), registrazione hub, creazione di una spedizione, la bacheca. La
+  spedizione legge `hasConnectedWallet` solo per decidere l'auto-accept
+  dell'hub (`apps/api/src/routes/shipments.ts`), non per bloccare la
+  creazione.
+- **Richiedono un wallet vero e capace di hold invoice**: accettare una
+  tratta (bond vettore), l'hub che accetta un deposito (bond hub), il
+  pagamento di una tratta, la finalizzazione. Fino a quando nessun utente ha
+  collegato un wallet reale, questi passi dello smoke test (§6) restano non
+  verificabili end-to-end — non è un difetto del deploy, è la conseguenza
+  diretta dello zero-custodia.
+
+### Collegare un wallet reale (per l'utente, non per l'host)
+
+1. **NWC (consigliato)** — un servizio come Alby Hub o Alby: da
+   `/wallet`, `kind: 'nwc'` con la connection string
+   `nostr+walletconnect://<pubkey>?relay=wss://...&secret=<hex>`. L'API
+   sonda le capability con `get_info` (ADR-019 §3): se il wallet non espone
+   `make_hold_invoice`/`settle_hold_invoice`/`cancel_hold_invoice` la
+   connessione viene comunque accettata ma l'uso in un ruolo money-bearing è
+   rifiutato con `402 wallet_missing_hold_support` — messaggio esplicito,
+   nessun fallimento silenzioso (ADR-019 §4).
+2. **LND REST diretto** — `kind: 'lnd_rest'`: endpoint e macaroon del nodo
+   LND dell'utente stesso. Utile per chi già gestisce un proprio nodo; non
+   richiede Nostr.
+
+Entrambe le vie sono wallet **dell'utente**, mai dell'host: non aprono
+nessuna porta su questo VPS (§2) e non richiedono nulla lato `.env`.
+
+### Perché `COORDINATOR_KEY` non c'entra
+
+`COORDINATOR_KEY` cifra le preimage e i segreti di connessione **lato
+server**, a prescindere da quale adapter (`fake`/`lnd_rest`/`nwc`) sta
+dietro una riga di `wallet_connections` (ADR-013 "dettagli implementativi",
+punto 1). Il primo utente che collega un wallet NWC vero non tocca quella
+chiave, non richiede un riavvio con una chiave diversa e non invalida i
+wallet già collegati da altri: la cifratura a riposo è ortogonale
+all'adapter, per costruzione. La checklist per passare da "nessuno ha ancora
+collegato un wallet" a "flussi di pagamento verificati" è quindi solo
+umana: un utente reale, con un wallet NWC hold-capable, che compie ogni
+passo del ciclo di vita una volta — nessuna variabile d'ambiente cambia.

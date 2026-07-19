@@ -41,10 +41,14 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
 
 FROM base AS runtime
 ENV NODE_ENV=production
+# su-exec drops from root to `node` in the entrypoint (below) after fixing
+# volume ownership — smaller than gosu, no extra runtime deps.
+RUN apk add --no-cache su-exec
+
 # Photos land on a volume mounted here (ADR-020 fs driver, the default).
-# Created in the image and owned by `node` so that Docker seeds the volume
-# with that ownership on first run — otherwise it would be root-owned and the
-# unprivileged process could not write a single blob.
+# Created in the image and owned by `node`: the intent is for Docker to seed
+# the volume with that ownership on first run, but that seeding is not
+# reliable on every storage driver (api-entrypoint.sh below covers the gap).
 # Venue photos (ADR-028) use a SEPARATE dir/volume so the shipment photo purge
 # worker never sweeps them.
 ENV PHOTO_STORAGE_DIR=/var/lib/mercurio/photos
@@ -54,8 +58,11 @@ RUN mkdir -p "$PHOTO_STORAGE_DIR" "$VENUE_PHOTO_STORAGE_DIR" \
 
 WORKDIR /app
 COPY --from=builder --chown=node:node /app .
+COPY --chmod=755 infra/production/api-entrypoint.sh /usr/local/bin/api-entrypoint.sh
 
-USER node
+# Root at container start on purpose: api-entrypoint.sh needs it to fix
+# volume ownership before it execs the real process as `node` — the app code
+# itself never runs as root (ADR-024 §12 has the story behind this).
 EXPOSE 3001
 
 # Liveness only: it answers from the HTTP layer without touching Postgres, so
@@ -63,4 +70,5 @@ EXPOSE 3001
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3001)+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
+ENTRYPOINT ["api-entrypoint.sh"]
 CMD ["node", "dist/index.js"]
