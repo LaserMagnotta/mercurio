@@ -23,6 +23,7 @@ import { inArray } from 'drizzle-orm';
 import type { Db } from '@mercurio/db';
 import { roadDistances, routeGeometries } from '@mercurio/db';
 import type { DistanceProvider } from '@mercurio/core';
+import { UnresolvedDistanceError } from '@mercurio/core';
 import type { GeoPoint } from '@mercurio/shared';
 
 // ---------------------------------------------------------------------------
@@ -62,8 +63,9 @@ export function hasPair(map: PairMap, a: GeoPoint, b: GeoPoint): boolean {
 /**
  * A synchronous DistanceProvider over pre-resolved pairs. Throwing on a miss
  * is deliberate: the engine must never silently fall back to another metric
- * (ADR-031), so an unresolved pair reaching the engine is a caller bug — the
- * call sites filter shipments/hubs down to fully-resolved ones first.
+ * (ADR-031). The typed error lets the matching engine tell "this drop hub is
+ * unavailable this refresh" (it skips the hub) apart from a plain bug — for
+ * S/T lookups outside that loop the throw still propagates, as it must.
  */
 export function providerFromPairMap(map: PairMap): DistanceProvider {
   return {
@@ -71,7 +73,7 @@ export function providerFromPairMap(map: PairMap): DistanceProvider {
       if (samePoint(a, b)) return 0;
       const metres = map.get(pairKeyOf(a, b));
       if (metres === undefined) {
-        throw new Error(`unresolved road pair ${pairKeyOf(a, b)} reached the engine`);
+        throw new UnresolvedDistanceError(`unresolved road pair ${pairKeyOf(a, b)}`);
       }
       return metres / 1000;
     },

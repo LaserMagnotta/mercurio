@@ -19,8 +19,10 @@ import type {
   ShipmentAtHub,
 } from '@mercurio/shared';
 import { MAX_ALTERNATIVE_DROP_HUBS, MIN_LEG_PROGRESS_KM } from '@mercurio/shared';
+import type { GeoPoint } from '@mercurio/shared';
 import { EconomicsError, priceLeg } from '../economics/economics.js';
 import type { DistanceProvider } from './distance.js';
+import { UnresolvedDistanceError } from './distance.js';
 
 const kmToMeters = (km: number): number => Math.round(km * 1000);
 
@@ -95,13 +97,26 @@ function evaluateShipment(
   }
 
   const originToCurrentKm = distance.distanceKm(trip.origin, currentHub.location);
+  // A provider may be unable to answer one specific pair (ADR-031: a road
+  // router can hold no route for a combination while answering the rest).
+  // Inside the candidate loop that only disqualifies the hub at hand — the
+  // same self-disqualification as a fee above the cap. Outside the loop
+  // (O→S above, O→Dc in rankBoard) a miss is still a caller bug and throws.
+  const tryDistanceKm = (a: GeoPoint, b: GeoPoint): number | null => {
+    try {
+      return distance.distanceKm(a, b);
+    } catch (error) {
+      if (error instanceof UnresolvedDistanceError) return null;
+      throw error;
+    }
+  };
   const options: DropHubOption[] = [];
   for (const hub of hubs) {
     if (!hubAcceptsParcel(hub, shipment)) continue;
     const isDestination = hub.hubId === shipment.destHubId;
-    const hubToDestM = isDestination
-      ? 0
-      : kmToMeters(distance.distanceKm(hub.location, destHub.location));
+    const hubToDestKm = isDestination ? 0 : tryDistanceKm(hub.location, destHub.location);
+    if (hubToDestKm === null) continue;
+    const hubToDestM = kmToMeters(hubToDestKm);
     const progressM = remainingM - hubToDestM;
     // Positive, non-trivial progress: r_S − d(H,T) ≥ max(5 km, 5% × D). The
     // integer comparisons mirror priceLeg's guard exactly, so pricing below
@@ -129,11 +144,10 @@ function evaluateShipment(
       throw error;
     }
 
-    const detourKm =
-      originToCurrentKm +
-      distance.distanceKm(currentHub.location, hub.location) +
-      distance.distanceKm(hub.location, trip.destination) -
-      directKm;
+    const currentToHubKm = tryDistanceKm(currentHub.location, hub.location);
+    const hubToTripDestKm = tryDistanceKm(hub.location, trip.destination);
+    if (currentToHubKm === null || hubToTripDestKm === null) continue;
+    const detourKm = originToCurrentKm + currentToHubKm + hubToTripDestKm - directKm;
     if (!Number.isFinite(detourKm)) continue;
     // The metric satisfies the triangle inequality, so detour ≥ 0 up to float
     // noise; clamp so an injected test provider can't produce a negative cost.

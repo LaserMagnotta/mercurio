@@ -605,11 +605,19 @@ async function buildBoard(app: App, trip: typeof carrierTrips.$inferSelect, carr
         if (!hasPair(map, origin, e.from) || !hasPair(map, e.from, e.to)) continue;
         const remainingKm = roadProvider.distanceKm(e.from, e.to);
         if (!(remainingKm > 0)) continue;
+        // S/T must ALWAYS be in the list — evaluateShipment looks the route
+        // ends up by id and drops the whole card when either is missing
+        // (packages/shared/src/matching.ts contract). Their own unresolved
+        // pairs are safe: the engine skips a candidate hub it cannot price
+        // (UnresolvedDistanceError), so a hole in the road map costs at most
+        // one drop option, never the shipment.
+        const routeEndIds = new Set([e.stay.hubId, e.shipment.destHubId]);
         const hubsForThis = matchingHubs.filter(
           (h) =>
-            hasPair(map, e.from, h.location) &&
-            hasPair(map, h.location, destination) &&
-            hasPair(map, h.location, e.to),
+            routeEndIds.has(h.hubId) ||
+            (hasPair(map, e.from, h.location) &&
+              hasPair(map, h.location, destination) &&
+              hasPair(map, h.location, e.to)),
         );
         const [card] = rankBoard(
           tripInput,

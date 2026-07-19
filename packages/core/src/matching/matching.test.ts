@@ -14,7 +14,11 @@ import type {
   ShipmentAtHub,
 } from '@mercurio/shared';
 import type { DistanceProvider } from './distance.js';
-import { createHaversineDistanceProvider, haversineKm } from './distance.js';
+import {
+  createHaversineDistanceProvider,
+  haversineKm,
+  UnresolvedDistanceError,
+} from './distance.js';
 import { rankBoard } from './matching.js';
 
 /** Plane geometry in km: x = lng, y = lat. */
@@ -250,6 +254,52 @@ describe('candidate filters (MATCHING.md §2, conditions 1–3)', () => {
     const bad = shipment({ shipmentId: 'bad-bonus', carrierBonusMsat: -1n });
     const board = rankBoard(axisTrip, [bad, axisShipment], [S, T], euclidean);
     expect(board.map((c) => c.shipmentId)).toEqual(['ship-1']);
+  });
+});
+
+describe('unanswerable pairs (ADR-031: partial road coverage)', () => {
+  // Same one-dimensional geometry as the filter suite: direct route 100 km,
+  // S at x=10 holding the parcel, T at x=90, one intermediate hub at x=50.
+  const S = hub('S', pt(10, 0), 1000);
+  const T = hub('T', pt(90, 0), 1000);
+  const mid = hub('H-mid', pt(50, 0), 1000);
+  const axisTrip: CarrierTrip = {
+    origin: pt(0, 0),
+    destination: pt(100, 0),
+    maxDeviationKm: 15,
+    minRateMsatPerKm: 0n,
+  };
+  const axisShipment = shipment({ poolMsat: 4_000_000n, totalKm: 80, remainingKm: 80 });
+
+  /** Euclidean everywhere except one unordered pair, which the provider
+   *  cannot answer — the shape of a road router with a hole in its map. */
+  const cursedProvider = (a: GeoPoint, b: GeoPoint): DistanceProvider => ({
+    distanceKm(x, y) {
+      const same = (p: GeoPoint, q: GeoPoint) => p.lat === q.lat && p.lng === q.lng;
+      if ((same(x, a) && same(y, b)) || (same(x, b) && same(y, a))) {
+        throw new UnresolvedDistanceError(`no route (${x.lng},${x.lat})->(${y.lng},${y.lat})`);
+      }
+      return euclidean.distanceKm(x, y);
+    },
+  });
+
+  const optionIds = (board: ReturnType<typeof rankBoard>): string[] =>
+    board.flatMap((c) => [c.bestDropHub, ...c.alternatives].map((o) => o.hubId));
+
+  it('a drop hub with an unanswerable pair disqualifies itself; the shipment stays on the board', () => {
+    const provider = cursedProvider(pt(50, 0), pt(100, 0)); // mid -> trip destination
+    const board = rankBoard(axisTrip, [axisShipment], [S, T, mid], provider);
+    expect(board).toHaveLength(1);
+    expect(optionIds(board)).toContain('T');
+    expect(optionIds(board)).not.toContain('H-mid');
+  });
+
+  it('T unanswerable toward the trip destination forfeits direct delivery, not the shipment', () => {
+    const provider = cursedProvider(pt(90, 0), pt(100, 0)); // T -> trip destination
+    const board = rankBoard(axisTrip, [axisShipment], [S, T, mid], provider);
+    expect(board).toHaveLength(1);
+    expect(optionIds(board)).toContain('H-mid');
+    expect(optionIds(board)).not.toContain('T');
   });
 });
 

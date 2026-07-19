@@ -38,6 +38,10 @@ interface BoardCard {
 describe('road routing in pricing (ADR-031)', () => {
   let world: LifecycleWorld;
   let routerDown = false;
+  /** When set, the fake answers null (no route) for that unordered pair —
+   *  a hole in the road map, distinct from the router being down. */
+  let unroutable: ((s: { lat: number; lng: number }, d: { lat: number; lng: number }) => boolean) | null =
+    null;
 
   const fakeOsrm: OsrmClient = {
     async table(sources, destinations) {
@@ -45,7 +49,9 @@ describe('road routing in pricing (ADR-031)', () => {
       return {
         metres: sources.map((s) =>
           destinations.map((d) =>
-            Math.round(Math.hypot(s.lat - d.lat, s.lng - d.lng) * ROAD_METRES_PER_FLAT_KM),
+            unroutable && (unroutable(s, d) || unroutable(d, s))
+              ? null
+              : Math.round(Math.hypot(s.lat - d.lat, s.lng - d.lng) * ROAD_METRES_PER_FLAT_KM),
           ),
         ),
         dataVersion: 'e2e-fake',
@@ -154,6 +160,36 @@ describe('road routing in pricing (ADR-031)', () => {
       BigInt(card.bestDropHub.netMsat),
     );
     expect(leg.pricing.grossMsat).toBe('7200000');
+  });
+
+  it('a hole in the road map costs a drop option, never the whole card', async () => {
+    // The parcel sits at A (lng 0) heading to B (lng 100); the trip runs
+    // -20 → 120, so A→trip-destination (0↔120) is a pair the board resolves
+    // ONLY to look up drop candidates near A — the shipment's own distances
+    // (A→B, origin→A) stay routable. OSRM knowing no route for that one pair
+    // must not make the shipment vanish from the board (the S/T lookup
+    // contract of packages/shared/src/matching.ts).
+    const { id } = await createShipmentAtHub(world);
+    unroutable = (s, d) => s.lat === 0 && s.lng === 0 && d.lat === 0 && d.lng === 120;
+    try {
+      const tripId = await declareTrip(world, world.luca, -20, 120);
+      const board = (await (
+        await world.api({
+          method: 'GET',
+          url: `/trips/${tripId}/board`,
+          cookie: world.luca.cookie,
+          expect: 200,
+        })
+      ).json()) as { cards: BoardCard[] };
+      const card = board.cards.find((c) => c.shipmentId === id);
+      expect(card).toBeDefined();
+      expect(card!.distanceMetric).toBe('road');
+      // Direct delivery to B is still the best drop; only hypothetical drops
+      // AT A itself lost their pair, and A was never a viable drop anyway.
+      expect(card!.bestDropHub.hubId).toBe(world.hubB);
+    } finally {
+      unroutable = null;
+    }
   });
 
   it('keeps pricing road shipments from the cache while the router is down, and omits cold ones', async () => {
