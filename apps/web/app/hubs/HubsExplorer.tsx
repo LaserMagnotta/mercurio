@@ -53,11 +53,17 @@ export function HubsExplorer() {
   const [error, setError] = useState<string | null>(null);
   const [searchBounds, setSearchBounds] = useState<LatLngBoundsExpression | null>(null);
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Monotonic fetch counter (same pattern as HubPicker): the debounce only
+  // cancels the pending TIMER, not a fetch already in flight, so a slow
+  // response for an abandoned viewport could land after — and clobber — the
+  // fresh one. Only the latest sequence number may touch state.
+  const seqRef = useRef(0);
 
   // One bounded query per settled viewport/search change. The map page is
   // capped at 200 markers (the API's max page) — clusters absorb the rest.
   const load = useCallback(
     (view: Viewport, q: string) => {
+      const seq = ++seqRef.current;
       searchHubs({
         bbox: view.bbox,
         near: `${view.center.lat},${view.center.lng}`,
@@ -65,12 +71,16 @@ export function HubsExplorer() {
         ...(q.trim() !== '' && { q: q.trim() }),
       })
         .then((res) => {
+          if (seqRef.current !== seq) return;
           setHubs(res.hubs);
           setTotal(res.total);
           setShown(PAGE_SIZE);
           setError(null);
         })
-        .catch((err) => setError(errorMessage(err)));
+        .catch((err) => {
+          if (seqRef.current !== seq) return;
+          setError(errorMessage(err));
+        });
     },
     // errorMessage is a fresh closure on every render — deliberately omitted
     // (house pattern, like RouteClient) so `load`'s identity stays stable.
@@ -104,8 +114,10 @@ export function HubsExplorer() {
       load(viewport, '');
       return;
     }
+    const seq = ++seqRef.current;
     searchHubs({ q, near: `${viewport.center.lat},${viewport.center.lng}`, limit: 200 })
       .then((res) => {
+        if (seqRef.current !== seq) return;
         setHubs(res.hubs);
         setTotal(res.total);
         setShown(PAGE_SIZE);
@@ -116,7 +128,10 @@ export function HubsExplorer() {
           );
         }
       })
-      .catch((err) => setError(errorMessage(err)));
+      .catch((err) => {
+        if (seqRef.current !== seq) return;
+        setError(errorMessage(err));
+      });
   };
 
   const locate = () => {
