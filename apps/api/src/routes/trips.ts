@@ -666,7 +666,11 @@ async function buildBoard(app: App, trip: typeof carrierTrips.$inferSelect, carr
     const option = (o: (typeof c)['bestDropHub']) => ({
       hubId: o.hubId,
       hubName: hubName(o.hubId),
-      openingHours: (hubById.get(o.hubId)?.openingHours ?? []) as OpeningHoursEntry[],
+      // Same defensive normalization as hubDtos: a non-array jsonb row must
+      // not reach consumers that iterate it.
+      openingHours: Array.isArray(hubById.get(o.hubId)?.openingHours)
+        ? (hubById.get(o.hubId)!.openingHours as OpeningHoursEntry[])
+        : [],
       detourKm: o.detourKm,
       netMsat: msat(o.netMsat),
       finalizationBonusMsat: msat(o.finalizationBonusMsat),

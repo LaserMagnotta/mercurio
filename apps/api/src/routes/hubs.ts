@@ -49,6 +49,9 @@ const PRICED_LEG_STATUSES = ['pending_funding', 'booked', 'picked_up', 'complete
 
 export function registerHubRoutes(app: App) {
   type HubRow = typeof hubs.$inferSelect;
+  // One bound haversine for every handler in this file (same provider the
+  // rest of the API prices with).
+  const d = app.lifecycle.distance.distanceKm.bind(app.lifecycle.distance);
 
   /** Ratings, wallet flags and venue photos for ONE PAGE of hubs — never for
    *  the whole table (ADR-030: the page is bounded, the table is not). */
@@ -90,7 +93,6 @@ export function registerHubRoutes(app: App) {
       list.push(v.sha256);
       venueByHub.set(v.hubId, list);
     }
-    const d = app.lifecycle.distance.distanceKm.bind(app.lifecycle.distance);
     return rows.map((h) => ({
       id: h.id,
       name: h.name,
@@ -102,7 +104,10 @@ export function registerHubRoutes(app: App) {
       maxWeightG: h.maxWeightG,
       acceptsUndeclared: h.acceptsUndeclared,
       maxStorageDays: h.maxStorageDays,
-      openingHours: h.openingHours as OpeningHoursEntry[],
+      // Defensive: the jsonb has no runtime validation on read, and a
+      // pre-ADR-032 object-shaped row would crash every consumer that
+      // iterates it (the web renders these with for..of). Serve [] instead.
+      openingHours: Array.isArray(h.openingHours) ? (h.openingHours as OpeningHoursEntry[]) : [],
       autoAccept: h.autoAccept,
       walletConnected: connected.has(h.userId),
       rating: ratingOf(ratings, h.userId, 'hub'),
@@ -154,7 +159,6 @@ export function registerHubRoutes(app: App) {
     if (near) {
       const [lat, lng] = near.split(',').map(Number) as [number, number];
       nearPoint = { lat, lng };
-      const d = app.lifecycle.distance.distanceKm.bind(app.lifecycle.distance);
       rows = [...rows].sort(
         (a, b) =>
           d(nearPoint!, { lat: a.lat, lng: a.lng }) - d(nearPoint!, { lat: b.lat, lng: b.lng }),
@@ -236,7 +240,6 @@ export function registerHubRoutes(app: App) {
           ? []
           : await app.db.select().from(hubs).where(inArray(hubs.id, destIds));
       const destById = new Map(destRows.map((h) => [h.id, h]));
-      const d = app.lifecycle.distance.distanceKm.bind(app.lifecycle.distance);
 
       // ADR-031: road shipments' distances in their own metric where the
       // cache/router answers (one matrix call for the whole shelf), haversine
