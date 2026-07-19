@@ -157,7 +157,12 @@ export async function executeShipmentTransition(
           purpose: effect.purpose,
           ref: effect.ref,
           holdWindowSeconds: LEG_FUNDING_WINDOW_MINUTES * 60,
-          idem: `cpc:${effect.ref.type}:${effect.ref.id}:${effect.purpose}`,
+          // The nonce (ADR-033) separates bond-renewal rounds that share the
+          // same (purpose, ref); absent everywhere else, keeping every
+          // pre-existing key byte-identical.
+          idem:
+            `cpc:${effect.ref.type}:${effect.ref.id}:${effect.purpose}` +
+            (effect.idemNonce ? `:${effect.idemNonce}` : ''),
         });
         createdIds.set(i, paymentId);
         const next = result.effects[i + 1];
@@ -211,6 +216,14 @@ export async function executeShipmentTransition(
       await args.persistBefore?.(tx);
       if (args.shipmentPatch) {
         await tx.update(shipments).set(args.shipmentPatch).where(eq(shipments.id, args.shipmentId));
+      }
+
+      if (args.consumeTimerId) {
+        // BEFORE the effects: a transition may re-arm the same (kind, refId)
+        // it consumed (bond_renew reschedules its own bond_renewal timer,
+        // ADR-033) — the upsert would otherwise recycle this very row and the
+        // late delete would erase the freshly scheduled deadline.
+        await tx.delete(shipmentTimers).where(eq(shipmentTimers.id, args.consumeTimerId));
       }
 
       const createdByKey = indexCreatedPayments(result.effects, createdIds);
@@ -406,9 +419,6 @@ export async function executeShipmentTransition(
         }
       }
 
-      if (args.consumeTimerId) {
-        await tx.delete(shipmentTimers).where(eq(shipmentTimers.id, args.consumeTimerId));
-      }
     });
   } catch (err) {
     await compensateCreatedPayments(deps, createdIds);
@@ -601,6 +611,7 @@ async function projectRows(tx: Db, deps: LifecycleDeps, input: ProjectionInput):
         status: 'reserved',
         reservedAt: now,
         bondConditionalPaymentId: mustCreated(`custody_bond|hub_stay|${event.hubStayId}`),
+        bondWindowEndsAt: new Date(event.bondWindowEndsAt),
       });
       return;
     }
@@ -671,6 +682,7 @@ async function projectRows(tx: Db, deps: LifecycleDeps, input: ProjectionInput):
         status: 'reserved',
         reservedAt: now,
         bondConditionalPaymentId: mustCreated(`custody_bond|hub_stay|${event.arrivalHubStayId}`),
+        bondWindowEndsAt: new Date(event.arrivalBondWindowEndsAt),
       });
       return;
     }
@@ -770,6 +782,7 @@ async function projectRows(tx: Db, deps: LifecycleDeps, input: ProjectionInput):
         checkedInAt: now,
         storageDeadlineAt: new Date(event.storageDeadlineAt),
         bondConditionalPaymentId: mustCreated(`custody_bond|hub_stay|${event.returnHubStayId}`),
+        bondWindowEndsAt: new Date(event.bondWindowEndsAt),
       });
       return;
     }
@@ -859,6 +872,45 @@ async function projectRows(tx: Db, deps: LifecycleDeps, input: ProjectionInput):
 
     case 'transit_timeout': {
       await expireLegAndArrival(tx, bundle!, 'failed');
+      return;
+    }
+
+    case 'bond_renew': {
+      // Three arms (ADR-033), told apart by what the transition produced:
+      // a created payment means the renewal arm ran; otherwise the machine
+      // took a failure arm — cancellation (AWAITING_DROPOFF) or forfeit.
+      const stay = bundle!.currentStayRow!;
+      const renewedBondId = createdByKey.get(`custody_bond|hub_stay|${stay.id}`);
+      if (renewedBondId) {
+        await tx
+          .update(hubStays)
+          .set({
+            bondConditionalPaymentId: renewedBondId,
+            bondWindowEndsAt: new Date(event.newBondWindowEndsAt),
+          })
+          .where(eq(hubStays.id, stay.id));
+        return;
+      }
+      // Failure arms: the stay's custody lapsed by the hub's inaction.
+      await tx.update(hubStays).set({ status: 'expired' }).where(eq(hubStays.id, stay.id));
+      if (bundle!.state !== 'AWAITING_DROPOFF') {
+        // The forfeit dissolves whatever was pending, like storage_expiry.
+        if (bundle!.activeLegRow) {
+          await expireLegAndArrival(tx, bundle!, 'expired');
+        }
+        if (bundle!.pendingClaimRow) {
+          await tx
+            .update(shipmentClaims)
+            .set({ status: 'expired', resolvedAt: now })
+            .where(eq(shipmentClaims.id, bundle!.pendingClaimRow.id));
+        }
+        if (bundle!.requestedLegRow) {
+          await tx
+            .update(legs)
+            .set({ status: 'expired' })
+            .where(eq(legs.id, bundle!.requestedLegRow.id));
+        }
+      }
       return;
     }
 

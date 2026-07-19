@@ -259,6 +259,9 @@ export async function loadShipmentBundle(
         // Reserved stays have no deadline yet (it starts at check-in); the
         // machine never reads it in those states — epoch is a safe sentinel.
         storageDeadlineAt: currentStayRow.storageDeadlineAt?.toISOString() ?? EPOCH_ISO,
+        // Null on legacy stays (pre-ADR-033): their single hold covers the
+        // whole storage and no renewal ever fires.
+        bondWindowEndsAt: currentStayRow.bondWindowEndsAt?.toISOString() ?? null,
       }
     : null;
 
@@ -285,6 +288,7 @@ export async function loadShipmentBundle(
       legPaymentId: mustCpId(activeLegRow.paymentConditionalPaymentId, activeLegRow.id, 'payment'),
       carrierBondId: mustCpId(activeLegRow.bondConditionalPaymentId, activeLegRow.id, 'bond'),
       arrivalHubBondId: mustBondId(arrivalStayRow),
+      arrivalBondWindowEndsAt: arrivalStayRow.bondWindowEndsAt?.toISOString() ?? null,
       fundingDeadlineAt: mustFundingDeadline(activeLegRow),
       pickupDeadlineAt: activeLegRow.pickupDeadlineAt?.toISOString() ?? null,
       transitDeadlineAt: activeLegRow.transitDeadlineAt?.toISOString() ?? null,

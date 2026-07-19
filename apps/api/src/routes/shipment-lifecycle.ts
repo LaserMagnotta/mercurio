@@ -19,6 +19,7 @@ import type { FastifyReply } from 'fastify';
 import { carrierTrips, custodyEvents, emailOutbox, hubs, legs, rejections, users } from '@mercurio/db';
 import { EconomicsError, applyReroute, floorToSat, priceClaim, priceLeg, splitCommitment } from '@mercurio/core';
 import {
+  BOND_RENEWAL_WINDOW_DAYS,
   boostBody,
   checkoutConfirmBody,
   type GeoPoint,
@@ -142,6 +143,7 @@ export function registerShipmentLifecycleRoutes(app: App) {
             type: 'origin_hub_accept',
             hubStayId: randomUUID(),
             hubWalletConnected: await hasConnectedWallet(app.db, request.userId!),
+            bondWindowEndsAt: daysFromNow(deps().now(), BOND_RENEWAL_WINDOW_DAYS).toISOString(),
           },
         });
       } catch (err) {
@@ -339,6 +341,7 @@ export function registerShipmentLifecycleRoutes(app: App) {
               arrivalHubStayId: randomUUID(),
               arrivalHubWalletConnected: true,
               fundingDeadlineAt: deadline.toISOString(),
+              arrivalBondWindowEndsAt: daysFromNow(acceptNow, BOND_RENEWAL_WINDOW_DAYS).toISOString(),
             },
           });
           fundingDeadlineAt = deadline;
@@ -403,6 +406,7 @@ export function registerShipmentLifecycleRoutes(app: App) {
             arrivalHubStayId: randomUUID(),
             arrivalHubWalletConnected: await hasConnectedWallet(app.db, request.userId!),
             fundingDeadlineAt: fundingDeadlineAt.toISOString(),
+            arrivalBondWindowEndsAt: daysFromNow(now, BOND_RENEWAL_WINDOW_DAYS).toISOString(),
           },
         });
       } catch (err) {
@@ -615,6 +619,7 @@ export function registerShipmentLifecycleRoutes(app: App) {
             returnHubStayId: randomUUID(),
             photoSha256: request.body.photoSha256,
             storageDeadlineAt: daysFromNow(now, bundle.shipment.maxStorageDays).toISOString(),
+            bondWindowEndsAt: daysFromNow(now, BOND_RENEWAL_WINDOW_DAYS).toISOString(),
           },
         });
       } catch (err) {

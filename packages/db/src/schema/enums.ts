@@ -67,6 +67,9 @@ export const custodyEventTypeEnum = pgEnum('custody_event_type', [
   // reuses 'leg_accepted', the reject 'handoff_rejected', expiry/cancel
   // 'expired' with a payload reason.
   'deposit_requested',
+  // ADR-033 (appended): a hub-bond hold was replaced by the next renewal
+  // window's hold; failed renewals reuse 'expired'/'cancelled' + reason.
+  'bond_renewed',
 ]);
 
 // 'hub_venue' (appended: enum values only ever ADD) is the hub's own storefront
@@ -157,6 +160,9 @@ export const shipmentTimerKindEnum = pgEnum('shipment_timer_kind', [
   'claim_funding',
   // ADR-029 (appended): the manual arrival hub's 30-minute answer window.
   'deposit_response',
+  // ADR-033 (appended): fires 24h before a hub-bond hold window closes;
+  // ref is the hub stay whose bond must renew.
+  'bond_renewal',
 ]);
 
 // On-the-spot instant payments (hub fees, cancellation compensation —

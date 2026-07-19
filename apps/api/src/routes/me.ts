@@ -24,7 +24,7 @@ const hubBody = z.object({
   // Cap on hub fees (ECONOMICS.md sec.5, "tetto di validazione sulle fee hub"):
   // above this an hub is never worth the matching surplus for a carrier.
   feePercent: z.number().min(0).max(30),
-  maxStorageDays: z.number().int().positive().max(MAX_STORAGE_DAYS), // ESCROW.md sec.4 CLTV budget (ADR-026)
+  maxStorageDays: z.number().int().positive().max(MAX_STORAGE_DAYS), // up to 30 with the rolling bond (ADR-033)
   // Default FALSE (ADR-029, decisione B): a new hub is manual and reviews
   // every deposit before committing bond and shelf space; auto-accept is an
   // explicit opt-in ("accetta sempre").

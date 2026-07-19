@@ -114,9 +114,10 @@ describe('deposit request on a manual arrival hub (ADR-029)', () => {
     expect(legRow!.fundingDeadlineAt).toBeNull();
     expect(legRow!.paymentConditionalPaymentId).toBeNull();
 
-    // Response timer armed alongside the storage timer.
+    // Response timer armed alongside the storage timer (plus the origin
+    // stay's bond-renewal reminder, armed since the hub accepted — ADR-033).
     const timers = await world.db.select().from(shipmentTimers);
-    expect(timers.map((t) => t.kind).sort()).toEqual(['deposit_response', 'storage']);
+    expect(timers.map((t) => t.kind).sort()).toEqual(['bond_renewal', 'deposit_response', 'storage']);
 
     // Board-exclusive: the shipment left the board for other carriers.
     const after = await world.api({
@@ -198,9 +199,10 @@ describe('deposit request on a manual arrival hub (ADR-029)', () => {
     expect(payment?.payeeId).toBe(world.luca.id);
     expect(payment?.amountMsat).toBe(legRow!.grossMsat);
 
-    // The response timer is gone; funding + storage remain armed.
+    // The response timer is gone; funding + storage remain armed (the origin
+    // stay's bond-renewal reminder rides along — ADR-033).
     const timers = await world.db.select().from(shipmentTimers);
-    expect(timers.map((t) => t.kind).sort()).toEqual(['leg_funding', 'storage']);
+    expect(timers.map((t) => t.kind).sort()).toEqual(['bond_renewal', 'leg_funding', 'storage']);
 
     // While the leg waits for funding, Carla's reserved stay already shows
     // the EXACT frozen arrival fee — not an origin-style estimate over the
@@ -280,8 +282,11 @@ describe('deposit request on a manual arrival hub (ADR-029)', () => {
       expect: 200,
     });
     expect((board.json() as { cards: unknown[] }).cards).toHaveLength(1);
-    // Only the storage timer survives.
-    expect((await world.db.select().from(shipmentTimers)).map((t) => t.kind)).toEqual(['storage']);
+    // Only the storage timer survives (plus the ADR-033 renewal reminder).
+    expect((await world.db.select().from(shipmentTimers)).map((t) => t.kind).sort()).toEqual([
+      'bond_renewal',
+      'storage',
+    ]);
   }, 30_000);
 
   it('deposit_request_expired: the sweep dissolves the silent request at zero cost', async () => {

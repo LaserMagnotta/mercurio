@@ -84,7 +84,16 @@ export const DEADLINES = {
   pickup: at(120),
   transit: at(600),
   storage: at(7 * 24 * 60),
+  // ADR-033: current bond window ends BEFORE the storage deadline, so a
+  // renewal is genuinely needed (the necessity guard would otherwise reject).
+  bondWindow: at(6 * 24 * 60),
 } as const;
+
+/** A moment inside the renewal lead window: past `bondWindow - 24h`, before
+ *  `bondWindow` — when the bond_renewal timer normally fires (ADR-033). */
+export const RENEWAL_NOW = at(6 * 24 * 60 - 60);
+/** The window the renewed bond covers: RENEWAL_NOW + 7 days. */
+export const RENEWED_WINDOW = at(6 * 24 * 60 - 60 + 7 * 24 * 60);
 
 export function baseCtx(): ShipmentContext {
   return {
@@ -141,6 +150,7 @@ export function originStay(): ActiveHubStay {
     hubUserId: IDS.originHubUser,
     bondPaymentId: IDS.originHubBond,
     storageDeadlineAt: DEADLINES.storage,
+    bondWindowEndsAt: DEADLINES.bondWindow,
   };
 }
 
@@ -157,6 +167,7 @@ export function pendingLeg(): ActiveLeg {
     legPaymentId: IDS.legPayment,
     carrierBondId: IDS.carrierBond,
     arrivalHubBondId: IDS.arrivalHubBond,
+    arrivalBondWindowEndsAt: DEADLINES.bondWindow,
     fundingDeadlineAt: DEADLINES.funding,
     pickupDeadlineAt: null,
     transitDeadlineAt: null,
@@ -212,6 +223,7 @@ export function destStay(): ActiveHubStay {
     hubUserId: IDS.destHubUser,
     bondPaymentId: IDS.arrivalHubBond,
     storageDeadlineAt: DEADLINES.storage,
+    bondWindowEndsAt: DEADLINES.bondWindow,
   };
 }
 
@@ -255,7 +267,12 @@ export function validEvent(type: ShipmentEvent['type']): ShipmentEvent {
     case 'create':
       return { type };
     case 'origin_hub_accept':
-      return { type, hubStayId: IDS.originStay, hubWalletConnected: true };
+      return {
+        type,
+        hubStayId: IDS.originStay,
+        hubWalletConnected: true,
+        bondWindowEndsAt: DEADLINES.bondWindow,
+      };
     case 'origin_checkin':
       return { type, photoSha256: ['photo-a'], storageDeadlineAt: DEADLINES.storage };
     case 'leg_request':
@@ -279,6 +296,7 @@ export function validEvent(type: ShipmentEvent['type']): ShipmentEvent {
         arrivalHubStayId: IDS.arrivalStay,
         arrivalHubWalletConnected: true,
         fundingDeadlineAt: DEADLINES.funding,
+        arrivalBondWindowEndsAt: DEADLINES.bondWindow,
       };
     case 'deposit_reject':
       return { type, rejectedById: IDS.intermediateHubUser, reason: 'shelf is full this week' };
@@ -318,6 +336,7 @@ export function validEvent(type: ShipmentEvent['type']): ShipmentEvent {
         returnHubStayId: IDS.returnStay,
         photoSha256: ['photo-return'],
         storageDeadlineAt: DEADLINES.storage,
+        bondWindowEndsAt: DEADLINES.bondWindow,
       };
     case 'recipient_pickup':
       return { type, otpVerified: true };
@@ -348,6 +367,16 @@ export function validEvent(type: ShipmentEvent['type']): ShipmentEvent {
       };
     case 'storage_expiry':
       return { type, now: at(7 * 24 * 60 + 1) };
+    case 'bond_renew':
+      // Fired inside the lead window, targeting the origin stay (the current
+      // stay of most fixture states; AWAITING_PICKUP holds destStay instead
+      // and rejects this payload as stale — also a legitimate outcome).
+      return {
+        type,
+        now: RENEWAL_NOW,
+        hubStayId: IDS.originStay,
+        newBondWindowEndsAt: RENEWED_WINDOW,
+      };
     case 'transit_timeout':
       return { type, now: at(601) };
     case 'boost':

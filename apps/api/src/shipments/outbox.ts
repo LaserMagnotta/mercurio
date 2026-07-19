@@ -22,6 +22,9 @@ const LIFECYCLE_TEMPLATES = [
   // Addressed to the CARRIER (ADR-029): their deposit request was refused or
   // expired unanswered — the shipment is back on the board, pick another hub.
   'deposit_request_rejected',
+  // ADR-033: the hub failed to renew its custody bond — the stay ended early
+  // (no 72/24h warnings preceded it, unlike a storage expiry).
+  'hub_bond_lapsed',
 ] as const;
 
 const MAX_ATTEMPTS = 5;
@@ -189,6 +192,27 @@ async function render(
           `puoi scegliere un altro hub di consegna.\n\n` +
           `Spedizione: ${codename}` +
           privacyFooter(),
+      };
+    }
+    case 'hub_bond_lapsed': {
+      // To the sender (ADR-033 §3): the hub stopped guaranteeing custody —
+      // its bond was not renewed. Before the drop-off the reservation just
+      // dissolves; with the parcel in custody the ToS §10 cascade applies,
+      // recovery window included.
+      const where = await hubLabel(db, payload.hubId);
+      const text =
+        payload.phase === 'dropoff'
+          ? `L'hub ${where} non ha rinnovato il vincolo di custodia per la tua spedizione\n` +
+            `prima della consegna del pacco: la prenotazione è annullata senza alcun costo.\n` +
+            `Puoi creare una nuova spedizione scegliendo un altro hub di partenza.\n\n`
+          : `L'hub ${where} non ha rinnovato il vincolo di custodia mentre il pacco era in\n` +
+            `giacenza: la giacenza è terminata in anticipo e il pacco è ora svincolabile\n` +
+            `secondo i Termini di servizio (${webUrl()}/tos, §10). Come a fine giacenza,\n` +
+            `hai una finestra di 7 giorni per recuperarlo pagando la giacenza extra\n` +
+            `direttamente all'hub.\n\n`;
+      return {
+        subject: `Mercurio ${codename} — l'hub non ha rinnovato il vincolo di custodia`,
+        text: text + `Dettagli: ${senderLink(payload.shipmentId)}\nSpedizione: ${codename}` + privacyFooter(),
       };
     }
     case 'hub_deposit_request':
