@@ -299,10 +299,6 @@ a {
   font-size: 0.85rem;
 }
 
-.section-title {
-  margin-top: var(--space-6);
-}
-
 .btn {
   display: inline-flex;
   align-items: center;
@@ -384,6 +380,7 @@ input[type='email'],
 input[type='number'],
 input[type='url'],
 input[type='password'],
+input[type='time'],
 select,
 textarea {
   font: inherit;
@@ -499,6 +496,90 @@ legend {
 .badge-danger {
   background: var(--danger-bg);
   color: var(--danger);
+}
+
+/* ---------------------------------------------------------- opening hours */
+/* A hub's declared opening hours as a tight day → time list (Fase 2 punto 5). */
+.opening-hours {
+  list-style: none;
+  margin: var(--space-1) 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0 var(--space-3);
+}
+.opening-hours li {
+  display: contents;
+}
+
+/* Hub registration (ADR-032): one row of time inputs per open interval,
+ * grouped under its day; "+ Aggiungi intervallo" adds a second one for a
+ * lunch break. */
+.opening-hours-day {
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--border);
+}
+.opening-hours-day:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+.opening-hours-day-label {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+.opening-hours-interval {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+.opening-hours-interval input[type='time'] {
+  width: auto;
+  flex: 1;
+}
+
+/* ----------------------------------------------------------- venue photos */
+/* A hub's storefront gallery (Fase 2 punto 6): a small strip of square
+ * thumbnails. The owner's manager variant stacks a remove button under each;
+ * the read-only card variant is images only. */
+.venue-gallery {
+  list-style: none;
+  margin: var(--space-1) 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.venue-gallery li {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.venue-gallery img {
+  width: 96px;
+  height: 96px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+}
+.venue-gallery-readonly img {
+  width: 84px;
+  height: 84px;
+}
+
+/* --------------------------------------------------------------- codename */
+/* Shipment codename ("Tasso-Ambrato-742"): a human-sayable label, set in a
+ * monospace face so its hyphenated parts read as one token and never blur
+ * into surrounding prose. */
+.codename {
+  font-family: ui-monospace, 'SFMono-Regular', 'Menlo', 'Consolas', monospace;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.codename-lg {
+  font-size: 1.25rem;
 }
 
 .rating {
@@ -649,6 +730,16 @@ legend {
   border-style: dashed;
 }
 
+/* Hub discovery map (ADR-030): single hub dot + counted cluster dot. */
+.map-marker-hub {
+  background: #f7931a;
+}
+
+.map-marker-cluster {
+  background: #1c1a17;
+  font-size: 0.8rem;
+}
+
 /* ------------------------------------------------------------------ misc */
 
 .list-plain {
@@ -763,4 +854,94 @@ legend {
   align-items: center;
   gap: var(--space-1);
   text-decoration: none;
+}
+
+/* ------------------------------------------------------------------ icons */
+/* Fase 5 de-slop: one hand-drawn SVG set (components/Icon.tsx) instead of
+   emoji/text glyphs — uniform stroke, currentColor, identical on every
+   platform. Inline icons hang slightly below the baseline on purpose. */
+
+.icon {
+  flex: none;
+  vertical-align: -0.18em;
+}
+
+.brand-mark,
+.nav-icon {
+  display: inline-flex;
+  line-height: 0;
+}
+
+.rating-star,
+.rating-star-empty {
+  display: inline-flex;
+  line-height: 0;
+  vertical-align: -0.18em;
+}
+
+.rating-star-empty {
+  color: var(--text-muted);
+  opacity: 0.5;
+}
+
+.rating-row {
+  display: inline-flex;
+  gap: 1px;
+}
+
+/* ------------------------------------------------------------- hub picker */
+/* ARIA combobox for hub search (ADR-030, Fase 5): input + floating listbox.
+   Options are two-line (name / address + distance) with generous touch
+   targets; status lines (searching, no results, refine) share the list. */
+
+.combobox {
+  position: relative;
+}
+
+.combobox-list {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  right: 0;
+  z-index: 30;
+  margin: 0;
+  padding: var(--space-1);
+  list-style: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+  max-height: 16rem;
+  overflow-y: auto;
+}
+
+.combobox-option {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.combobox-option[aria-selected='true'] {
+  background: var(--surface-2);
+}
+
+.combobox-option-name {
+  font-weight: 600;
+}
+
+.combobox-option-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.combobox-status {
+  padding: var(--space-2) var(--space-3);
+  color: var(--text-muted);
+  font-size: 0.85rem;
 }

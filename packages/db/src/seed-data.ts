@@ -1,7 +1,24 @@
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
-import type { Db } from './client';
-import { hubs, shipments, users } from './schema/index';
+import { ROAD_CIRCUITY_FACTOR } from '@mercurio/shared';
+import type { Db } from './client.js';
+import { hubs, shipments, users } from './schema/index.js';
+
+// Haversine × circuity (ADR-007), inlined so the db package does not depend
+// on @mercurio/core just for the seed — but the FACTOR comes from shared
+// (already a dependency): the demo shipment's frozen distance MUST be what
+// the API's provider would compute, and a hardcoded 100 km once made
+// remainingKm (105.23) exceed totalKm and broke the carrier board on a
+// freshly seeded database (remainingPool throws invalid_distance). A
+// recalibrated factor must not reopen that gap.
+function demoDistanceKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
+  const rad = (deg: number) => (deg * Math.PI) / 180;
+  const dLat = rad(b.lat - a.lat);
+  const dLng = rad(b.lng - a.lng);
+  const h =
+    Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 6371 * 2 * Math.asin(Math.sqrt(h)) * ROAD_CIRCUITY_FACTOR;
+}
 
 /**
  * Demo dataset: 3 users, 3 hubs, 1 shipment - mirrors the canonical example
@@ -46,14 +63,18 @@ export async function seedDemoData(db: Db) {
       address: 'Via Torino 12, Milano',
       lat: 45.4642,
       lng: 9.19,
-      openingHours: { 'mon-sat': '07:00-20:00' },
+      openingHours: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat'].map((day) => ({
+        day,
+        opens: '07:00',
+        closes: '20:00',
+      })),
       maxDimCmL: 60,
       maxDimCmW: 60,
       maxDimCmH: 60,
       maxWeightG: 20000,
       acceptsUndeclared: true,
       feePercent: '10.00',
-      maxStorageHours: 72,
+      maxStorageDays: 3,
       autoAccept: true,
       active: true,
     })
@@ -67,14 +88,18 @@ export async function seedDemoData(db: Db) {
       address: 'Via Zamboni 5, Bologna',
       lat: 44.4949,
       lng: 11.3426,
-      openingHours: { 'mon-sat': '06:00-21:00' },
+      openingHours: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat'].map((day) => ({
+        day,
+        opens: '06:00',
+        closes: '21:00',
+      })),
       maxDimCmL: 50,
       maxDimCmW: 50,
       maxDimCmH: 50,
       maxWeightG: 15000,
       acceptsUndeclared: true,
       feePercent: '10.00',
-      maxStorageHours: 72,
+      maxStorageDays: 3,
       autoAccept: true,
       active: true,
     })
@@ -88,14 +113,21 @@ export async function seedDemoData(db: Db) {
       address: "Via de' Tornabuoni 3, Firenze",
       lat: 43.7696,
       lng: 11.2558,
-      openingHours: { 'mon-fri': '08:00-19:30', sat: '08:00-13:00' },
+      // Split shift with a lunch break (ADR-032): two intervals sharing a day.
+      openingHours: [
+        ...['mon', 'tue', 'wed', 'thu', 'fri'].flatMap((day) => [
+          { day, opens: '08:00', closes: '12:30' },
+          { day, opens: '15:00', closes: '19:30' },
+        ]),
+        { day: 'sat', opens: '08:00', closes: '13:00' },
+      ],
       maxDimCmL: 50,
       maxDimCmW: 50,
       maxDimCmH: 50,
       maxWeightG: 15000,
       acceptsUndeclared: false,
       feePercent: '10.00',
-      maxStorageHours: 48,
+      maxStorageDays: 2,
       autoAccept: true,
       active: true,
     })
@@ -115,6 +147,9 @@ export async function seedDemoData(db: Db) {
     destHubId: hubGiulia.id,
     recipientEmail: 'destinatario@example.com', // no account needed to receive (ADR-009)
     qrToken: randomUUID(),
+    // A fixed demo codename (the canonical Marco→Giulia shipment); real ones
+    // are minted server-side at POST /shipments (apps/api lib/codename.ts).
+    codename: 'Tasso-Ambrato-742',
     dimLCm: 20,
     dimWCm: 15,
     dimHCm: 5,
@@ -122,13 +157,21 @@ export async function seedDemoData(db: Db) {
     declaredContent: 'penne',
     undeclared: false,
     offerMsat: msatFor(5n),
+    // ADR-014 work split (90% of the offer): without it the column defaults
+    // to 0 and every board card prices the demo shipment's legs at zero.
+    segmentWorkMsat: (msatFor(5n) * 9n) / 10n,
     custodyBondMsat: msatFor(15n),
-    maxStorageHours: 48,
+    maxStorageDays: 2,
     eurRateSnapshot: DEMO_SAT_PER_EUR.toString(),
     eurRateSource: 'demo-seed',
     eurRateAt: new Date(),
     status: 'draft',
-    distanceKm: 100, // matches the CLAUDE.md canonical example (haversine x 1.3, ADR-007)
+    // The provider's real Bologna→Firenze distance (~105 km — close to the
+    // canonical 100 km example, but frozen EXACTLY as the API would freeze it).
+    distanceKm: demoDistanceKm(
+      { lat: hubMario.lat, lng: hubMario.lng },
+      { lat: hubGiulia.lat, lng: hubGiulia.lng },
+    ),
   });
 
   console.log('Seeded 3 users, 3 hubs, 1 shipment.');

@@ -26,6 +26,7 @@ packages/
   shared/     Shared types, Zod schemas, constants
 infra/
   docker/     Regtest Lightning dev environment (bitcoind + LND user wallets)
+  production/ Production images, compose, reverse proxy, backup (ADR-024)
 docs/         Architecture, economics, matching, risks, ADRs
 ```
 
@@ -96,6 +97,11 @@ ADR-013). Runtime deployments must set `COORDINATOR_KEY` to 32 random bytes
 in hex — generate one with `openssl rand -hex 32`. Tests generate their own
 throwaway keys.
 
+The key must stay **the same across restarts**, and it is not rotatable in
+place: change or lose it and the sealed wallet secrets no longer open, so
+pending holds can only resolve by expiring back to their payers. In production
+it belongs in the backup set — see [`docs/DEPLOY.md`](docs/DEPLOY.md).
+
 ### Photo blob storage
 
 Certified handoff photos are uploaded to the API and stored content-addressed
@@ -156,6 +162,25 @@ with an emailed OTP. Money moves only through the state machine's effects:
 hold invoices between the parties' own wallets plus on-the-spot instant fees
 — every movement mirrored in the shadow ledger and covered by the end-to-end
 suite in `apps/api/src/shipments/`.
+
+## Deployment
+
+Production runs four containers on a single host — Caddy (the only public
+origin, automatic TLS), the web app, the API (workers in-process) and
+Postgres — built from `infra/production/`. There are **no Lightning nodes in
+production**: the wallets are the users' and the platform never holds funds
+(ADR-013), so the regtest stack in `infra/docker/` is development-only and is
+never deployed.
+
+```sh
+cp infra/production/.env.example infra/production/.env   # then fill it in
+docker compose -f infra/production/docker-compose.yml up -d --build
+```
+
+The full guide — prerequisites, every environment variable, first deploy,
+updates, backup and restore — is [`docs/DEPLOY.md`](docs/DEPLOY.md); the
+reasoning and the alternatives are in
+[ADR-024](docs/adr/ADR-024-production-deploy.md).
 
 ## Ground rules
 

@@ -14,9 +14,9 @@ import { inArray } from 'drizzle-orm';
 import { conditionalPayments } from '@mercurio/db';
 import type { CoordinatorEvent } from '@mercurio/escrow';
 import { PICKUP_WINDOW_HOURS } from '@mercurio/shared';
-import { loadShipmentBundle } from './context';
-import { executeShipmentTransition, type LifecycleDeps } from './executor';
-import { ConflictError, TransitionRejectedError } from './errors';
+import { loadShipmentBundle } from './context.js';
+import { executeShipmentTransition, type LifecycleDeps } from './executor.js';
+import { ConflictError, TransitionRejectedError } from './errors.js';
 
 export interface PumpResult {
   observed: CoordinatorEvent[];

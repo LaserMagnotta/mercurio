@@ -4,13 +4,14 @@
 // paginate newest-declaration-first with simple limit/offset.
 
 import { describe, expect, it } from 'vitest';
+import { CODENAME_PATTERN } from '@mercurio/shared';
 import {
   CANONICAL_CREATE_BODY,
   createLifecycleWorld,
   createShipmentAtHub,
   declareTrip,
   OFFER_MSAT,
-} from './test-world';
+} from './test-world.js';
 
 describe('GET /me/shipments', () => {
   it("returns the sender's own shipments, newest first, with hub names", async () => {
@@ -53,6 +54,7 @@ describe('GET /me/shipments', () => {
         destHubId: string;
         destHubName: string;
         offerMsat: string;
+        eurRate: { satsPerEur: string; source: string; at: string };
         createdAt: string;
       }[];
       total: number;
@@ -65,6 +67,9 @@ describe('GET /me/shipments', () => {
     expect(body.items[0]!.status).toBe('AWAITING_DROPOFF');
     expect(body.items[0]!.destHubName).toBe('Hub C');
     expect(body.items[0]!.offerMsat).toBe(OFFER_MSAT.toString());
+    // Every list amount carries the shipment's frozen rate so the UI shows "≈ €"
+    // (ADR-008 audit, Fase 1 punto 4): no Amount is rendered without it.
+    expect(body.items[0]!.eurRate.satsPerEur).toMatch(/^\d+(\.\d+)?$/);
     expect(body.items[1]!.status).toBe('AT_HUB');
     expect(body.items[1]!.originHubName).toBe('Hub A');
     expect(body.items[1]!.destHubName).toBe('Hub B');
@@ -108,6 +113,41 @@ describe('GET /me/shipments', () => {
     const body2 = page2.json() as { items: { id: string }[]; total: number };
     expect(body2.items.map((i) => i.id)).toEqual([first.id]);
     expect(body2.total).toBe(2);
+  });
+
+  it('mints a well-formed, unique codename per shipment and echoes it on create + list', async () => {
+    const world = await createLifecycleWorld();
+
+    const bodies = await Promise.all(
+      [world.hubB, world.hubC].map(async (destHubId) => {
+        const res = await world.api({
+          method: 'POST',
+          url: '/shipments',
+          cookie: world.marco.cookie,
+          body: { ...CANONICAL_CREATE_BODY, originHubId: world.hubA, destHubId },
+          expect: 201,
+        });
+        return res.json() as { id: string; codename: string };
+      }),
+    );
+
+    for (const b of bodies) {
+      expect(b.codename).toMatch(CODENAME_PATTERN);
+    }
+    // Distinct shipments get distinct codenames (unique index + mint probe).
+    expect(bodies[0]!.codename).not.toBe(bodies[1]!.codename);
+
+    // The same codename the creation returned is the one the list serves.
+    const list = await world.api({
+      method: 'GET',
+      url: '/me/shipments',
+      cookie: world.marco.cookie,
+      expect: 200,
+    });
+    const items = (list.json() as { items: { id: string; codename: string }[] }).items;
+    for (const b of bodies) {
+      expect(items.find((i) => i.id === b.id)?.codename).toBe(b.codename);
+    }
   });
 
   it('requires authentication', async () => {

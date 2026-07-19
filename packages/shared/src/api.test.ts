@@ -12,10 +12,10 @@ import {
   DEFAULT_LIST_LIMIT,
   listQuery,
   MAX_LIST_LIMIT,
-  MAX_STORAGE_HOURS,
+  MAX_STORAGE_DAYS,
   meTripDto,
   shipmentStateSchema,
-} from './index';
+} from './index.js';
 
 const validShipment = {
   originHubId: '00000000-0000-4000-8000-000000000001',
@@ -26,14 +26,14 @@ const validShipment = {
   undeclared: false,
   offerMsat: '8000000',
   custodyBondMsat: '24000000',
-  maxStorageHours: MAX_STORAGE_HOURS,
+  maxStorageDays: MAX_STORAGE_DAYS,
 };
 
 describe('api schemas receive real constant values', () => {
-  it('enforces the MAX_STORAGE_HOURS cap on shipment creation', () => {
+  it('enforces the MAX_STORAGE_DAYS cap on shipment creation', () => {
     expect(createShipmentBody.safeParse(validShipment).success).toBe(true);
     expect(
-      createShipmentBody.safeParse({ ...validShipment, maxStorageHours: MAX_STORAGE_HOURS + 1 })
+      createShipmentBody.safeParse({ ...validShipment, maxStorageDays: MAX_STORAGE_DAYS + 1 })
         .success,
     ).toBe(false);
   });

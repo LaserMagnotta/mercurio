@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { createTestDb } from '@mercurio/db/test-helpers';
 import { consentEvents, emailOutbox, magicLinkTokens, users } from '@mercurio/db';
 import { eq } from 'drizzle-orm';
-import { requestMagicLink, verifyMagicLink } from './auth';
-import { AuthError } from './errors';
-import { getSessionUserId } from './session';
+import { requestMagicLink, verifyMagicLink } from './auth.js';
+import { AuthError } from './errors.js';
+import { getSessionUserId } from './session.js';
 
 const CONSENT = { tosVersion: '2026-01-01', privacyVersion: '2026-01-01' };
 

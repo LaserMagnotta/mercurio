@@ -3,9 +3,9 @@ import {
   conditionalPaymentPurposeEnum,
   conditionalPaymentRefTypeEnum,
   conditionalPaymentStateEnum,
-} from './enums';
-import { shipments } from './shipments';
-import { users } from './users';
+} from './enums.js';
+import { shipments } from './shipments.js';
+import { users } from './users.js';
 
 // The only "hold" primitive in Mercurio (ADR-013, ESCROW.md sec.2): a hold
 // invoice directly between payer and payee, hash generated here. Revealing

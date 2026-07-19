@@ -26,14 +26,18 @@ export async function createEscrowWorld(): Promise<EscrowWorld> {
   if (!sender || !carrier || !hubOwnerA || !hubOwnerB) throw new Error('fixture: users failed');
 
   const hubDefaults = {
-    openingHours: { 'mon-sat': '08:00-20:00' },
+    openingHours: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat'].map((day) => ({
+      day,
+      opens: '08:00',
+      closes: '20:00',
+    })),
     maxDimCmL: 50,
     maxDimCmW: 50,
     maxDimCmH: 50,
     maxWeightG: 15000,
     acceptsUndeclared: true,
     feePercent: '10.00',
-    maxStorageHours: 72,
+    maxStorageDays: 3,
     autoAccept: true,
     active: true,
   };
@@ -54,13 +58,14 @@ export async function createEscrowWorld(): Promise<EscrowWorld> {
       destHubId: hubB.id,
       recipientEmail: 'recipient@test.local',
       qrToken: crypto.randomUUID(),
+      codename: 'Volpe-Argentea-314',
       dimLCm: 20,
       dimWCm: 15,
       dimHCm: 5,
       weightG: 200,
       offerMsat: 7_500_000n,
       custodyBondMsat: 22_500_000n,
-      maxStorageHours: 48,
+      maxStorageDays: 2,
       eurRateSnapshot: '1500',
       eurRateSource: 'test-fixture',
       eurRateAt: new Date(),

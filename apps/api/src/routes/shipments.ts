@@ -9,24 +9,26 @@
 import { randomUUID } from 'node:crypto';
 import { eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
-import { hubs, legs, shipmentClaims, shipments } from '@mercurio/db';
+import { emailOutbox, hubs, legs, shipmentClaims, shipments, users } from '@mercurio/db';
 import { splitCommitment } from '@mercurio/core';
 import {
   createShipmentBody,
   MAX_CUSTODY_BOND_EUR,
+  type DistanceMetric,
   type ShipmentContext,
 } from '@mercurio/shared';
-import type { App } from '../app';
-import { requireAuth } from '../plugins/auth-guard';
-import { generateToken } from '../lib/tokens';
-import { eurToMsat } from '../lib/eur-rate';
-import { hasConnectedWallet } from '../lib/wallets';
-import { parcelFitsHub, storageFitsHub } from '../lib/parcel';
-import { msat, isoOrNull } from '../lib/serialize';
-import { executeShipmentTransition } from '../shipments/executor';
-import { loadShipmentBundle, remainingWorkPool } from '../shipments/context';
-import { effectiveParticipants, loadRatings, ratingOf } from '../lib/reviews';
-import { replyLifecycleError } from './lifecycle-errors';
+import type { App } from '../app.js';
+import { requireAuth } from '../plugins/auth-guard.js';
+import { generateToken } from '../lib/tokens.js';
+import { mintCodename } from '../lib/codename.js';
+import { eurToMsat, type EurRateSnapshot } from '../lib/eur-rate.js';
+import { hasConnectedWallet } from '../lib/wallets.js';
+import { parcelFitsHub, storageFitsHub } from '../lib/parcel.js';
+import { msat, isoOrNull } from '../lib/serialize.js';
+import { executeShipmentTransition } from '../shipments/executor.js';
+import { loadShipmentBundle, remainingWorkPool } from '../shipments/context.js';
+import { effectiveParticipants, loadRatings, ratingOf } from '../lib/reviews.js';
+import { replyLifecycleError } from './lifecycle-errors.js';
 
 const shipmentParams = z.object({ id: z.string().uuid() });
 const qrParams = z.object({ qrToken: z.string().min(1) });
@@ -63,13 +65,24 @@ export function registerShipmentRoutes(app: App) {
         undeclared: b.undeclared,
       };
       for (const hub of [originHub, destHub]) {
-        const problem = parcelFitsHub(parcel, hub) ?? storageFitsHub(b.maxStorageHours, hub);
+        const problem = parcelFitsHub(parcel, hub) ?? storageFitsHub(b.maxStorageDays, hub);
         if (problem) return reply.code(422).send({ error: problem, hubId: hub.id });
       }
 
       const offerMsat = BigInt(b.offerMsat);
       const custodyBondMsat = BigInt(b.custodyBondMsat);
-      const rate = await app.eurRate.snapshot();
+      // The one place a NEW rate is required: it sizes the ToS bond cap below
+      // and is then frozen on the row for the shipment's whole life (ADR-008).
+      // A rate too old to be trusted fails here as a typed 503 — the sender
+      // retries with no funds committed. Every other flow reads the frozen
+      // column instead, so none of them can stall on a dead feed (ADR-025).
+      let rate: EurRateSnapshot;
+      try {
+        rate = await app.eurRate.snapshot('freeze');
+      } catch (err) {
+        if (await replyLifecycleError(reply, err)) return;
+        throw err;
+      }
       const bondCapMsat = eurToMsat(MAX_CUSTODY_BOND_EUR, rate.satsPerEur);
       if (custodyBondMsat > bondCapMsat) {
         return reply
@@ -77,16 +90,56 @@ export function registerShipmentRoutes(app: App) {
           .send({ error: 'bond_above_cap', capMsat: msat(bondCapMsat) });
       }
 
-      const distanceKm = deps.distance.distanceKm(
-        { lat: originHub.lat, lng: originHub.lng },
-        { lat: destHub.lat, lng: destHub.lng },
-      );
+      // ADR-031: the shipment's distance metric is chosen HERE and never
+      // changes again (reroutes included). 'road' only when the router
+      // resolves the pair right now; any router trouble means the shipment is
+      // born 'haversine' — deterministic either way, and the sender is never
+      // blocked by an unreachable OSRM.
+      const originPoint = { lat: originHub.lat, lng: originHub.lng };
+      const destPoint = { lat: destHub.lat, lng: destHub.lng };
+      let distanceMetric: DistanceMetric = 'haversine';
+      let distanceKm = 0;
+      if (app.roadRouting.enabled) {
+        const metres = await app.roadRouting.resolvePair(app.db, originPoint, destPoint);
+        // A resolved 0 is an ANSWER (hubs on the same road point), not a
+        // miss: keep the road metric and let the hubs_too_close guard below
+        // refuse it, instead of silently rebranding the pair 'haversine'.
+        if (metres !== null) {
+          distanceMetric = 'road';
+          distanceKm = metres / 1000;
+        }
+      }
+      if (distanceMetric === 'haversine') {
+        distanceKm = deps.distance.distanceKm(originPoint, destPoint);
+      }
       if (!(distanceKm > 0)) return reply.code(422).send({ error: 'hubs_too_close' });
 
       const shipmentId = randomUUID();
       const qrToken = generateToken().token;
+      // Three independent reads, one round trip of latency instead of three.
+      const [codename, senderWalletConnected, originHubWalletConnected] = await Promise.all([
+        mintCodename(app.db),
+        hasConnectedWallet(app.db, senderId),
+        hasConnectedWallet(app.db, originHub.userId),
+      ]);
       const segmentWorkMsat = splitCommitment(offerMsat).workMsat;
-      const senderWalletConnected = await hasConnectedWallet(app.db, senderId);
+
+      // The origin hub auto-accepts only if it opted in AND has a connected
+      // wallet to bond (checked once, reused for the accept below). When it does
+      // NOT, the shipment stays DRAFT as a real deposit REQUEST — so we notify
+      // the hub (Fase 2 punto 6, ADR-028) at its venue contact address, falling
+      // back to the account email. The outbox row is written in the SAME
+      // transaction as the shipment (outbox invariant): no mail for a shipment
+      // that failed to create.
+      const willAutoAccept = originHub.autoAccept && originHubWalletConnected;
+      let depositRequestTo: string | null = null;
+      if (!willAutoAccept) {
+        const [owner] = await app.db
+          .select({ email: users.email })
+          .from(users)
+          .where(eq(users.id, originHub.userId));
+        depositRequestTo = originHub.contactEmail ?? owner?.email ?? null;
+      }
 
       const createCtx: ShipmentContext = {
         shipmentId,
@@ -103,6 +156,7 @@ export function registerShipmentRoutes(app: App) {
         leg: null,
         finalizationBonusHold: null,
         pendingClaim: null,
+        pendingLegRequest: null,
       };
 
       try {
@@ -125,6 +179,7 @@ export function registerShipmentRoutes(app: App) {
               destHubId: destHub.id,
               recipientEmail: b.recipientEmail,
               qrToken,
+              codename,
               dimLCm: parcel.dimLCm,
               dimWCm: parcel.dimWCm,
               dimHCm: parcel.dimHCm,
@@ -134,13 +189,27 @@ export function registerShipmentRoutes(app: App) {
               offerMsat,
               segmentWorkMsat,
               custodyBondMsat,
-              maxStorageHours: b.maxStorageHours,
+              maxStorageDays: b.maxStorageDays,
               eurRateSnapshot: rate.satsPerEur,
               eurRateSource: rate.source,
               eurRateAt: rate.at,
               status: 'draft',
               distanceKm,
+              distanceMetric,
             });
+            if (depositRequestTo) {
+              await tx.insert(emailOutbox).values({
+                to: depositRequestTo,
+                template: 'hub_deposit_request',
+                payload: {
+                  shipmentId,
+                  hubId: originHub.id,
+                  destHubId: destHub.id,
+                  maxStorageDays: b.maxStorageDays,
+                  undeclared: b.undeclared,
+                },
+              });
+            }
           },
         });
       } catch (err) {
@@ -153,7 +222,7 @@ export function registerShipmentRoutes(app: App) {
       // constraints (already validated above). Failure leaves DRAFT and the
       // manual accept endpoint available: creation never rolls back for it.
       let originAccepted = false;
-      if (originHub.autoAccept && (await hasConnectedWallet(app.db, originHub.userId))) {
+      if (willAutoAccept) {
         try {
           await executeShipmentTransition(deps, {
             shipmentId,
@@ -171,6 +240,7 @@ export function registerShipmentRoutes(app: App) {
 
       return reply.code(201).send({
         id: shipmentId,
+        codename,
         status: originAccepted ? 'AWAITING_DROPOFF' : 'DRAFT',
         qrToken,
         distanceKm,
@@ -210,30 +280,43 @@ export function registerShipmentRoutes(app: App) {
         claimRowsAll.some((c) => c.claimantId === userId);
       if (!isParticipant) return reply.code(404).send({ error: 'not_found' });
 
-      // Per-role ratings of everyone who effectively took part so far
-      // (ADR-017): the participants pick each other here — the sender
-      // watches the carriers and hubs, the claimant sizes up the hub.
+      // Ratings of the effective participants (ADR-017), but ONLY the hubs are
+      // reviewable now (ADR-027): the detail shows hub aggregates only. The
+      // full participant set still decides `viewerCanReview` below — a sender
+      // or carrier is an author (they rate the hubs) even though neither is a
+      // reviewable subject.
       const participants = await effectiveParticipants(app.db, {
         id: s.id,
         senderId: s.senderId,
       });
-      const ratings = await loadRatings(app.db, participants);
+      const viewerCanReview = participants.some((p) => p.userId === userId);
+      const hubParticipants = participants.filter((p) => p.role === 'hub');
+      const ratings = await loadRatings(app.db, hubParticipants);
 
       const currentHubId = bundle.currentStayRow?.hubId ?? null;
       const destHub = bundle.hubById.get(s.destHubId);
-      const remainingKm =
-        currentHubId && destHub
-          ? app.lifecycle.distance.distanceKm(
-              {
-                lat: bundle.hubById.get(currentHubId)!.lat,
-                lng: bundle.hubById.get(currentHubId)!.lng,
-              },
-              { lat: destHub.lat, lng: destHub.lng },
-            )
-          : null;
+      let remainingKm: number | null = null;
+      if (currentHubId && destHub) {
+        const from = {
+          lat: bundle.hubById.get(currentHubId)!.lat,
+          lng: bundle.hubById.get(currentHubId)!.lng,
+        };
+        const to = { lat: destHub.lat, lng: destHub.lng };
+        // ADR-031: a road shipment's remaining km comes from the frozen road
+        // cache. This is display (the binding numbers re-resolve strictly at
+        // leg_request/claim), so a cold pair falls back to the haversine
+        // estimate rather than blanking the page — cache-only, no router on
+        // a read path.
+        const roadMetres =
+          s.distanceMetric === 'road'
+            ? await app.roadRouting.resolvePair(app.db, from, to, { cacheOnly: true })
+            : null;
+        remainingKm = roadMetres !== null ? roadMetres / 1000 : app.lifecycle.distance.distanceKm(from, to);
+      }
 
       return {
         id: s.id,
+        codename: s.codename,
         status: bundle.state,
         senderId: s.senderId,
         originHubId: s.originHubId,
@@ -248,11 +331,15 @@ export function registerShipmentRoutes(app: App) {
         segmentWorkMsat: msat(s.segmentWorkMsat),
         remainingPoolMsat:
           remainingKm !== null && remainingKm > 0
-            ? msat(remainingWorkPool(bundle, remainingKm))
+            ? // min(): the haversine fallback of a road shipment can exceed the
+              // road-frozen D (real circuity < 1.3) and the pool math wants
+              // r ≤ D. Display only — the frozen numbers never take this path.
+              msat(remainingWorkPool(bundle, Math.min(remainingKm, s.distanceKm)))
             : msat(0n),
         custodyBondMsat: msat(s.custodyBondMsat),
-        maxStorageHours: s.maxStorageHours,
+        maxStorageDays: s.maxStorageDays,
         distanceKm: s.distanceKm,
+        distanceMetric: s.distanceMetric,
         remainingKm,
         eurRate: {
           satsPerEur: s.eurRateSnapshot,
@@ -275,7 +362,10 @@ export function registerShipmentRoutes(app: App) {
             arrHubFeeMsat: msat(l.arrHubFeeMsat),
             netMsat: msat(l.netMsat),
             finalizationBonusMsat: msat(l.finalizationBonusMsat),
-            fundingDeadlineAt: l.fundingDeadlineAt.toISOString(),
+            // Null while 'requested' (ADR-029): the funding window opens at
+            // deposit_accept; the response window is the request's deadline.
+            fundingDeadlineAt: isoOrNull(l.fundingDeadlineAt),
+            responseDeadlineAt: isoOrNull(l.responseDeadlineAt),
             pickupDeadlineAt: isoOrNull(l.pickupDeadlineAt),
             transitDeadlineAt: isoOrNull(l.transitDeadlineAt),
           })),
@@ -288,12 +378,16 @@ export function registerShipmentRoutes(app: App) {
           hash: e.hash,
           createdAt: e.createdAt.toISOString(),
         })),
-        ratings: participants.map((p) => ({
+        // Hub-only (ADR-027): the reviewable subjects and their aggregates.
+        ratings: hubParticipants.map((p) => ({
           userId: p.userId,
           role: p.role,
           hubId: p.hubId,
           ...ratingOf(ratings, p.userId, p.role),
         })),
+        // Whether the viewer is an effective participant and so may author a
+        // hub review (the web review form gates on this, not on `ratings`).
+        viewerCanReview,
       };
     },
   );
@@ -312,6 +406,7 @@ export function registerShipmentRoutes(app: App) {
       .where(inArray(hubs.id, [s.originHubId, s.destHubId]));
     const name = (id: string) => hubRows.find((h) => h.id === id)?.name ?? '—';
     return {
+      codename: s.codename,
       status: s.status.toUpperCase(),
       originHubName: name(s.originHubId),
       destHubName: name(s.destHubId),

@@ -19,21 +19,26 @@ import {
   type NwcTransport,
   type WalletResolver,
 } from '@mercurio/escrow';
-import authGuard from './plugins/auth-guard';
-import { registerAuthRoutes } from './routes/auth';
-import { registerMeRoutes } from './routes/me';
-import { registerWalletRoutes } from './routes/wallet';
-import { registerHubRoutes } from './routes/hubs';
-import { registerTripRoutes } from './routes/trips';
-import { registerShipmentRoutes } from './routes/shipments';
-import { registerShipmentLifecycleRoutes } from './routes/shipment-lifecycle';
-import { registerReviewRoutes } from './routes/reviews';
-import { registerPhotoRoutes } from './routes/photos';
-import { createBlobStoreFromEnv, type BlobStore } from './lib/blob-store';
-import { createMailer, type SendMail } from './lib/mailer';
-import { createDbWalletResolver } from './lib/wallets';
-import { createEnvEurRateProvider, type EurRateProvider } from './lib/eur-rate';
-import type { LifecycleDeps } from './shipments/executor';
+import authGuard from './plugins/auth-guard.js';
+import { registerAuthRoutes } from './routes/auth.js';
+import { registerMeRoutes } from './routes/me.js';
+import { registerWalletRoutes } from './routes/wallet.js';
+import { registerHubRoutes } from './routes/hubs.js';
+import { registerTripRoutes } from './routes/trips.js';
+import { registerShipmentRoutes } from './routes/shipments.js';
+import { registerShipmentLifecycleRoutes } from './routes/shipment-lifecycle.js';
+import { registerReviewRoutes } from './routes/reviews.js';
+import { registerPhotoRoutes } from './routes/photos.js';
+import {
+  createBlobStoreFromEnv,
+  createVenueBlobStoreFromEnv,
+  type BlobStore,
+} from './lib/blob-store.js';
+import { createMailer, type SendMail } from './lib/mailer.js';
+import { createDbWalletResolver } from './lib/wallets.js';
+import { createEurRateProviderFromEnv, type EurRateProvider } from './lib/eur-rate.js';
+import { createRoadRoutingFromEnv, type RoadRouting } from './lib/road-routing.js';
+import type { LifecycleDeps } from './shipments/executor.js';
 
 /** Non-injectable knobs the routes need beyond LifecycleDeps. */
 export interface LifecycleConfig {
@@ -54,7 +59,13 @@ declare module 'fastify' {
     lifecycle: LifecycleDeps;
     lifecycleConfig: LifecycleConfig;
     eurRate: EurRateProvider;
+    /** ADR-031: OSRM-backed road distances (money, deterministic via the
+     *  road_distances cache) and polylines (display, degradable). */
+    roadRouting: RoadRouting;
     blobStore: BlobStore;
+    /** Venue photos (ADR-028): a SEPARATE store from `blobStore`, isolated from
+     *  the shipment photo purge worker. */
+    venueBlobStore: BlobStore;
   }
 }
 
@@ -65,6 +76,8 @@ export interface BuildAppOptions {
   coordinator?: EscrowCoordinator;
   walletResolver?: WalletResolver;
   distanceProvider?: DistanceProvider;
+  /** Injected by tests (fake OSRM client); defaults to OSRM_URL wiring. */
+  roadRouting?: RoadRouting;
   eurRate?: EurRateProvider;
   now?: () => Date;
   /** 32-byte key (COORDINATOR_KEY) for preimages and wallet secrets. */
@@ -85,11 +98,24 @@ export interface BuildAppOptions {
   /** Injected by tests (memory store); defaults to the driver selected by
    *  PHOTO_STORAGE_DRIVER (ADR-020 fs / ADR-023 s3). */
   blobStore?: BlobStore;
+  /** Injected by tests (memory store); the venue photo store (ADR-028), always
+   *  distinct from `blobStore`. */
+  venueBlobStore?: BlobStore;
+  /** Read `X-Forwarded-For` as the client address; defaults to TRUST_PROXY. */
+  trustProxy?: boolean;
 }
 
 export async function buildApp(options: BuildAppOptions = {}) {
   const app = Fastify({
     logger: process.env.NODE_ENV !== 'test',
+    // Behind the production reverse proxy (ADR-024) every request reaches
+    // Fastify from the proxy's own address, so @fastify/rate-limit — which
+    // keys its buckets on `request.ip` — would put the entire internet in ONE
+    // bucket and the anti-abuse limits of RISKS §7 would fire on innocent
+    // users. Off unless asked: trusting `X-Forwarded-For` with nothing in
+    // front to overwrite it lets any client forge its own address and get a
+    // fresh quota per request, which is the same control failed open.
+    trustProxy: options.trustProxy ?? process.env.TRUST_PROXY === 'true',
   }).withTypeProvider<ZodTypeProvider>();
 
   app.setValidatorCompiler(validatorCompiler);
@@ -115,11 +141,13 @@ export async function buildApp(options: BuildAppOptions = {}) {
       coordinatorKey,
       now: () => now().getTime(),
     });
+  const roadRouting = options.roadRouting ?? createRoadRoutingFromEnv();
   const lifecycle: LifecycleDeps = {
     db,
     coordinator,
     resolveWallet: walletResolver,
     distance: options.distanceProvider ?? createHaversineDistanceProvider(),
+    roadRouting,
     now,
     ...(options.waitAttempts !== undefined && { waitAttempts: options.waitAttempts }),
     ...(options.waitDelayMs !== undefined && { waitDelayMs: options.waitDelayMs }),
@@ -136,10 +164,19 @@ export async function buildApp(options: BuildAppOptions = {}) {
       nwcProbeTimeoutMs: options.nwcProbeTimeoutMs,
     }),
   });
-  app.decorate('eurRate', options.eurRate ?? createEnvEurRateProvider());
+  // EUR→sats snapshot (ADR-008): fixed rate or real tickers, from
+  // EUR_RATE_PROVIDER (ADR-025). Defaults to the fixed one, so nothing here
+  // reaches the network unless a deploy asked for it.
+  app.decorate('eurRate', options.eurRate ?? createEurRateProviderFromEnv());
+  // Road routing (ADR-031): OSRM_URL unset = pre-ADR-031 behavior (haversine
+  // metric for new shipments; cache-only reads for road ones in flight).
+  app.decorate('roadRouting', roadRouting);
   // Photo blobs (ADR-020, ADR-023): fs or S3-compatible driver from config,
   // content-addressed by sha256.
   app.decorate('blobStore', options.blobStore ?? createBlobStoreFromEnv());
+  // Venue photos (ADR-028): same driver, separate location — never swept by the
+  // shipment photo purge worker.
+  app.decorate('venueBlobStore', options.venueBlobStore ?? createVenueBlobStoreFromEnv());
 
   // Photo uploads are raw JPEG bodies (ADR-020 §3): parsed as a Buffer, with
   // the per-route bodyLimit as the size cap. The whitelist itself is decided
@@ -169,7 +206,11 @@ export async function buildApp(options: BuildAppOptions = {}) {
   void app.register(cookie);
   // Global default; individual routes (magic-link request/verify, OTP pickup)
   // set tighter limits via route config (RISKS.md sec.7: anti-abuse).
-  void app.register(rateLimit, { max: 100, timeWindow: '1 minute' });
+  // Awaited for the same reason as @fastify/swagger above: the per-route
+  // limits are attached by an onRoute hook, so registering without awaiting
+  // leaves every limit — global and per-route — silently inert (regression
+  // covered by rate-limit.test.ts).
+  await app.register(rateLimit, { max: 100, timeWindow: '1 minute' });
   void app.register(authGuard);
 
   app.get('/health', async () => ({ status: 'ok' }));

@@ -13,13 +13,18 @@ import { z } from 'zod';
 // schemas below are being built (silently disabling the checks).
 import {
   CARRIER_TRIP_STATUSES,
+  CODENAME_PATTERN,
+  DAY_KEYS,
   DEFAULT_LIST_LIMIT,
   MAX_LIST_LIMIT,
-  MAX_STORAGE_HOURS,
+  MAX_OPENING_INTERVALS_PER_DAY,
+  MAX_STORAGE_DAYS,
   PHOTO_KINDS,
   REVIEW_ROLES,
   SHIPMENT_STATES,
-} from './protocol';
+} from './protocol.js';
+// Same leaf-module rule as './protocol.js' above.
+import { DISTANCE_METRICS } from './matching.js';
 
 // ---------------------------------------------------------------------------
 // Scalars
@@ -31,6 +36,14 @@ export const msatString = z
   .describe('Amount in millisatoshi, as a decimal string');
 
 export const uuidString = z.string().uuid();
+
+/** A shipment codename ("Tasso-Ambrato-742"): the human-sayable label shown
+ *  wherever a shipment is cited. A LABEL, never a credential (ARCHITECTURE.md
+ *  §7) — the UUID and QR token are the real identifiers. */
+export const codenameString = z
+  .string()
+  .regex(CODENAME_PATTERN, 'shipment codename Animal-Adjective-NNN')
+  .describe('Human-sayable shipment label, e.g. "Tasso-Ambrato-742"');
 
 /** SHA-256 of a photo the client took ON DEVICE (ADR-018 §6): the hash lands
  *  in the custody chain as the tamper-evident certification, and it is the
@@ -53,6 +66,50 @@ export const connectWalletBody = z.object({
 });
 
 // ---------------------------------------------------------------------------
+// Hub opening hours (ADR-032)
+
+const openingHoursTimeString = z
+  .string()
+  .regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'HH:MM 24h time');
+
+/** One open interval of one weekday. A day with a lunch break is simply two
+ *  entries sharing the same `day` — the shape schema.org's
+ *  `OpeningHoursSpecification` uses for split shifts (ADR-032), adopted here
+ *  instead of a bespoke mini-language. */
+export const openingHoursEntryDto = z
+  .object({
+    day: z.enum(DAY_KEYS),
+    opens: openingHoursTimeString,
+    closes: openingHoursTimeString,
+  })
+  .refine((e) => e.opens < e.closes, { message: 'opens must be before closes', path: ['closes'] });
+
+/** A hub's full weekly schedule: any number of entries, at most
+ *  `MAX_OPENING_INTERVALS_PER_DAY` per day and never overlapping within a
+ *  day. A day with no entries is closed. */
+export const openingHoursDto = z.array(openingHoursEntryDto).superRefine((entries, ctx) => {
+  const byDay = new Map<string, (typeof entries)[number][]>();
+  for (const entry of entries) byDay.set(entry.day, [...(byDay.get(entry.day) ?? []), entry]);
+  for (const [day, dayEntries] of byDay) {
+    if (dayEntries.length > MAX_OPENING_INTERVALS_PER_DAY) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: `too many intervals on ${day}` });
+      continue;
+    }
+    const sorted = [...dayEntries].sort((a, b) => a.opens.localeCompare(b.opens));
+    for (let i = 1; i < sorted.length; i++) {
+      const curr = sorted[i]!;
+      const prev = sorted[i - 1]!;
+      if (curr.opens < prev.closes) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: `overlapping intervals on ${day}` });
+      }
+    }
+  }
+});
+
+export type OpeningHoursEntry = z.infer<typeof openingHoursEntryDto>;
+export type OpeningHours = z.infer<typeof openingHoursDto>;
+
+// ---------------------------------------------------------------------------
 // Shipments
 
 export const dimensionsSchema = z.object({
@@ -73,8 +130,9 @@ export const createShipmentBody = z.object({
   offerMsat: msatString,
   /** The single custody bond required from whoever holds the parcel (§6). */
   custodyBondMsat: msatString,
-  /** Max storage per hub stay; capped by the CLTV budget (ESCROW.md §4). */
-  maxStorageHours: z.number().int().min(1).max(MAX_STORAGE_HOURS),
+  /** Max storage per hub stay, in DAYS; capped by the CLTV budget (ESCROW.md
+   *  §4, ADR-026). */
+  maxStorageDays: z.number().int().min(1).max(MAX_STORAGE_DAYS),
   /** Optional sender photos at creation (ADR-022), certified by the
    *  `created` custody event. Distinct keys because one event certifies two
    *  photo kinds; both follow the ADR-020 §2 contract spelled out below. */
@@ -101,8 +159,17 @@ export const originCheckinBody = z.object({
 export const legAcceptBody = z.object({
   /** The carrier's declared trip (MATCHING.md §1) — must be active. */
   tripId: uuidString,
-  /** The drop hub H chosen from the board (H* or any alternative). */
+  /** The drop hub H chosen from the board (H* or any alternative). Since
+   *  ADR-029 this opens a deposit REQUEST: instant booking when the hub
+   *  auto-accepts, a pending `requested` leg when it is manual. */
   toHubId: uuidString,
+});
+
+/** Body of POST /shipments/:id/legs/:legId/deposit-reject (ADR-029): the
+ *  refusal is documentation (ADR-012), so a reason is required — it lands in
+ *  the rejections row and in the carrier's notification. */
+export const depositRejectBody = z.object({
+  reason: z.string().trim().min(1).max(500),
 });
 
 export const checkoutConfirmBody = z.object({
@@ -220,13 +287,11 @@ export const reviewDto = z.object({
   createdAt: z.string(),
 });
 
-/** Response of GET /users/:id/reviews — the future profile page: per-role
- *  aggregates plus the received reviews, newest first. */
+/** Response of GET /users/:id/reviews — the public profile page. Only the hub
+ *  is reviewable (ADR-027), so a single aggregate and hub-role reviews only. */
 export const userReviewsDto = z.object({
   userId: uuidString,
   ratings: z.object({
-    sender: ratingDto,
-    carrier: ratingDto,
     hub: ratingDto,
   }),
   reviews: z.array(reviewDto),
@@ -250,6 +315,15 @@ export const tripRouteQuery = z.object({
   previewDropHubId: uuidString.optional(),
 });
 
+/** The EUR exchange snapshot attached to an amount (ADR-008/ADR-025): sats per
+ *  EUR, its source, and when it was observed. Defined here — above the first
+ *  DTO that embeds it — so no DTO references it in the temporal dead zone. */
+export const eurRateDto = z.object({
+  satsPerEur: z.string(),
+  source: z.string(),
+  at: z.string(),
+});
+
 // ---------------------------------------------------------------------------
 // Account lists (ADR-018 §5): GET /me/shipments and GET /me/trips replace the
 // device-local `localStorage` memory the web UI used to keep — the account
@@ -262,12 +336,16 @@ export const listQuery = z.object({
 
 export const meShipmentDto = z.object({
   id: uuidString,
+  codename: codenameString,
   status: shipmentStateSchema,
   originHubId: uuidString,
   originHubName: z.string(),
   destHubId: uuidString,
   destHubName: z.string(),
   offerMsat: msatString,
+  /** The shipment's FROZEN snapshot (ADR-008): sats-first amounts everywhere
+   *  carry the rate that governs them, so the list shows "≈ €" too (ADR-025). */
+  eurRate: eurRateDto,
   createdAt: z.string(),
 });
 
@@ -305,12 +383,6 @@ export const meTripsDto = z.object({
 // ---------------------------------------------------------------------------
 // Response DTOs (zod so fastify serializes them — a bigint can never leak)
 
-export const eurRateDto = z.object({
-  satsPerEur: z.string(),
-  source: z.string(),
-  at: z.string(),
-});
-
 export const legDto = z.object({
   id: uuidString,
   seq: z.number().int(),
@@ -322,6 +394,8 @@ export const legDto = z.object({
     'returned',
     'expired',
     'failed',
+    // ADR-029: awaiting the arrival hub's answer (no holds exist yet).
+    'requested',
   ]),
   carrierId: uuidString,
   fromHubId: uuidString,
@@ -333,6 +407,8 @@ export const legDto = z.object({
   netMsat: msatString,
   finalizationBonusMsat: msatString,
   fundingDeadlineAt: z.string().nullable(),
+  /** ADR-029: the arrival hub's answer deadline while status is 'requested'. */
+  responseDeadlineAt: z.string().nullable(),
   pickupDeadlineAt: z.string().nullable(),
   transitDeadlineAt: z.string().nullable(),
 });
@@ -350,6 +426,7 @@ export const custodyEventDto = z.object({
 
 export const shipmentDetailDto = z.object({
   id: uuidString,
+  codename: codenameString,
   status: shipmentStateSchema,
   senderId: uuidString,
   originHubId: uuidString,
@@ -368,17 +445,23 @@ export const shipmentDetailDto = z.object({
   /** Remaining work pool at the current position (notional — ADR-013). */
   remainingPoolMsat: msatString,
   custodyBondMsat: msatString,
-  maxStorageHours: z.number().int(),
+  maxStorageDays: z.number().int(),
   distanceKm: z.number(),
+  /** Which metric froze distanceKm — and prices every leg (ADR-031):
+   *  'road' = OSRM road metres, 'haversine' = ADR-007 estimate. */
+  distanceMetric: z.enum(DISTANCE_METRICS),
   remainingKm: z.number().nullable(),
   eurRate: eurRateDto,
   createdAt: z.string(),
   legs: z.array(legDto),
   custodyChain: z.array(custodyEventDto),
-  /** Per-role ratings of every effective participant (ADR-017): the sender,
-   *  the carriers of funded legs, the hubs that hosted the parcel, a funded
-   *  claimant. Computed from the reviews table on read. */
+  /** Ratings of the reviewable participants — the HUBS that hosted the parcel
+   *  (ADR-027: only hubs are reviewable). Computed from the reviews table on
+   *  read. */
   ratings: z.array(participantRatingDto),
+  /** True when the viewer is an effective participant of this shipment and so
+   *  may author a hub review (the web review form gates on this — ADR-027). */
+  viewerCanReview: z.boolean(),
 });
 
 /** One uploaded photo of a shipment (ADR-020): metadata only — the bytes are
@@ -418,6 +501,7 @@ export const claimCreatedDto = z.object({
 
 export const shipmentCreatedDto = z.object({
   id: uuidString,
+  codename: codenameString,
   status: shipmentStateSchema,
   qrToken: z.string(),
   distanceKm: z.number(),
@@ -430,6 +514,7 @@ export const shipmentCreatedDto = z.object({
 /** Public status by QR scan: whoever frames the parcel sees at most this
  *  (ARCHITECTURE.md §7 — no action is possible with the QR alone). */
 export const shipmentPublicDto = z.object({
+  codename: codenameString,
   status: shipmentStateSchema,
   originHubName: z.string(),
   destHubName: z.string(),
@@ -438,6 +523,9 @@ export const shipmentPublicDto = z.object({
 export const dropHubOptionDto = z.object({
   hubId: uuidString,
   hubName: z.string(),
+  /** Opening hours of the drop hub (Fase 2 punto 5): the carrier decides where
+   *  to deposit, so when the hub is open is decision-relevant. */
+  openingHours: openingHoursDto,
   detourKm: z.number(),
   netMsat: msatString,
   /** The "premio consegna" line, shown separately on the card (ADR-014). */
@@ -446,10 +534,15 @@ export const dropHubOptionDto = z.object({
   /** Hub-role rating of the hub's owner (CLAUDE.md: visible wherever a
    *  counterparty is chosen), computed from the reviews table on read. */
   hubRating: ratingDto,
+  /** ADR-029 §3: true for a MANUAL hub — choosing it opens a deposit request
+   *  the hub must confirm (the card marks it "richiede conferma") instead of
+   *  booking instantly. */
+  requiresConfirmation: z.boolean(),
 });
 
 export const boardCardDto = z.object({
   shipmentId: uuidString,
+  codename: codenameString,
   isMatch: z.boolean(),
   bestDropHub: dropHubOptionDto,
   alternatives: z.array(dropHubOptionDto),
@@ -458,13 +551,16 @@ export const boardCardDto = z.object({
   destHubId: uuidString,
   remainingKm: z.number(),
   totalKm: z.number(),
+  /** The shipment's frozen metric (ADR-031): every km and msat on this card
+   *  is computed with it — road km for 'road', ADR-007 estimate otherwise. */
+  distanceMetric: z.enum(DISTANCE_METRICS),
   custodyBondMsat: msatString,
   dims: dimensionsSchema,
   weightG: z.number().int(),
   undeclared: z.boolean(),
-  /** MATCHING.md §3: the card shows the sender's rating and the ratings of
-   *  the hubs involved (the drop options carry their own `hubRating`). */
-  senderRating: ratingDto,
+  /** MATCHING.md §3: the card shows the ratings of the hubs involved — the
+   *  current hub here, each drop option its own `hubRating`. Only hubs are
+   *  reviewable (ADR-027): no sender rating. */
   currentHubRating: ratingDto,
   /** The shipment's FROZEN exchange snapshot (ADR-008): the indicative € on
    *  the card must use the rate that will govern the carrier's payout. */
@@ -502,6 +598,14 @@ export const routeStopDto = z.object({
   preview: z.boolean(),
 });
 
+/** One drawable segment of the trip map (ADR-031, display part): the road
+ *  shape when the router (or its cache) has it, the straight chord otherwise.
+ *  Points are [lat, lng] tuples. Display only — never money. */
+export const routeGeometrySegmentDto = z.object({
+  source: z.enum(['road', 'straight']),
+  points: z.array(z.tuple([z.number(), z.number()])),
+});
+
 /** Response of GET /trips/:id/route (ADR-015, data part): the stops in the
  *  computed visit order plus the Google Maps deep link. Stops beyond
  *  MAX_ROUTE_WAYPOINTS come back in `unroutedStops` for the UI to list. */
@@ -512,6 +616,13 @@ export const tripRouteDto = z.object({
   stops: z.array(routeStopDto),
   unroutedStops: z.array(routeStopDto),
   googleMapsUrl: z.string(),
+  /** ADR-031: the direct O→Dc line (drawn muted) and the actual stop-by-stop
+   *  path (full tone) — the visual difference between the two IS the
+   *  deviation the carrier accepted. */
+  routeGeometry: z.object({
+    direct: routeGeometrySegmentDto,
+    segments: z.array(routeGeometrySegmentDto),
+  }),
 });
 
 export const hubDto = z.object({
@@ -524,15 +635,98 @@ export const hubDto = z.object({
   maxDims: dimensionsSchema,
   maxWeightG: z.number().int(),
   acceptsUndeclared: z.boolean(),
-  maxStorageHours: z.number().int(),
+  maxStorageDays: z.number().int(),
+  /** Opening hours as a list of per-day intervals (ADR-032), e.g.
+   *  [{ day: "mon", opens: "08:00", closes: "12:30" }, ...]. Shown so the
+   *  sender knows when the hub is actually reachable. */
+  openingHours: openingHoursDto,
   autoAccept: z.boolean(),
   walletConnected: z.boolean(),
   /** Hub-role rating of the owner — the sender picks hubs here. */
   rating: ratingDto,
+  /** sha256 of each public venue photo (ADR-028, Fase 2 punto 6): the bytes
+   *  come from GET /hubs/:id/venue-photos/:sha256 (public — no session). */
+  venuePhotos: z.array(sha256String),
+  /** Road-estimate distance from the `near` point of the query (ADR-030 —
+   *  hub discovery): present only when the caller asked to sort by distance. */
+  distanceKm: z.number().optional(),
+});
+
+/**
+ * Query of GET /hubs (ADR-030 — hub discovery at 10k-hub scale). All fields
+ * optional; the response is ALWAYS paginated (default limit 50). The legacy
+ * no-param full list retired with Fase 5, once the last internal picker
+ * moved to the search contract.
+ */
+export const hubsListQuery = z.object({
+  /** Viewport filter: "minLat,minLng,maxLat,maxLng" (WGS84 degrees). */
+  bbox: z
+    .string()
+    .regex(/^-?\d+(\.\d+)?,-?\d+(\.\d+)?,-?\d+(\.\d+)?,-?\d+(\.\d+)?$/)
+    .optional(),
+  /** Text search on name and address (case-insensitive substring). */
+  q: z.string().trim().min(1).max(100).optional(),
+  /** "lat,lng": sort by distance from this point and fill `distanceKm`. */
+  near: z
+    .string()
+    .regex(/^-?\d+(\.\d+)?,-?\d+(\.\d+)?$/)
+    .optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+  offset: z.coerce.number().int().min(0).optional(),
+});
+
+/** Response of GET /hubs: the page plus the pre-pagination total, so the UI
+ *  can say "N hub in this area" without ever rendering all of them. */
+export const hubsListDto = z.object({
+  hubs: z.array(hubDto),
+  total: z.number().int(),
+});
+
+/** One shipment waiting for a carrier at a hub (ADR-030 "reverse trip
+ *  planning"): what a carrier browsing the hub page sees BEFORE declaring a
+ *  trip. `maxGrossMsat` is the indicative ceiling — remaining work pool plus
+ *  the accrued carrier bonus — that a direct delivery to the destination
+ *  would gross (hub fees then apply per leg); the frozen per-leg numbers
+ *  still come only from the board/acceptance flow. */
+export const hubWaitingShipmentDto = z.object({
+  shipmentId: uuidString,
+  codename: codenameString,
+  destHubId: uuidString,
+  destHubName: z.string(),
+  remainingKm: z.number(),
+  dims: dimensionsSchema,
+  weightG: z.number().int(),
+  undeclared: z.boolean(),
+  custodyBondMsat: msatString,
+  maxGrossMsat: msatString,
+  eurRate: eurRateDto,
+});
+
+export const hubWaitingDto = z.object({
+  hubId: uuidString,
+  shipments: z.array(hubWaitingShipmentDto),
+});
+
+/** Public list of a hub's venue photos (ADR-028): hashes only; the bytes are a
+ *  second, public request. Reused by the owner's management view. */
+export const venuePhotosDto = z.object({
+  photos: z.array(z.object({ sha256: sha256String, createdAt: z.string() })),
+});
+
+/** Response of POST /hubs/mine/venue-photos/:sha256 (ADR-028): `duplicated` is
+ *  true when the same bytes were already stored for this hub (content-addressed
+ *  store makes the retry a no-op). */
+export const venuePhotoUploadedDto = z.object({
+  sha256: sha256String,
+  duplicated: z.boolean(),
 });
 
 export type CreateShipmentBody = z.infer<typeof createShipmentBody>;
 export type LegAcceptBody = z.infer<typeof legAcceptBody>;
+export type DepositRejectBody = z.infer<typeof depositRejectBody>;
+export type HubsListQuery = z.infer<typeof hubsListQuery>;
+export type HubsListDto = z.infer<typeof hubsListDto>;
+export type HubWaitingDto = z.infer<typeof hubWaitingDto>;
 export type CreateTripBody = z.infer<typeof createTripBody>;
 export type ShipmentDetailDto = z.infer<typeof shipmentDetailDto>;
 export type BoardCardDto = z.infer<typeof boardCardDto>;

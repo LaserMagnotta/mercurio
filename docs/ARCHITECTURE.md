@@ -33,8 +33,9 @@ Confermata la proposta di partenza, con alcune precisazioni. Motivazioni estese 
 | Contabilità    | Ledger a partita doppia in Postgres, nessun movimento fuori ledger                                                     | [ADR-010](adr/ADR-010-double-entry-ledger.md)                               |
 | Job/timeout    | pg-boss (code su Postgres, niente Redis)                                                                               | [ADR-011](adr/ADR-011-pg-boss-jobs.md)                                      |
 | Auth           | Magic link email (obbligatoria) + LNURL-auth opzionale                                                                 | [ADR-009](adr/ADR-009-auth-email-lnurl.md)                                  |
-| Distanze       | Haversine × fattore di circuità 1.3, dietro interfaccia `DistanceProvider`                                             | [ADR-007](adr/ADR-007-haversine-distance.md)                                |
+| Distanze       | Metrica congelata per spedizione: stradale OSRM (cache `road_distances` first-write-wins) o haversine × 1.3; sempre dietro `DistanceProvider` | [ADR-031](adr/ADR-031-road-routing.md), [ADR-007](adr/ADR-007-haversine-distance.md) |
 | Email          | Adapter SMTP; Mailpit in dev; outbox pattern (invii solo post-commit)                                                  | —                                                                           |
+| Deploy         | Immagini multi-stage per api e web; compose su singolo VPS, Caddy unica origin pubblica (niente nodi Lightning)        | [ADR-024](adr/ADR-024-production-deploy.md), [DEPLOY.md](DEPLOY.md)         |
 
 ### Struttura del monorepo
 
@@ -50,7 +51,8 @@ mercurio/
 │   ├── escrow/         # EscrowCoordinator (vault preimage) + WalletConnection (NWC, LND dev, fake per i test)
 │   └── shared/         # Tipi condivisi, schema Zod delle API, costanti
 ├── infra/
-│   └── docker/         # docker-compose: postgres, bitcoind regtest, lnd×3, lnbits, mailpit
+│   ├── docker/         # SVILUPPO: docker-compose con postgres, bitcoind regtest, lnd×3, mailpit
+│   └── production/     # PRODUZIONE: Dockerfile api/web, compose, Caddyfile, backup (ADR-024)
 └── docs/
 ```
 
@@ -139,12 +141,19 @@ erDiagram
 **users** — `id, email (unique), lnurl_pubkey?, locale, created_at, gdpr_consent_at, deleted_at?`
 (cancellazione = anonimizzazione: il ledger non si cancella, si scollega — vedi RISKS §GDPR).
 
-**hubs** — `id, user_id, name, address, lat, lng, opening_hours (jsonb), max_dim_cm (l/w/h),
-max_weight_g, accepts_undeclared (bool), fee_percent (numeric), max_storage_hours,
-auto_accept (bool), active`. `fee_percent` è la percentuale configurabile dall'hub,
-applicata al **lordo delle tratte adiacenti** (ECONOMICS.md §2); `auto_accept` abilita l'accettazione automatica dei depositi che
-rispettano i vincoli dichiarati (necessaria perché l'hub di arrivo di una tratta
-"accetta quando il pacco parte" senza interazione umana in tempo reale).
+**hubs** — `id, user_id, name, address, contact_email?, lat, lng, opening_hours (jsonb),
+max_dim_cm (l/w/h), max_weight_g, accepts_undeclared (bool), fee_percent (numeric),
+max_storage_days, auto_accept (bool), active`. `opening_hours` è un array di
+intervalli `{ day, opens, closes }`, un elemento per intervallo aperto — un
+giorno con la pausa pranzo è due elementi con lo stesso `day` (ADR-032).
+`contact_email` (ADR-028) è
+l'indirizzo del **locale**, distinto dall'account: riceve gli avvisi di deposito
+(`hub_deposit_request` in outbox), mai esposto pubblicamente. `fee_percent` è la percentuale configurabile dall'hub,
+applicata al **lordo delle tratte adiacenti** (ECONOMICS.md §2); `auto_accept`
+(default **false** — ADR-029, decisione B) è il pre-consenso al
+`deposit_accept`: un hub auto accetta all'istante i depositi che rispettano i
+vincoli dichiarati, un hub manuale riceve una **richiesta di deposito** e
+risponde dalla dashboard entro 30 minuti (ADR-029).
 
 **carrier_trips** — `id, user_id, origin_lat/lng, dest_lat/lng, departs_at, expires_at,
 max_deviation_km, min_rate_msat_per_km, status, created_at`. Il viaggio reale dichiarato
@@ -157,21 +166,26 @@ recipient_pickup_otp_hash, recipient_claim_token_hash (credenziale bearer del
 ritiro anticipato, coniata all'origin_checkin e ruotata dal reroute che cambia
 destinatario — ADR-016), qr_token (random 128 bit), dims, weight_g,
 declared_content?, undeclared (bool), offer_msat (impegno di spesa, pagato per
-tratta — ADR-013), custody_bond_msat, max_storage_hours (≤ 7 giorni nell'MVP,
-vincolo CLTV dei bond — ESCROW §4), eur_rate_snapshot (numeric + source + ts,
+tratta — ADR-013), custody_bond_msat, max_storage_days (1–7 nell'MVP, in
+giorni — ADR-026; il tetto 7 è il vincolo CLTV dei bond, ESCROW §4),
+eur_rate_snapshot (numeric + source + ts,
 congelato alla creazione), status, distance_km (D: distanza origine→destinazione
 calcolata alla creazione e congelata), created_at`.
 `custody_bond_msat` è l'unico bond richiesto a chiunque prenda in custodia il pacco,
 vettore o hub (vedi §6, "bond di custodia unico" — decisione da confermare in revisione).
 
 **legs** — `id, shipment_id, seq, carrier_id, trip_id, from_hub_id, to_hub_id,
-status (pending_funding|booked|picked_up|completed|returned|expired|failed),
-accepted_at, funding_deadline_at, pickup_deadline_at, transit_deadline_at,
+status (requested|pending_funding|booked|picked_up|completed|returned|expired|failed),
+accepted_at, funding_deadline_at (null in `requested`), response_deadline_at
+(ADR-029: scadenza di risposta dell'hub manuale), pickup_deadline_at,
+transit_deadline_at,
 progress_km, gross_msat, dep_hub_fee_msat, arr_hub_fee_msat, net_msat,
 finalization_bonus_msat, payment_cp_id, bond_cp_id` (riferimenti ai
 `conditional_payments`: hold del pagamento tratta mittente→vettore e del bond
-vettore→mittente). Gli importi sono calcolati e congelati all'accettazione
-(ECONOMICS.md): le fee dei due hub adiacenti sono percentuali del lordo, pagate
+vettore→mittente — **null** finché la tratta è `requested`: la fase di
+richiesta non muove denaro, ADR-029). Gli importi sono calcolati e congelati
+alla **richiesta** (`leg_request`; il `deposit_accept` non congela nulla di
+nuovo): le fee dei due hub adiacenti sono percentuali del lordo, pagate
 dal vettore sul posto ai passaggi di mano; `finalization_bonus_msat` è la quota
 vettore del premio ADR-014, > 0 solo sulla tratta che consegna a destinazione
 (la hold di pagamento vale `gross + finalization_bonus`).
@@ -201,6 +215,14 @@ checkin|checkout|evidence), storage_key, sha256, taken_by, created_at, purge_aft
 (blob content-addressed dietro l'interfaccia `BlobStore` — driver filesystem
 di default o S3-compatibile da config, retention limitata con purge worker —
 ADR-020, ADR-023, RISKS.md §6).
+
+**hub_photos** — `id, hub_id, kind (hub_venue), storage_key, sha256, created_at`
+(ADR-028). Le foto **del locale**: legate all'hub, non a una spedizione,
+**pubbliche** e permanenti. Tabella e blob store (`venueBlobStore`) separati da
+`photos` apposta, così il purge worker delle spedizioni (che cancella i blob
+senza riga `photos`) non le tocca mai. Riusa `BlobStore`, l'indirizzamento per
+contenuto e la validazione JPEG/EXIF di ADR-020; cambia solo l'authz (upload
+solo del proprietario, lettura pubblica) e il ciclo di vita (niente purge).
 
 **wallet_connections** — `id, user_id, kind (nwc|lnd_rest|fake), connection_secret
 (cifrato), capabilities (hold_invoice bool…), status, created_at`. Il wallet
@@ -262,7 +284,8 @@ stateDiagram-v2
     AWAITING_DROPOFF --> AT_HUB : origin_checkin (QR + foto)
     AWAITING_DROPOFF --> CANCELLED : cancel<br/>↩ bond hub annullato
     AT_HUB --> AT_HUB : boost / reroute (mittente, nessun movimento)
-    AT_HUB --> LEG_BOOKED : leg_accept + leg_funded (finestra 60 min)<br/>⏳ pagamento tratta (mittente→vettore) · ⏳ bond vettore · ⏳ bond hub arrivo
+    AT_HUB --> AT_HUB : leg_request (vettore, ADR-029)<br/>tratta «requested», fuori bacheca, NESSUN movimento<br/>↩ deposit_reject / expired / cancel — zero denaro
+    AT_HUB --> LEG_BOOKED : deposit_accept (hub, auto se auto_accept) + leg_funded (finestra 60 min)<br/>⏳ pagamento tratta (mittente→vettore) · ⏳ bond vettore · ⏳ bond hub arrivo
     AT_HUB --> CLAIMED : recipient_claim + claim_funded (finestra 60 min — ADR-016)<br/>⏳ claim payment (mittente→destinatario) · ⏳ Π_h (mittente→hub)
     AT_HUB --> FORFEITED : storage_expiry<br/>pacco svincolato all'hub (ToS) · ↩ bond hub · ↩ hold claim pendente
     AT_HUB --> CANCELLED : cancel (solo hub origine, nessuna tratta attiva)<br/>💸 compensazione f_o×P diretta all'hub · ↩ bond hub
@@ -309,7 +332,9 @@ e timeout — mai da un giudizio umano. Il ritiro del destinatario (OTP dopo isp
 | 1   | `create`                         | Mittente                                                     | dati completi, hub validi, **wallet mittente connesso** (NWC)                                                                                              | — (snapshot cambio EUR congelato)                                                                                                              |
 | 2   | `origin_hub_accept`              | Hub origine (auto se `auto_accept`)                          | dims/peso/undeclared ok, wallet hub connesso                                                                                                               | ⏳ bond hub: l'hub paga la hold invoice emessa dal mittente (hash del coordinatore)                                                            |
 | 3   | `origin_checkin`                 | Hub origine                                                  | scan QR, foto obbligatoria                                                                                                                                 | — (parte il timer di giacenza)                                                                                                                 |
-| 4   | `leg_accept`                     | Vettore                                                      | viaggio attivo, criteri match, wallet connesso; hub di arrivo accetta (auto); nessun claim pendente (ADR-016)                                              | tratta in `pending_funding`; importi calcolati e congelati (ECONOMICS)                                                                         |
+| 4a  | `leg_request` (ADR-029)          | Vettore                                                      | viaggio attivo, criteri match, wallet vettore e hub d'arrivo connessi; nessuna richiesta/tratta/claim pendente                                             | **nessuno**: tratta in `requested` con prezzo congelato (ECONOMICS), fuori bacheca, timer `deposit_response` (30 min)                          |
+| 4b  | `deposit_accept` (ADR-029)       | Hub d'arrivo (auto-fire dell'API se `auto_accept`)           | richiesta pendente entro la scadenza di risposta; wallet hub connesso                                                                                      | tratta in `pending_funding` — esattamente il vecchio `leg_accept`: crea le 3–4 hold, arma `leg_funding` (60 min)                               |
+| 4c  | `deposit_reject` / `deposit_request_expired` / `deposit_request_cancel` (ADR-029) | Hub d'arrivo / worker / vettore                              | richiesta pendente (la scadenza solo a finestra superata)                                                                                                  | **nessuno** (mai esistita una hold): tratta `expired`, spedizione di nuovo in bacheca; riga `rejections` stage `deposit_request` (no sul cancel); email al vettore (no sul cancel) |
 | 5   | `leg_funded`                     | Wallet-event                                                 | entro 60 min da `leg_accept`: ⏳ pagamento tratta (mittente paga hold del vettore) · ⏳ bond vettore (vettore paga hold del mittente) · ⏳ bond hub arrivo | le tre hold risultano _held_ → `LEG_BOOKED`; finestra scaduta → tutto annullato, si torna in bacheca                                           |
 | 6   | `pickup_checkout`                | Hub cedente + vettore (doppia conferma QR)                   | entro `pickup_deadline`; certificazione sbloccata dal pagamento                                                                                            | 💸 fee di partenza (`f_dep` × lordo) vettore→hub, sul posto · ↩ bond hub cedente annullato                                                     |
 | 7   | `pickup_timeout`                 | Worker                                                       | deadline superata                                                                                                                                          | 🔑⚔ preimage del bond vettore al mittente (incassa dal vettore) · ↩ pagamento tratta e bond hub arrivo annullati; spedizione torna in bacheca  |
@@ -323,7 +348,7 @@ e timeout — mai da un giudizio umano. Il ritiro del destinatario (OTP dopo isp
 | 15  | `boost`                          | Mittente                                                     | stato con pacco fermo, nessun claim in corso (ADR-016)                                                                                                     | nessun movimento: aumenta l'impegno di spesa per le tratte future (ECONOMICS §5)                                                               |
 | 16  | `reroute`                        | Mittente                                                     | stato `AT_HUB` o `AWAITING_PICKUP`, nessuna tratta prenotata, nessun claim in corso                                                                        | nessun movimento; nuovo hub destinazione e/o destinatario, `r` ricalcolata, OTP invalidato e riemesso; il cambio del destinatario ruota anche il token di claim e rimanda la mail di tracking (ADR-016) |
 | 17  | `cancel`                         | Mittente                                                     | solo prima del primo `pickup_checkout`, nessun claim in corso                                                                                              | 💸 compensazione hub origine `f_o × P` pagata direttamente (la restituzione del pacco si sblocca al pagamento) · ↩ bond hub annullato          |
-| 18  | `recipient_claim`                | Destinatario (token di tracking)                             | stato `AT_HUB`, nessuna tratta pendente/prenotata né altro claim; token verificato, account + wallet connesso, claimant ≠ mittente e ≠ hub di ritiro       | ⏳ claim payment (mittente→destinatario: pool residuo + Π_v — ECONOMICS §5-ter) · ⏳ Π_h (mittente→hub, se > 0 dopo il floor); pacco fuori bacheca |
+| 18  | `recipient_claim`                | Destinatario (token di tracking)                             | stato `AT_HUB`, nessuna tratta pendente/prenotata, richiesta di deposito (ADR-029) né altro claim; token verificato, account + wallet connesso, claimant ≠ mittente e ≠ hub di ritiro | ⏳ claim payment (mittente→destinatario: pool residuo + Π_v — ECONOMICS §5-ter) · ⏳ Π_h (mittente→hub, se > 0 dopo il floor); pacco fuori bacheca |
 | 19  | `claim_funded`                   | Wallet-event                                                 | entro 60 min da `recipient_claim`; tutte le hold del claim create risultano _held_                                                                         | → `CLAIMED`: gli impegni entrano nel ledger ombra; la giacenza NON si sospende                                                                 |
 | 20  | `claim_funding_expired`          | Worker                                                       | finestra scaduta                                                                                                                                           | ↩ hold del claim annullate (mai diventate impegni); il pacco torna in bacheca                                                                  |
 | 21  | `recipient_claimed_pickup`       | Hub custode + destinatario (QR + token)                      | stato `CLAIMED`; token verificato dall'API (fatto dichiarato — precisazione 10); accettare il pacco è definitivo (ADR-012)                                 | 🔑 claim payment al destinatario · 🔑 Π_h all'hub · ↩ bond hub; spedizione chiusa, conferma email al mittente                                  |
@@ -470,6 +495,14 @@ forzate dagli invarianti qui sopra (non scelte libere di protocollo):
     `claim_funded`, come per le tratte; `claim_funded` NON disarma il timer di
     giacenza. Eventi di custodia: `claim_requested` e `recipient_claimed`
     (nuovi tipi), `funded`/`expired` riusati con `claimId` nel payload.
+13. **Richiesta di deposito nel contesto** (ADR-029): `ctx.pendingLegRequest`
+    è lo specchio senza-denaro di `ActiveLeg` (prezzo congelato, Π_h dal
+    payload di `deposit_requested` in catena, scadenza di risposta; nessun id
+    di pagamento — non esistono). La sua presenza respinge `leg_request`/
+    `recipient_claim`/`boost`/`reroute`/`cancel` (decisione C); mutuamente
+    esclusivo con `leg` e `pendingClaim` per costruzione. Le altre scelte
+    minori (attore di `leg_accepted`, riuso dei tipi in catena, riga
+    `rejections` sulla scadenza) sono nelle precisazioni dell'ADR-029.
 
 ### Precisazioni implementative (`apps/api` — executor, rotte, worker)
 
@@ -529,8 +562,9 @@ registrate:
    mittente, vettore della tratta e proprietari degli hub coinvolti devono
    essere utenti diversi — rifiuto esplicito (`self_payment_impossible`)
    prima di toccare i wallet; la bacheca esclude gli hub del vettore.
-9. **Vincolo di giacenza dell'hub d'arrivo**: `hub.max_storage_hours ≥`
-   giacenza scelta dal mittente, validato ad accept/leg_accept/reroute — un
+9. **Vincolo di giacenza dell'hub d'arrivo**: `hub.max_storage_days ≥`
+   giacenza scelta dal mittente (in giorni, ADR-026), validato ad
+   accept/leg_accept/reroute — un
    tetto più corto svincolerebbe il pacco prima di quanto il mittente ha
    accettato (mai restringere in silenzio la sua finestra).
 10. **Doppia conferma di check-out** come metadato sulla riga della tratta
@@ -603,6 +637,27 @@ In dev i wallet sono collegati con l'adapter `lnd_rest` (stessa interfaccia
 `WalletConnection` dell'adapter NWC di produzione). I test di integrazione della
 logica di denaro — hold pagate, preimage rivelate, annullamenti — girano contro
 questo ambiente in CI.
+
+Questo compose è **solo di sviluppo** e non va riusato in produzione: i nodi
+regtest esistono per simulare i wallet degli utenti, che in produzione sono
+loro (ADR-013).
+
+### 8-bis. Ambiente di produzione (ADR-024)
+
+Stack separato in `infra/production/`, deliberatamente più piccolo: **niente
+Lightning**. Quattro container su un host solo — `caddy` (unica origin
+pubblica, TLS automatico), `web`, `api` (con i worker in-process) e
+`postgres` — più un servizio one-shot `migrate` che l'API attende.
+
+| Aspetto              | Sviluppo (`infra/docker/`)          | Produzione (`infra/production/`)                       |
+| -------------------- | ----------------------------------- | ------------------------------------------------------ |
+| Lightning            | bitcoind regtest + LND×3 + Alby Hub | **nessuno**: i wallet sono degli utenti                |
+| Email                | Mailpit                             | relay SMTP reale (`SMTP_*`)                            |
+| Web → API (browser)  | rewrite `/api/*` di Next            | rotta `/api/*` di Caddy — stesso contratto (ADR-018)   |
+| Dati                 | seed demo                           | nessun dato demo, mai                                  |
+| Foto                 | `./data/photos`                     | volume `photos` (driver `fs`, ADR-020)                 |
+
+Procedura, variabili e ripristino in [DEPLOY.md](DEPLOY.md).
 
 ## 9. Cosa NON è nell'MVP
 

@@ -19,9 +19,9 @@ import {
   getAccountBalance,
   journalEntries,
 } from '@mercurio/db';
-import { LndRestWallet } from './adapters/lnd-rest';
-import { PreimageCoordinator } from './coordinator';
-import type { CoordinatorEvent } from './types';
+import { LndRestWallet } from './adapters/lnd-rest.js';
+import { PreimageCoordinator } from './coordinator.js';
+import type { CoordinatorEvent } from './types.js';
 import {
   NODES,
   localBalanceMsat,
@@ -29,8 +29,8 @@ import {
   preflightNode,
   waitFor,
   type NodeName,
-} from './testing/regtest';
-import { createEscrowWorld, type EscrowWorld } from './testing/world';
+} from './testing/regtest.js';
+import { createEscrowWorld, type EscrowWorld } from './testing/world.js';
 
 const AMOUNT = 100_000n; // msat = 100 sat
 

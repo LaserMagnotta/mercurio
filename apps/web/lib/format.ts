@@ -59,6 +59,14 @@ export function formatSatsPerEur(satsPerEur: string): string {
   return satsPerEur.replace(/\.?0+$/, '');
 }
 
+/** Hub fee percentage: numeric(5,2) columns read back with trailing zeros
+ *  ("10.00") — render locale-aware without them, e.g. "10" / "12,5" (it). */
+export function formatPercent(percent: string, locale: string): string {
+  const n = Number(percent);
+  if (!Number.isFinite(n)) return percent;
+  return new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(n);
+}
+
 /** Kilometers with one decimal, e.g. 12.34 → "12,3 km" (it). */
 export function formatKm(km: number, locale: string): string {
   return `${new Intl.NumberFormat(locale, {

@@ -1,13 +1,13 @@
 import { randomBytes } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { generatePreimage } from '../crypto';
-import { getPublicKeyHex } from '../nostr/event';
+import { generatePreimage } from '../crypto.js';
+import { getPublicKeyHex } from '../nostr/event.js';
 import {
   FakeNwcWalletService,
   InMemoryNwcTransport,
   InMemoryRelay,
-} from '../testing/nwc-fake-relay';
-import { FakeLightningNetwork } from './fake';
+} from '../testing/nwc-fake-relay.js';
+import { FakeLightningNetwork } from './fake.js';
 import {
   NwcProbeError,
   NwcRpcError,
@@ -16,7 +16,7 @@ import {
   parseNwcUri,
   probeNwcWallet,
   type NwcEncryption,
-} from './nwc';
+} from './nwc.js';
 
 function freshSecretHex(): string {
   return randomBytes(32).toString('hex');

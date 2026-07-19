@@ -1,13 +1,13 @@
-# Dependencies
+﻿# Dependencies
 node_modules/
 
 # Build outputs
 dist/
-.next/
+.next*/
 .turbo/
 *.tsbuildinfo
 
-# Environment & secrets — never commit secrets (CLAUDE.md rule)
+# Environment & secrets â€” never commit secrets (CLAUDE.md rule)
 .env
 .env.*
 !.env.example
@@ -25,3 +25,4 @@ Thumbs.db
 
 # Local assistant/tooling configuration
 .claude/
+infra/production/osrm-data/

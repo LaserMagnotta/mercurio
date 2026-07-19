@@ -19,10 +19,10 @@ import {
   shipmentTimers,
 } from '@mercurio/db';
 import { verifyCustodyChain } from '@mercurio/core';
-import { pumpWalletEvents } from './pump';
-import { dispatchEmailOutbox } from './outbox';
-import { reconcile } from './reconcile';
-import { orderCustodyChain } from './context';
+import { pumpWalletEvents } from './pump.js';
+import { dispatchEmailOutbox } from './outbox.js';
+import { reconcile } from './reconcile.js';
+import { orderCustodyChain } from './context.js';
 import {
   BOND_MSAT,
   createLifecycleWorld,
@@ -31,7 +31,7 @@ import {
   doubleConfirmCheckout,
   INITIAL_BALANCE_MSAT,
   sha,
-} from './test-world';
+} from './test-world.js';
 
 // ECONOMICS.md §5-bis, at 1600 sats/€ (all msat):
 const LEG1_GROSS = 2_880_000n; // 1.80 € — 40/100 of the 4.50 € work pool
@@ -215,10 +215,12 @@ describe('canonical shipment lifecycle (A→C→B with finalization bonus)', () 
       'created',
       'funded', // origin bond
       'hub_checkin',
-      'leg_accepted',
+      'deposit_requested', // ADR-029: every leg starts as a request…
+      'leg_accepted', // …auto-accepted here (auto_accept hubs)
       'funded', // leg 1
       'hub_checkout',
       'hub_checkin_intermediate',
+      'deposit_requested',
       'leg_accepted',
       'funded', // leg 2 (four holds)
       'hub_checkout',

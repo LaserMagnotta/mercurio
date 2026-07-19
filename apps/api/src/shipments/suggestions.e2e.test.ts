@@ -8,8 +8,8 @@
 // must use the rate that will govern the carrier's actual payout.
 
 import { describe, expect, it } from 'vitest';
-import { createLifecycleWorld, createShipmentAtHub, declareTrip, SATS_PER_EUR } from './test-world';
-import { eurFloatToMsat } from '../lib/eur-rate';
+import { createLifecycleWorld, createShipmentAtHub, declareTrip, SATS_PER_EUR } from './test-world.js';
+import { eurFloatToMsat } from '../lib/eur-rate.js';
 
 describe('suggestion endpoints (sats-first web UI contract)', () => {
   it('suggested-offer returns EUR, its exact msat equivalent and the snapshot', async () => {

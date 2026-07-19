@@ -3,6 +3,7 @@ import type { Db } from '@mercurio/db';
 import {
   carrierProfiles,
   consentEvents,
+  hubPhotos,
   hubs,
   legs,
   photos,
@@ -10,8 +11,8 @@ import {
   shipments,
   users,
 } from '@mercurio/db';
-import type { BlobStore } from './blob-store';
-import { revokeAllSessions } from './session';
+import type { BlobStore } from './blob-store.js';
+import { revokeAllSessions } from './session.js';
 
 export async function activateCarrierRole(db: Db, userId: string): Promise<void> {
   await db.insert(carrierProfiles).values({ userId }).onConflictDoNothing({
@@ -104,13 +105,28 @@ const TERMINAL_DB_STATUSES = ['delivered', 'cancelled', 'forfeited', 'lost'] as 
  * until the retention purge (they are the counterparties' documentary
  * protection of an ongoing custody). Blobs are unlinked after the commit,
  * and only when no surviving row still references the same bytes.
+ *
+ * Venue photos (ADR-028) die HERE: erasure is the one path that retires the
+ * hub for good (the row only flips inactive, so "they live and die with the
+ * hub row" never fires on its own), and no purge worker covers the venue
+ * store — without this deletion the gallery would outlive its owner forever.
  */
-export async function deleteAccount(db: Db, userId: string, blobStore: BlobStore): Promise<void> {
+export async function deleteAccount(
+  db: Db,
+  userId: string,
+  blobStore: BlobStore,
+  venueBlobStore: BlobStore,
+): Promise<void> {
   const purgeable = await db
     .select({ id: photos.id, storageKey: photos.storageKey })
     .from(photos)
     .innerJoin(shipments, eq(shipments.id, photos.shipmentId))
     .where(and(eq(photos.takenBy, userId), inArray(shipments.status, [...TERMINAL_DB_STATUSES])));
+  const venuePurgeable = await db
+    .select({ id: hubPhotos.id, storageKey: hubPhotos.storageKey })
+    .from(hubPhotos)
+    .innerJoin(hubs, eq(hubs.id, hubPhotos.hubId))
+    .where(eq(hubs.userId, userId));
 
   await db.transaction(async (tx) => {
     if (purgeable.length > 0) {
@@ -118,6 +134,14 @@ export async function deleteAccount(db: Db, userId: string, blobStore: BlobStore
         inArray(
           photos.id,
           purgeable.map((p) => p.id),
+        ),
+      );
+    }
+    if (venuePurgeable.length > 0) {
+      await tx.delete(hubPhotos).where(
+        inArray(
+          hubPhotos.id,
+          venuePurgeable.map((p) => p.id),
         ),
       );
     }
@@ -138,5 +162,15 @@ export async function deleteAccount(db: Db, userId: string, blobStore: BlobStore
     // A crash before this unlink leaves an orphan blob: the purge worker's
     // sweep removes it within a day (ADR-020 §5).
     if (!stillReferenced) await blobStore.delete(key);
+  }
+  for (const key of new Set(venuePurgeable.map((p) => p.storageKey))) {
+    const [stillReferenced] = await db
+      .select({ id: hubPhotos.id })
+      .from(hubPhotos)
+      .where(eq(hubPhotos.storageKey, key))
+      .limit(1);
+    // No sweep covers the venue store: a crash here can leave an orphan blob
+    // (storage waste, not a privacy leak — nothing references it anymore).
+    if (!stillReferenced) await venueBlobStore.delete(key);
   }
 }

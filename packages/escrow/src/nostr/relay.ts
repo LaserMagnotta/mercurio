@@ -10,7 +10,7 @@
 // adapter ever sees its decrypted content.
 
 import { randomBytes } from 'node:crypto';
-import { verifyEvent, type NostrEvent } from './event';
+import { verifyEvent, type NostrEvent } from './event.js';
 
 export interface NostrFilter {
   kinds?: number[];

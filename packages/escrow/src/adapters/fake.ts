@@ -8,7 +8,7 @@
 // fails here the same way it would fail on a real node.
 
 import { createHash, randomBytes } from 'node:crypto';
-import type { Hex, InvoiceState, WalletConnection } from '../types';
+import type { Hex, InvoiceState, WalletConnection } from '../types.js';
 
 interface FakeInvoice {
   payeeId: string;

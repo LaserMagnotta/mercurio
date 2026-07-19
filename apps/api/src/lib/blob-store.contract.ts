@@ -6,7 +6,7 @@
 // not just assumed.
 
 import { describe, expect, it } from 'vitest';
-import { sha256Hex, type BlobStore } from './blob-store';
+import { sha256Hex, type BlobStore } from './blob-store.js';
 
 export function runBlobStoreContractTests(
   name: string,

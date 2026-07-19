@@ -7,8 +7,8 @@ import { getLocale, getTranslations } from 'next-intl/server';
 import { apiFetch, ApiError } from '../../../lib/api/client';
 import type { UserReviews } from '../../../lib/api/endpoints';
 import { RatingStars } from '../../../components/RatingStars';
+import { Icon } from '../../../components/Icon';
 import { formatDateTime } from '../../../lib/format';
-import { REVIEW_ROLES } from '@mercurio/shared';
 
 const API_URL = process.env.API_URL ?? 'http://localhost:3001';
 
@@ -51,14 +51,11 @@ export default async function UserProfilePage({
 
       <section className="card stack-sm">
         <h2>{t('ratingsTitle')}</h2>
-        <ul className="list-plain">
-          {REVIEW_ROLES.map((role) => (
-            <li key={role} className="row-between">
-              <span>{tRoles(role)}</span>
-              <RatingStars rating={data.ratings[role]} />
-            </li>
-          ))}
-        </ul>
+        {/* Only the hub is reviewable (ADR-027): one aggregate. */}
+        <div className="row-between">
+          <span>{tRoles('hub')}</span>
+          <RatingStars rating={data.ratings.hub} />
+        </div>
         <p className="hint">{t('ratingsHint')}</p>
       </section>
 
@@ -72,9 +69,15 @@ export default async function UserProfilePage({
               <li key={review.id} className="stack-sm">
                 <div className="row-between">
                   <span className="rating" aria-label={t('starsAria', { stars: review.stars })}>
-                    <span aria-hidden="true">
-                      <span className="rating-star">{'★'.repeat(review.stars)}</span>
-                      {'☆'.repeat(5 - review.stars)}
+                    <span className="rating-row" aria-hidden="true">
+                      {[1, 2, 3, 4, 5].map((n) => (
+                        <span
+                          key={n}
+                          className={n <= review.stars ? 'rating-star' : 'rating-star-empty'}
+                        >
+                          <Icon name="star" filled={n <= review.stars} size={16} />
+                        </span>
+                      ))}
                     </span>
                   </span>
                   <span className="badge badge-neutral">{tRoles(review.role)}</span>

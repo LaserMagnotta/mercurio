@@ -52,6 +52,7 @@ import {
   legs,
   postJournalEntry,
   rateObservations,
+  rejections,
   shipmentClaims,
   shipments,
   shipmentTimers,
@@ -61,26 +62,31 @@ import { canonicalJson, custodyEventHash, transition, type DistanceProvider } fr
 import type { EscrowCoordinator, WalletResolver } from '@mercurio/escrow';
 import {
   LEG_FUNDING_WINDOW_MINUTES,
+  type GeoPoint,
   type ShipmentContext,
   type ShipmentEffect,
   type ShipmentEvent,
   type ShipmentState,
 } from '@mercurio/shared';
-import { generateToken, hashToken } from '../lib/tokens';
+import { generateToken, hashToken } from '../lib/tokens.js';
+import { hasPair, providerFromPairMap, type RoadRouting } from '../lib/road-routing.js';
 import {
   loadShipmentBundle,
   stateToDbStatus,
   type LegRow,
   type ShipmentBundle,
-} from './context';
-import { ConflictError, PaymentExecutionError, TransitionRejectedError } from './errors';
-import { settleInstantPayment } from './instant';
+} from './context.js';
+import { ConflictError, PaymentExecutionError, TransitionRejectedError } from './errors.js';
+import { settleInstantPayment } from './instant.js';
 
 export interface LifecycleDeps {
   db: Db;
   coordinator: EscrowCoordinator;
   resolveWallet: WalletResolver;
   distance: DistanceProvider;
+  /** ADR-031: cache-backed road distances for road-metric shipments.
+   *  Optional so bare test worlds keep the pure haversine behavior. */
+  roadRouting?: RoadRouting;
   now: () => Date;
   /** Polling knobs for sync-held / instant settlement (tests tighten them). */
   waitAttempts?: number;
@@ -102,7 +108,7 @@ export interface ExecuteArgs {
   /** Transport metadata merged into the custody payload (e.g. the boost
    *  idempotency key). Never PII, never protocol data. */
   custodyPayloadExtra?: Record<string, unknown>;
-  /** leg_accept only: row data the event does not carry. */
+  /** leg_request only: row data the event does not carry. */
   legMeta?: { tripId: string; progressKm: number };
   /** Timer row this event consumes (set by fireDueTimers). */
   consumeTimerId?: string;
@@ -324,6 +330,16 @@ export async function executeShipmentTransition(
                 .from(users)
                 .where(eq(users.id, ctx.senderId));
               to = sender?.email ?? null;
+            } else if (effect.to === 'carrier') {
+              // The requester of the deposit request being answered (ADR-029):
+              // the pre-transition context still carries the pending request.
+              const carrierId = ctx.pendingLegRequest?.carrierId ?? null;
+              if (!carrierId) break;
+              const [carrier] = await tx
+                .select({ email: users.email })
+                .from(users)
+                .where(eq(users.id, carrierId));
+              to = carrier?.email ?? null;
             } else {
               to = recipientEmail;
             }
@@ -602,10 +618,12 @@ async function projectRows(tx: Db, deps: LifecycleDeps, input: ProjectionInput):
       return;
     }
 
-    case 'leg_accept': {
+    case 'leg_request': {
+      // ADR-029: the leg row is born 'requested' with its price frozen and NO
+      // conditional payments — those are deposit_accept's to create.
       const shipment = bundle!.shipment;
       const meta = input.legMeta;
-      if (!meta) throw new Error('leg_accept requires legMeta (tripId, progressKm)');
+      if (!meta) throw new Error('leg_request requires legMeta (tripId, progressKm)');
       await tx.insert(legs).values({
         id: event.legId,
         shipmentId: shipment.id,
@@ -614,27 +632,77 @@ async function projectRows(tx: Db, deps: LifecycleDeps, input: ProjectionInput):
         tripId: meta.tripId,
         fromHubId: bundle!.currentStayRow!.hubId,
         toHubId: event.toHubId,
-        status: 'pending_funding',
-        acceptedAt: now,
-        fundingDeadlineAt: new Date(event.fundingDeadlineAt),
+        status: 'requested',
+        acceptedAt: now, // request instant; refreshed at deposit_accept
+        responseDeadlineAt: new Date(event.responseDeadlineAt),
         progressKm: meta.progressKm,
         grossMsat: event.pricing.grossMsat,
         depHubFeeMsat: event.pricing.depHubFeeMsat,
         arrHubFeeMsat: event.pricing.arrHubFeeMsat,
         netMsat: event.pricing.netMsat,
         finalizationBonusMsat: event.pricing.finalizationBonusMsat,
-        paymentConditionalPaymentId: mustCreated(`leg_payment|leg|${event.legId}`),
-        bondConditionalPaymentId: mustCreated(`custody_bond|leg|${event.legId}`),
       });
+      return;
+    }
+
+    case 'deposit_accept': {
+      // ADR-029: exactly the old leg_accept projection — the leg gains its
+      // funding window and payment ids, the arrival stay is reserved with its
+      // bond hold. acceptedAt moves to the ACCEPT instant (rate observations
+      // measure from the booking, not from the request).
+      const shipment = bundle!.shipment;
+      const requested = bundle!.requestedLegRow;
+      if (!requested) throw new Error('deposit_accept requires a requested leg row');
+      await tx
+        .update(legs)
+        .set({
+          status: 'pending_funding',
+          acceptedAt: now,
+          fundingDeadlineAt: new Date(event.fundingDeadlineAt),
+          paymentConditionalPaymentId: mustCreated(`leg_payment|leg|${requested.id}`),
+          bondConditionalPaymentId: mustCreated(`custody_bond|leg|${requested.id}`),
+        })
+        .where(eq(legs.id, requested.id));
       await tx.insert(hubStays).values({
         id: event.arrivalHubStayId,
         shipmentId: shipment.id,
-        hubId: event.toHubId,
+        hubId: requested.toHubId,
         seq: await nextStaySeq(tx, shipment.id),
         status: 'reserved',
         reservedAt: now,
         bondConditionalPaymentId: mustCreated(`custody_bond|hub_stay|${event.arrivalHubStayId}`),
       });
+      return;
+    }
+
+    case 'deposit_reject':
+    case 'deposit_request_expired': {
+      // The request dissolves at zero cost; the refusal (or the silence) is
+      // documented in a rejections row (stage deposit_request, ADR-029) —
+      // written here, not in the route, so the worker-driven expiry documents
+      // itself the same way.
+      const requested = bundle!.requestedLegRow;
+      if (!requested) throw new Error(`${event.type} requires a requested leg row`);
+      await tx.update(legs).set({ status: 'expired' }).where(eq(legs.id, requested.id));
+      await tx.insert(rejections).values({
+        shipmentId: bundle!.shipment.id,
+        legId: requested.id,
+        rejectedBy:
+          event.type === 'deposit_reject'
+            ? event.rejectedById
+            : bundle!.ctx.pendingLegRequest!.toHubUserId,
+        stage: 'deposit_request',
+        // A machine-readable token for the expiry; the web translates it.
+        reason: event.type === 'deposit_reject' ? event.reason : 'deposit_response_expired',
+      });
+      return;
+    }
+
+    case 'deposit_request_cancel': {
+      // The carrier withdrew: no rejections row (nobody refused anything).
+      const requested = bundle!.requestedLegRow;
+      if (!requested) throw new Error('deposit_request_cancel requires a requested leg row');
+      await tx.update(legs).set({ status: 'expired' }).where(eq(legs.id, requested.id));
       return;
     }
 
@@ -778,6 +846,14 @@ async function projectRows(tx: Db, deps: LifecycleDeps, input: ProjectionInput):
           .set({ status: 'expired', resolvedAt: now })
           .where(eq(shipmentClaims.id, bundle!.pendingClaimRow.id));
       }
+      if (bundle!.requestedLegRow) {
+        // A deposit request dies with the storage too (ADR-029): the request
+        // never held money, so closing the row is the whole cleanup.
+        await tx
+          .update(legs)
+          .set({ status: 'expired' })
+          .where(eq(legs.id, bundle!.requestedLegRow.id));
+      }
       return;
     }
 
@@ -827,11 +903,30 @@ async function recordRateObservation(
   const fromHub = bundle.hubById.get(leg.fromHubId);
   const toHub = bundle.hubById.get(leg.toHubId);
   if (!trip || !fromHub || !toHub) return; // observation is best-effort, money is not
-  const d = deps.distance.distanceKm.bind(deps.distance);
+  let d = deps.distance.distanceKm.bind(deps.distance);
   const origin = { lat: trip.originLat, lng: trip.originLng };
   const dest = { lat: trip.destLat, lng: trip.destLng };
   const s = { lat: fromHub.lat, lng: fromHub.lng };
   const h = { lat: toHub.lat, lng: toHub.lng };
+  // ADR-031: record the detour in the metric the carrier actually saw on the
+  // board. Cache-only (a money transaction never blocks on HTTP) and
+  // best-effort: with any pair cold, the haversine estimate still feeds the
+  // suggester rather than losing the observation.
+  if (bundle.shipment.distanceMetric === 'road' && deps.roadRouting) {
+    const map = await deps.roadRouting.resolveMatrix(tx, [origin, s, h], [s, h, dest], {
+      cacheOnly: true,
+    });
+    const pairs: [GeoPoint, GeoPoint][] = [
+      [origin, s],
+      [s, h],
+      [h, dest],
+      [origin, dest],
+    ];
+    if (pairs.every(([a, b]) => hasPair(map, a, b))) {
+      const provider = providerFromPairMap(map);
+      d = provider.distanceKm.bind(provider);
+    }
+  }
   const detourKm = Math.max(0, d(origin, s) + d(s, h) + d(h, dest) - d(origin, dest));
   await tx.insert(rateObservations).values({
     legId: leg.id,

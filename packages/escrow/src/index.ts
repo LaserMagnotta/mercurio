@@ -9,10 +9,10 @@
 //     returns funds to the payer. The platform can never redirect money to
 //     itself — that invariant is enforced structurally and tested.
 
-export * from './types';
-export * from './crypto';
-export * from './coordinator';
-export * from './adapters/fake';
-export * from './adapters/lnd-rest';
-export * from './adapters/nwc';
-export * from './testing/nwc-fake-relay';
+export * from './types.js';
+export * from './crypto.js';
+export * from './coordinator.js';
+export * from './adapters/fake.js';
+export * from './adapters/lnd-rest.js';
+export * from './adapters/nwc.js';
+export * from './testing/nwc-fake-relay.js';

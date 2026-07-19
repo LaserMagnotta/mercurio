@@ -22,6 +22,11 @@ export const shipmentStatusEnum = pgEnum('shipment_status', [
   'claimed',
 ]);
 
+// 'requested' (appended: enum values only ever ADD) is the ADR-029 money-free
+// phase: the carrier asked a MANUAL arrival hub to host the parcel and the
+// hub has not answered yet. No conditional payment exists for a requested
+// leg; deposit_accept moves it to pending_funding (with the holds), any
+// negative outcome moves it to 'expired' (reused — zero money either way).
 export const legStatusEnum = pgEnum('leg_status', [
   'pending_funding',
   'booked',
@@ -30,6 +35,7 @@ export const legStatusEnum = pgEnum('leg_status', [
   'returned',
   'expired',
   'failed',
+  'requested',
 ]);
 
 export const hubStayStatusEnum = pgEnum('hub_stay_status', [
@@ -57,21 +63,39 @@ export const custodyEventTypeEnum = pgEnum('custody_event_type', [
   // ADR-016 (appended: enum values only ever ADD).
   'claim_requested',
   'recipient_claimed',
+  // ADR-029 (appended): only the deposit REQUEST gets a new type — the accept
+  // reuses 'leg_accepted', the reject 'handoff_rejected', expiry/cancel
+  // 'expired' with a payload reason.
+  'deposit_requested',
 ]);
 
+// 'hub_venue' (appended: enum values only ever ADD) is the hub's own storefront
+// photo — tied to the hub, not a shipment, and publicly visible. It lives in a
+// separate `hub_photos` table with its own blob store, so the shipment photo
+// purge worker never touches it (ADR-028); the kind is shared here only to keep
+// one photo vocabulary.
 export const photoKindEnum = pgEnum('photo_kind', [
   'content',
   'sealed',
   'checkin',
   'checkout',
   'evidence',
+  'hub_venue',
 ]);
 
+// 'deposit_request' (appended, ADR-029): a manual arrival hub refusing — or
+// silently letting expire — a deposit request. Documentation, never money.
 export const rejectionStageEnum = pgEnum('rejection_stage', [
   'hub_checkin',
   'pickup_checkout',
   'recipient_pickup',
+  'deposit_request',
 ]);
+
+// ADR-031: which metric froze a shipment's money distances. Chosen at
+// creation ('road' when OSRM resolves the route, 'haversine' otherwise) and
+// never changed afterwards — the pool math must never mix metrics.
+export const distanceMetricEnum = pgEnum('distance_metric', ['haversine', 'road']);
 
 // Wallet connection (ESCROW.md sec.5): the user's own wallet, never the platform's.
 export const walletKindEnum = pgEnum('wallet_kind', ['nwc', 'lnd_rest', 'fake']);
@@ -131,6 +155,8 @@ export const shipmentTimerKindEnum = pgEnum('shipment_timer_kind', [
   'transit',
   'storage',
   'claim_funding',
+  // ADR-029 (appended): the manual arrival hub's 30-minute answer window.
+  'deposit_response',
 ]);
 
 // On-the-spot instant payments (hub fees, cancellation compensation —

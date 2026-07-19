@@ -1,6 +1,6 @@
 import fp from 'fastify-plugin';
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import { getSessionUserId, SESSION_COOKIE } from '../lib/session';
+import { getSessionUserId, SESSION_COOKIE } from '../lib/session.js';
 
 declare module 'fastify' {
   interface FastifyRequest {

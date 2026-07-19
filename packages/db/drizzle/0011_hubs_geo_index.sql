@@ -1,0 +1,1 @@
+CREATE INDEX "hubs_lat_lng_idx" ON "hubs" USING btree ("lat","lng");

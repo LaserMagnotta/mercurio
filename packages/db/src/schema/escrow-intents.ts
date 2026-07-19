@@ -1,6 +1,6 @@
 import { integer, pgTable, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
-import { escrowIntentVerbEnum } from './enums';
-import { conditionalPayments } from './conditional-payments';
+import { escrowIntentVerbEnum } from './enums.js';
+import { conditionalPayments } from './conditional-payments.js';
 
 // Pending release/refund verbs queued by the effect executor (ADR-013).
 //

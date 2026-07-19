@@ -12,6 +12,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import {
   acceptLeg,
+  depositCancel,
   getBoard,
   type BoardCard,
   type LegPricing,
@@ -21,6 +22,8 @@ import { useApiErrorMessage } from '../../../../lib/api-error-message';
 import { useSession } from '../../../../lib/session';
 import { formatDateTime, formatKm } from '../../../../lib/format';
 import { Amount } from '../../../../components/Amount';
+import { Codename } from '../../../../components/Codename';
+import { OpeningHours } from '../../../../components/OpeningHours';
 import { RatingStars } from '../../../../components/RatingStars';
 
 type DropOption = BoardCard['bestDropHub'];
@@ -34,7 +37,12 @@ interface Accepted {
   card: BoardCard;
   option: DropOption;
   pricing: LegPricing;
-  fundingDeadlineAt: string;
+  /** 'pending_funding': booked instantly (auto-accept hub). 'requested': a
+   *  deposit request awaiting the manual hub's answer (ADR-029). */
+  status: 'pending_funding' | 'requested';
+  legId: string;
+  fundingDeadlineAt: string | null;
+  responseDeadlineAt: string;
 }
 
 export function BoardClient({ tripId }: { tripId: string }) {
@@ -89,9 +97,29 @@ export function BoardClient({ tripId }: { tripId: string }) {
         card: target.card,
         option: target.option,
         pricing: res.pricing,
+        status: res.status,
+        legId: res.legId,
         fundingDeadlineAt: res.fundingDeadlineAt,
+        responseDeadlineAt: res.responseDeadlineAt,
       });
       setTarget(null);
+      await load();
+    } catch (err) {
+      setActionError(err instanceof ApiError ? errorMessage(err) : tCommon('error'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // ADR-029: withdraw a pending deposit request to re-target another hub —
+  // zero funds were committed, the shipment simply returns to the board.
+  const cancelRequest = async () => {
+    if (!accepted || accepted.status !== 'requested') return;
+    setBusy(true);
+    try {
+      await depositCancel(accepted.card.shipmentId, accepted.legId);
+      setAccepted(null);
+      setActionError(null);
       await load();
     } catch (err) {
       setActionError(err instanceof ApiError ? errorMessage(err) : tCommon('error'));
@@ -107,6 +135,9 @@ export function BoardClient({ tripId }: { tripId: string }) {
           <strong>{t('toProposed', { hub: option.hubName })}</strong>{' '}
           {option.hubId === card.destHubId && (
             <span className="badge badge-info">{t('destinationFinal')}</span>
+          )}{' '}
+          {option.requiresConfirmation && (
+            <span className="badge badge-neutral">{t('requiresConfirmation')}</span>
           )}
         </span>
         <RatingStars rating={option.hubRating} />
@@ -127,6 +158,7 @@ export function BoardClient({ tripId }: { tripId: string }) {
         <dt>{t('detour')}</dt>
         <dd>{formatKm(option.detourKm, locale)}</dd>
       </dl>
+      <OpeningHours hours={option.openingHours} compact />
       <div className="row">
         <button
           type="button"
@@ -154,7 +186,7 @@ export function BoardClient({ tripId }: { tripId: string }) {
       className={`card stack-sm${card.isMatch ? ' card-highlight' : ''}`}
     >
       <div className="row-between">
-        <strong>{t('from', { hub: card.currentHubName })}</strong>
+        <Codename value={card.codename} />
         <span className="muted small">
           {t('remainingOfTotal', {
             remaining: formatKm(card.remainingKm, locale),
@@ -162,6 +194,7 @@ export function BoardClient({ tripId }: { tripId: string }) {
           })}
         </span>
       </div>
+      <strong>{t('from', { hub: card.currentHubName })}</strong>
       <p className="row small">
         <span className="muted">
           {t('parcel', {
@@ -174,8 +207,7 @@ export function BoardClient({ tripId }: { tripId: string }) {
         {card.undeclared && <span className="badge badge-warning">{t('undeclared')}</span>}
       </p>
       <p className="row small">
-        <span className="muted">{t('senderRating')}:</span>
-        <RatingStars rating={card.senderRating} />
+        {/* Only hubs are reviewable now (ADR-027): no sender rating. */}
         <span className="muted">{t('hubRating')}:</span>
         <RatingStars rating={card.currentHubRating} />
       </p>
@@ -224,11 +256,22 @@ export function BoardClient({ tripId }: { tripId: string }) {
 
       {accepted && (
         <div className="alert alert-success stack-sm" role="status">
-          <strong>{t('acceptedTitle')}</strong>
+          <div className="row-between">
+            <strong>
+              {accepted.status === 'requested' ? t('requestedTitle') : t('acceptedTitle')}
+            </strong>
+            <Codename value={accepted.card.codename} />
+          </div>
           <p className="small">
-            {t('acceptedBody', {
-              time: formatDateTime(accepted.fundingDeadlineAt, locale),
-            })}
+            {accepted.status === 'requested'
+              ? // ADR-029: the manual hub has 30 minutes to answer; nothing
+                // is committed until it says yes.
+                t('requestedBody', {
+                  time: formatDateTime(accepted.responseDeadlineAt, locale),
+                })
+              : t('acceptedBody', {
+                  time: formatDateTime(accepted.fundingDeadlineAt!, locale),
+                })}
           </p>
           <p>
             {t('acceptedNet')}:{' '}
@@ -248,6 +291,11 @@ export function BoardClient({ tripId }: { tripId: string }) {
             </p>
           )}
           <div className="row">
+            {accepted.status === 'requested' && (
+              <button type="button" className="btn btn-sm" disabled={busy} onClick={() => void cancelRequest()}>
+                {busy ? t('cancellingRequest') : t('cancelRequest')}
+              </button>
+            )}
             <Link className="btn btn-sm" href={`/shipments/${accepted.card.shipmentId}`}>
               {t('viewShipment')}
             </Link>
@@ -267,6 +315,9 @@ export function BoardClient({ tripId }: { tripId: string }) {
               to: target.option.hubName,
             })}
           </p>
+          {target.option.requiresConfirmation && (
+            <p className="small muted">{t('requestNote')}</p>
+          )}
           <dl className="kv">
             <dt>{t('net')}</dt>
             <dd>

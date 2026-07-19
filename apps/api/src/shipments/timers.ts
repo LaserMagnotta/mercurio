@@ -8,8 +8,8 @@
 import { asc, eq, lte } from 'drizzle-orm';
 import { shipmentTimers } from '@mercurio/db';
 import type { ShipmentEvent } from '@mercurio/shared';
-import { executeShipmentTransition, type LifecycleDeps } from './executor';
-import { ConflictError, TransitionRejectedError } from './errors';
+import { executeShipmentTransition, type LifecycleDeps } from './executor.js';
+import { ConflictError, TransitionRejectedError } from './errors.js';
 
 type TimerRow = typeof shipmentTimers.$inferSelect;
 
@@ -25,6 +25,10 @@ function timerEvent(timer: TimerRow, nowIso: string): ShipmentEvent {
       return { type: 'storage_expiry', now: nowIso };
     case 'claim_funding':
       return { type: 'claim_funding_expired', now: nowIso };
+    case 'deposit_response':
+      // ADR-029: the manual arrival hub never answered — the request
+      // dissolves at zero cost and the shipment returns to the board.
+      return { type: 'deposit_request_expired', now: nowIso };
   }
 }
 

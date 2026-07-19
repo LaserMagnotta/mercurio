@@ -16,6 +16,21 @@ export interface DistanceProvider {
   distanceKm(a: GeoPoint, b: GeoPoint): number;
 }
 
+/**
+ * A provider that cannot answer a specific pair throws this — and nothing
+ * else — to say so (ADR-031: a road router can hold no route for one
+ * combination while answering every other). The matching engine treats it
+ * as "this drop hub is not available this refresh" and skips the hub, the
+ * same self-disqualification as a fee above the cap; anywhere outside that
+ * per-hub loop an unresolved pair is still a caller bug and propagates.
+ */
+export class UnresolvedDistanceError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'UnresolvedDistanceError';
+  }
+}
+
 /** IUGG mean Earth radius, km. */
 const EARTH_RADIUS_KM = 6371.0088;
 

@@ -50,6 +50,48 @@
       "when": 1784014885838,
       "tag": "0006_mysterious_hulk",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1784301033927,
+      "tag": "0007_codename",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1784304515847,
+      "tag": "0008_storage_in_days",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1784364177705,
+      "tag": "0009_venue_photos_and_contact",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1784369621410,
+      "tag": "0010_deposit_request",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1784372652842,
+      "tag": "0011_hubs_geo_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1784385003538,
+      "tag": "0012_road_routing",
+      "breakpoints": true
     }
   ]
 }

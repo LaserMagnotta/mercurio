@@ -9,13 +9,12 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import type { ZodIssue } from 'zod';
-import { createShipmentBody, MAX_STORAGE_HOURS } from '@mercurio/shared';
+import { createShipmentBody, MAX_STORAGE_DAYS } from '@mercurio/shared';
 import {
   createShipment,
-  getHubs,
   getSuggestedOffer,
   getWallet,
   uploadShipmentPhotos,
@@ -26,6 +25,7 @@ import { useApiErrorMessage } from '../../lib/api-error-message';
 import { useSession } from '../../lib/session';
 import { formatEurIndicative, formatKm, formatSats, satsToMsat } from '../../lib/format';
 import { HubCard } from '../../components/HubCard';
+import { HubPicker } from '../../components/HubPicker';
 import { PhotoHashInput } from '../../components/PhotoHashInput';
 import type { CapturedPhoto } from '../../lib/photo-capture';
 
@@ -41,7 +41,7 @@ type FieldKey =
   | 'weightG'
   | 'offerMsat'
   | 'custodyBondMsat'
-  | 'maxStorageHours';
+  | 'maxStorageDays';
 
 /** Zod issue → per-field message key under send.validation. */
 function issueMessageKey(issue: ZodIssue): string {
@@ -69,11 +69,13 @@ export default function SendPage() {
   const { user, loading } = useSession();
   const errorMessage = useApiErrorMessage();
 
-  const [hubs, setHubs] = useState<Hub[]>([]);
   const [walletConnected, setWalletConnected] = useState<boolean | null>(null);
 
-  const [originHubId, setOriginHubId] = useState('');
-  const [destHubId, setDestHubId] = useState('');
+  // Picked as full Hub objects (HubPicker searches the paginated contract,
+  // ADR-030): the card below each picker and the storage cap need more than
+  // the id.
+  const [originHub, setOriginHub] = useState<Hub | null>(null);
+  const [destHub, setDestHub] = useState<Hub | null>(null);
   const [recipientEmail, setRecipientEmail] = useState('');
   const [lengthCm, setLengthCm] = useState('');
   const [widthCm, setWidthCm] = useState('');
@@ -81,7 +83,7 @@ export default function SendPage() {
   const [weightG, setWeightG] = useState('');
   const [declaredContent, setDeclaredContent] = useState('');
   const [undeclared, setUndeclared] = useState(false);
-  const [maxStorageHours, setMaxStorageHours] = useState('48');
+  const [maxStorageDays, setMaxStorageDays] = useState('2');
   const [offerSats, setOfferSats] = useState('');
   const [bondSats, setBondSats] = useState('');
   // Optional creation photos (ADR-022), hashed on device (ADR-020 §2): the
@@ -96,17 +98,14 @@ export default function SendPage() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    getHubs()
-      .then((res) => setHubs(res.hubs))
-      .catch(() => setHubs([]));
-  }, []);
-
-  useEffect(() => {
     if (!user) return;
     getWallet()
       .then((res) => setWalletConnected(res.wallet !== null))
       .catch(() => setWalletConnected(false));
   }, [user]);
+
+  const originHubId = originHub?.id ?? '';
+  const destHubId = destHub?.id ?? '';
 
   // Suggested offer (MATCHING.md §5) as soon as the route is known.
   useEffect(() => {
@@ -127,12 +126,10 @@ export default function SendPage() {
     };
   }, [originHubId, destHubId]);
 
-  const originHub = useMemo(() => hubs.find((h) => h.id === originHubId), [hubs, originHubId]);
-  const destHub = useMemo(() => hubs.find((h) => h.id === destHubId), [hubs, destHubId]);
   const storageCap = Math.min(
-    MAX_STORAGE_HOURS,
-    originHub?.maxStorageHours ?? MAX_STORAGE_HOURS,
-    destHub?.maxStorageHours ?? MAX_STORAGE_HOURS,
+    MAX_STORAGE_DAYS,
+    originHub?.maxStorageDays ?? MAX_STORAGE_DAYS,
+    destHub?.maxStorageDays ?? MAX_STORAGE_DAYS,
   );
   /** Current indicative rate for the sats inputs (from the suggestion). */
   const inputRate = suggestion?.eurRate.satsPerEur ?? null;
@@ -188,7 +185,7 @@ export default function SendPage() {
       undeclared,
       offerMsat: satsToMsat(BigInt(offerSats)),
       custodyBondMsat: satsToMsat(BigInt(bondSats)),
-      maxStorageHours: Number(maxStorageHours),
+      maxStorageDays: Number(maxStorageDays),
       ...(contentPhotos.length > 0 && {
         contentPhotoSha256: contentPhotos.map((p) => p.sha256),
       }),
@@ -243,44 +240,29 @@ export default function SendPage() {
       )}
 
       <form className="card" onSubmit={submit} noValidate>
-        <div className="field">
-          <label htmlFor="origin">{t('originLabel')}</label>
-          <select
-            id="origin"
-            value={originHubId}
-            onChange={(e) => setOriginHubId(e.target.value)}
-            aria-invalid={fieldErrors.originHubId !== undefined}
-          >
-            <option value="">{t('selectHub')}</option>
-            {hubs.map((h) => (
-              <option key={h.id} value={h.id}>
-                {h.name} — {h.address}
-              </option>
-            ))}
-          </select>
-          {fieldError('originHubId')}
-        </div>
+        <HubPicker
+          id="origin"
+          label={t('originLabel')}
+          value={originHub}
+          onChange={setOriginHub}
+          excludeIds={[destHubId || undefined]}
+          invalid={fieldErrors.originHubId !== undefined}
+        />
+        {fieldError('originHubId')}
         {originHub && <HubCard hub={originHub} />}
 
-        <div className="field">
-          <label htmlFor="dest">{t('destLabel')}</label>
-          <select
-            id="dest"
-            value={destHubId}
-            onChange={(e) => setDestHubId(e.target.value)}
-            aria-invalid={fieldErrors.destHubId !== undefined}
-          >
-            <option value="">{t('selectHub')}</option>
-            {hubs
-              .filter((h) => h.id !== originHubId)
-              .map((h) => (
-                <option key={h.id} value={h.id}>
-                  {h.name} — {h.address}
-                </option>
-              ))}
-          </select>
-          {fieldError('destHubId')}
-        </div>
+        {/* Destination results sort by distance from the picked origin: the
+            useful order for a route that starts there. */}
+        <HubPicker
+          id="dest"
+          label={t('destLabel')}
+          value={destHub}
+          onChange={setDestHub}
+          near={originHub ? { lat: originHub.lat, lng: originHub.lng } : undefined}
+          excludeIds={[originHubId || undefined]}
+          invalid={fieldErrors.destHubId !== undefined}
+        />
+        {fieldError('destHubId')}
         {destHub && <HubCard hub={destHub} />}
 
         <div className="field">
@@ -407,12 +389,12 @@ export default function SendPage() {
             min="1"
             max={storageCap}
             inputMode="numeric"
-            value={maxStorageHours}
-            onChange={(e) => setMaxStorageHours(e.target.value)}
-            aria-invalid={fieldErrors.maxStorageHours !== undefined}
+            value={maxStorageDays}
+            onChange={(e) => setMaxStorageDays(e.target.value)}
+            aria-invalid={fieldErrors.maxStorageDays !== undefined}
           />
           <span className="hint">{t('storageHint', { max: storageCap })}</span>
-          {fieldError('maxStorageHours')}
+          {fieldError('maxStorageDays')}
         </div>
 
         <div className="field">

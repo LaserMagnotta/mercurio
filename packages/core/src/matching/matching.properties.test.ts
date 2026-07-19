@@ -12,9 +12,9 @@
 import { describe, expect, it } from 'vitest';
 import type { CarrierTrip, GeoPoint, MatchingHub, ShipmentAtHub } from '@mercurio/shared';
 import { MAX_ALTERNATIVE_DROP_HUBS, MIN_LEG_PROGRESS_KM } from '@mercurio/shared';
-import { priceLeg } from '../economics/economics';
-import type { DistanceProvider } from './distance';
-import { rankBoard } from './matching';
+import { priceLeg } from '../economics/economics.js';
+import type { DistanceProvider } from './distance.js';
+import { rankBoard } from './matching.js';
 
 /** mulberry32 — tiny deterministic PRNG; quality is irrelevant, determinism is not. */
 function mulberry32(seed: number): () => number {

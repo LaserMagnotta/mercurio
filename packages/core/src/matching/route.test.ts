@@ -12,8 +12,8 @@
 import { describe, expect, it } from 'vitest';
 import type { GeoPoint, RouteStop } from '@mercurio/shared';
 import { MAX_ROUTE_WAYPOINTS } from '@mercurio/shared';
-import type { DistanceProvider } from './distance';
-import { orderRouteWaypoints } from './route';
+import type { DistanceProvider } from './distance.js';
+import { orderRouteWaypoints } from './route.js';
 
 /** Plane geometry: coordinates in km on lng (x) / lat (y). */
 const euclidean: DistanceProvider = {

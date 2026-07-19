@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { createTestDb } from '@mercurio/db/test-helpers';
 import { hubs, users } from '@mercurio/db';
-import { activateCarrierRole, deleteAccount, exportUserData, getRoles } from './account';
-import { createMemoryBlobStore } from './blob-store';
-import { createSession, getSessionUserId } from './session';
+import { activateCarrierRole, deleteAccount, exportUserData, getRoles } from './account.js';
+import { createMemoryBlobStore } from './blob-store.js';
+import { createSession, getSessionUserId } from './session.js';
 
 async function makeUser(db: Awaited<ReturnType<typeof createTestDb>>, email: string) {
   const [user] = await db.insert(users).values({ email }).returning();
@@ -40,14 +40,14 @@ describe('GDPR: data export', () => {
       address: 'Somewhere 1',
       lat: 0,
       lng: 0,
-      openingHours: {},
+      openingHours: [],
       maxDimCmL: 10,
       maxDimCmW: 10,
       maxDimCmH: 10,
       maxWeightG: 1000,
       acceptsUndeclared: false,
       feePercent: '10.00',
-      maxStorageHours: 24,
+      maxStorageDays: 1,
       autoAccept: true,
       active: true,
     });
@@ -66,7 +66,7 @@ describe('GDPR: account deletion (anonymization)', () => {
     const user = await makeUser(db, 'deleteme@example.com');
     const { token } = await createSession(db, user.id);
 
-    await deleteAccount(db, user.id, createMemoryBlobStore());
+    await deleteAccount(db, user.id, createMemoryBlobStore(), createMemoryBlobStore());
 
     const [row] = await db.select().from(users).where(eq(users.id, user.id));
     expect(row?.email).not.toBe('deleteme@example.com');
@@ -86,21 +86,21 @@ describe('GDPR: account deletion (anonymization)', () => {
         address: 'Somewhere 2',
         lat: 0,
         lng: 0,
-        openingHours: {},
+        openingHours: [],
         maxDimCmL: 10,
         maxDimCmW: 10,
         maxDimCmH: 10,
         maxWeightG: 1000,
         acceptsUndeclared: false,
         feePercent: '10.00',
-        maxStorageHours: 24,
+        maxStorageDays: 1,
         autoAccept: true,
         active: true,
       })
       .returning();
     if (!hub) throw new Error('setup failed');
 
-    await deleteAccount(db, user.id, createMemoryBlobStore());
+    await deleteAccount(db, user.id, createMemoryBlobStore(), createMemoryBlobStore());
 
     const [row] = await db.select().from(hubs).where(eq(hubs.id, hub.id));
     expect(row).toBeDefined(); // still exists (referential integrity for past shipments)

@@ -25,10 +25,11 @@ import {
   PreimageCoordinator,
   type FakeWalletConnection,
 } from '@mercurio/escrow';
-import { buildApp, type App } from '../app';
-import { createMemoryBlobStore } from '../lib/blob-store';
-import { createSession } from '../lib/session';
-import { sealSecret } from '../lib/secret-box';
+import { buildApp, type App } from '../app.js';
+import { createMemoryBlobStore } from '../lib/blob-store.js';
+import type { RoadRouting } from '../lib/road-routing.js';
+import { createSession } from '../lib/session.js';
+import { sealSecret } from '../lib/secret-box.js';
 
 export const SATS_PER_EUR = '1600';
 export const INITIAL_BALANCE_MSAT = 200_000_000n;
@@ -85,19 +86,32 @@ const flatDistance: DistanceProvider = {
 };
 
 const HUB_DEFAULTS = {
-  openingHours: { 'mon-sat': '08:00-20:00' },
+  openingHours: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat'].map((day) => ({
+    day,
+    opens: '08:00',
+    closes: '20:00',
+  })),
   maxDimCmL: 50,
   maxDimCmW: 50,
   maxDimCmH: 50,
   maxWeightG: 15_000,
   acceptsUndeclared: true,
   feePercent: '10.00',
-  maxStorageHours: 168,
+  maxStorageDays: 7,
   autoAccept: true,
   active: true,
 };
 
-export async function createLifecycleWorld(): Promise<LifecycleWorld> {
+export interface LifecycleWorldOptions {
+  /** ADR-031: inject a RoadRouting built on a fake OSRM client. Omitted =
+   *  road routing disabled, every shipment is born 'haversine' (the
+   *  pre-ADR-031 behavior every other suite relies on). */
+  roadRouting?: RoadRouting;
+}
+
+export async function createLifecycleWorld(
+  options: LifecycleWorldOptions = {},
+): Promise<LifecycleWorld> {
   const db = await createTestDb();
   const clock: TestClock = {
     nowMs: Date.UTC(2026, 6, 13, 8, 0, 0),
@@ -162,6 +176,7 @@ export async function createLifecycleWorld(): Promise<LifecycleWorld> {
     coordinator,
     walletResolver: resolveWallet,
     distanceProvider: flatDistance,
+    ...(options.roadRouting && { roadRouting: options.roadRouting }),
     eurRate: {
       snapshot: async () => ({ satsPerEur: SATS_PER_EUR, source: 'test-fixed', at: now() }),
     },
@@ -170,8 +185,10 @@ export async function createLifecycleWorld(): Promise<LifecycleWorld> {
     fakeNetwork: network,
     waitAttempts: 5,
     waitDelayMs: 1,
-    // Photo blobs stay in memory (ADR-020): tests never touch the disk.
+    // Photo blobs stay in memory (ADR-020, ADR-028): tests never touch the
+    // disk, and the venue store is its OWN memory store (never shared).
     blobStore: createMemoryBlobStore(now),
+    venueBlobStore: createMemoryBlobStore(now),
   });
   await app.ready();
 
@@ -259,7 +276,7 @@ export const CANONICAL_CREATE_BODY = {
   undeclared: false,
   offerMsat: OFFER_MSAT.toString(),
   custodyBondMsat: BOND_MSAT.toString(),
-  maxStorageHours: 72,
+  maxStorageDays: 3,
 };
 
 /** Create the canonical shipment (auto-accepted by hub A) and check it in:

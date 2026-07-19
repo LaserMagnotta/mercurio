@@ -17,12 +17,20 @@ import {
   walletConnections,
 } from '@mercurio/db';
 import {
+  compareCandidates,
   orderRouteWaypoints,
   rankBoard,
   suggestCarrierRateEurPerKm,
   suggestSenderOfferEur,
 } from '@mercurio/core';
-import type { GeoPoint, MatchingHub, RouteStop, ShipmentAtHub } from '@mercurio/shared';
+import type {
+  GeoPoint,
+  MatchCandidate,
+  MatchingHub,
+  OpeningHoursEntry,
+  RouteStop,
+  ShipmentAtHub,
+} from '@mercurio/shared';
 import {
   createTripBody,
   hubFeePercentToBp,
@@ -31,12 +39,19 @@ import {
   tripRouteQuery,
 } from '@mercurio/shared';
 import { z } from 'zod';
-import type { App } from '../app';
-import { requireAuth } from '../plugins/auth-guard';
-import { loadShipmentBundle, remainingWorkPool } from '../shipments/context';
-import { msat } from '../lib/serialize';
-import { eurFloatToMsat, msatPerEur } from '../lib/eur-rate';
-import { loadRatings, ratingOf, type RatingSubject } from '../lib/reviews';
+import type { App } from '../app.js';
+import { requireAuth } from '../plugins/auth-guard.js';
+import { loadShipmentBundle, remainingWorkPool } from '../shipments/context.js';
+import {
+  hasPair,
+  pointKeyOf,
+  providerFromPairMap,
+  type PairMap,
+} from '../lib/road-routing.js';
+import { msat } from '../lib/serialize.js';
+import { eurFloatToMsat, msatPerEur, type EurRateSnapshot } from '../lib/eur-rate.js';
+import { loadRatings, ratingOf, type RatingSubject } from '../lib/reviews.js';
+import { replyLifecycleError } from './lifecycle-errors.js';
 
 const tripParams = z.object({ id: z.string().uuid() });
 
@@ -94,7 +109,7 @@ export function registerTripRoutes(app: App) {
    *  actually accepted AND completed, each at its own frozen EUR rate. The
    *  msat equivalent is computed HERE (current snapshot, floor-to-sat): the
    *  client prefills a sats-first input and never converts money itself. */
-  app.get('/trips/suggested-rate', { preHandler: requireAuth }, async () => {
+  app.get('/trips/suggested-rate', { preHandler: requireAuth }, async (_request, reply) => {
     const rows = await app.db
       .select({ obs: rateObservations, eurRate: shipments.eurRateSnapshot })
       .from(rateObservations)
@@ -109,7 +124,15 @@ export function registerTripRoutes(app: App) {
       })),
       app.lifecycle.now(),
     );
-    const rate = await app.eurRate.snapshot();
+    // `suggest`: this only prefills an input the carrier can overwrite, so any
+    // cached rate does (ADR-025 §5). It fails only if there has never been one.
+    let rate: EurRateSnapshot;
+    try {
+      rate = await app.eurRate.snapshot('suggest');
+    } catch (err) {
+      if (await replyLifecycleError(reply, err)) return;
+      throw err;
+    }
     return {
       eurPerKm,
       msatPerKm: msat(eurFloatToMsat(eurPerKm, rate.satsPerEur)),
@@ -264,6 +287,23 @@ export function registerTripRoutes(app: App) {
         app.lifecycle.distance,
       ) as StopWithMeta[];
 
+      // ADR-031 display part: road polylines for the direct O→Dc line (drawn
+      // muted — the trip the carrier would make anyway) and for each hop of
+      // the visit order (full tone). Any cold hop degrades to its straight
+      // chord: a line on a map, never money, never blocking. Zero-extent hops
+      // (origin ON the first hub, drop+pickup at one hub) draw nothing and
+      // are dropped here — a degenerate 'straight' would wrongly trip the
+      // UI's "road path unavailable" note.
+      const pointSeq: GeoPoint[] = [origin, ...ordered.map((s) => s.point), destination];
+      const hops = pointSeq
+        .slice(0, -1)
+        .map((p, i) => [p, pointSeq[i + 1]!] as const)
+        .filter(([a, b]) => pointKeyOf(a) !== pointKeyOf(b));
+      const [direct, ...segments] = await Promise.all([
+        app.roadRouting.geometry(app.db, origin, destination),
+        ...hops.map(([a, b]) => app.roadRouting.geometry(app.db, a, b)),
+      ]);
+
       const stopDto = (s: StopWithMeta) => ({
         hubId: s.hubId,
         hubName: s.hubName,
@@ -281,6 +321,7 @@ export function registerTripRoutes(app: App) {
         stops: ordered.map(stopDto),
         unroutedStops: unrouted.map(stopDto),
         googleMapsUrl: googleMapsDirectionsUrl(origin, destination, ordered),
+        routeGeometry: { direct, segments },
       };
     },
   );
@@ -299,10 +340,20 @@ export function registerTripRoutes(app: App) {
       const origin = hubRows.find((h) => h.id === originHubId);
       const dest = hubRows.find((h) => h.id === destHubId);
       if (!origin || !dest) return reply.code(404).send({ error: 'hub_not_found' });
-      const routeKm = app.lifecycle.distance.distanceKm(
-        { lat: origin.lat, lng: origin.lng },
-        { lat: dest.lat, lng: dest.lng },
-      );
+      // ADR-031: mirror the metric decision a creation would make right now,
+      // so the suggestion is proportional to the D that will actually freeze
+      // (and the resolved pair warms the cache for that creation). Advisory:
+      // router trouble falls back to the haversine estimate.
+      const originPoint = { lat: origin.lat, lng: origin.lng };
+      const destPoint = { lat: dest.lat, lng: dest.lng };
+      let routeKm: number | null = null;
+      if (app.roadRouting.enabled) {
+        const metres = await app.roadRouting.resolvePair(app.db, originPoint, destPoint);
+        // A resolved 0 is an answer, not a miss: mirror creation and refuse,
+        // instead of quoting a haversine figure creation would never freeze.
+        if (metres !== null) routeKm = metres / 1000;
+      }
+      if (routeKm === null) routeKm = app.lifecycle.distance.distanceKm(originPoint, destPoint);
       if (routeKm <= 0) return reply.code(422).send({ error: 'hubs_too_close' });
       // Delivered shipments only, dated by their recipient_pickup event.
       const delivered = await app.db
@@ -321,7 +372,14 @@ export function registerTripRoutes(app: App) {
       );
       // msat equivalent computed server-side (current snapshot, floor-to-sat):
       // the client shows EUR and prefills sats, it never converts money.
-      const rate = await app.eurRate.snapshot();
+      // `suggest`: a hint, not a contract — any cached rate does (ADR-025 §5).
+      let rate: EurRateSnapshot;
+      try {
+        rate = await app.eurRate.snapshot('suggest');
+      } catch (err) {
+        if (await replyLifecycleError(reply, err)) return;
+        throw err;
+      }
       return {
         routeKm,
         suggestedEur,
@@ -362,7 +420,7 @@ function googleMapsDirectionsUrl(
 
 async function buildBoard(app: App, trip: typeof carrierTrips.$inferSelect, carrierId: string) {
   const db = app.db;
-  const provider = app.lifecycle.distance;
+  const havProvider = app.lifecycle.distance;
 
   // Shipments idle AT_HUB with no leg in flight (another leg_accept would be
   // rejected by the machine) and not the carrier's own (a self-payment hold
@@ -377,6 +435,8 @@ async function buildBoard(app: App, trip: typeof carrierTrips.$inferSelect, carr
     .where(eq(shipments.status, 'at_hub'));
 
   const atHubIds = atHub.map((r) => r.shipment.id);
+  // 'requested' counts as busy (ADR-029, decisione C): a pending deposit
+  // request is board-exclusive, like a pending or booked leg.
   const busy = new Set(
     atHubIds.length === 0
       ? []
@@ -387,7 +447,7 @@ async function buildBoard(app: App, trip: typeof carrierTrips.$inferSelect, carr
             .where(
               and(
                 inArray(legs.shipmentId, atHubIds),
-                inArray(legs.status, ['pending_funding', 'booked', 'picked_up']),
+                inArray(legs.status, ['requested', 'pending_funding', 'booked', 'picked_up']),
               ),
             )
         ).map((r) => r.shipmentId),
@@ -444,11 +504,18 @@ async function buildBoard(app: App, trip: typeof carrierTrips.$inferSelect, carr
       autoAcceptDeposits: h.autoAccept,
     }));
 
-  const shipmentsAtHub: ShipmentAtHub[] = [];
-  const cardMeta = new Map<
-    string,
-    { currentHubId: string; remainingKm: number; row: typeof shipments.$inferSelect }
-  >();
+  // Eligible rows first; distances come later, per metric group (ADR-031):
+  // every number on a card must use the SHIPMENT's frozen metric, so the
+  // board ranks 'haversine' rows in one batch (exactly as before ADR-031)
+  // and each 'road' row against its fully-resolved pairs.
+  interface BoardEntry {
+    shipment: typeof shipments.$inferSelect;
+    stay: typeof hubStays.$inferSelect;
+    bundle: NonNullable<Awaited<ReturnType<typeof loadShipmentBundle>>>;
+    from: GeoPoint;
+    to: GeoPoint;
+  }
+  const entries: BoardEntry[] = [];
   for (const { shipment, stay } of atHub) {
     if (busy.has(shipment.id)) continue;
     if (shipment.senderId === carrierId) continue;
@@ -457,47 +524,132 @@ async function buildBoard(app: App, trip: typeof carrierTrips.$inferSelect, carr
     if (!currentHub || !destHub) continue;
     const bundle = await loadShipmentBundle(db, shipment.id);
     if (!bundle) continue;
-    const remainingKm = provider.distanceKm(
-      { lat: currentHub.lat, lng: currentHub.lng },
-      { lat: destHub.lat, lng: destHub.lng },
-    );
-    if (!(remainingKm > 0)) continue;
-    shipmentsAtHub.push({
-      shipmentId: shipment.id,
-      currentHubId: stay.hubId,
-      destHubId: shipment.destHubId,
-      poolMsat: remainingWorkPool(bundle, remainingKm),
-      carrierBonusMsat: bundle.carrierBonusAvailableMsat,
-      totalKm: shipment.distanceKm,
-      remainingKm,
-      dimsCm: { lengthCm: shipment.dimLCm, widthCm: shipment.dimWCm, heightCm: shipment.dimHCm },
-      weightG: shipment.weightG,
-      undeclared: shipment.undeclared,
+    entries.push({
+      shipment,
+      stay,
+      bundle,
+      from: { lat: currentHub.lat, lng: currentHub.lng },
+      to: { lat: destHub.lat, lng: destHub.lng },
     });
-    cardMeta.set(shipment.id, { currentHubId: stay.hubId, remainingKm, row: shipment });
   }
 
-  const candidates = rankBoard(
-    {
-      origin: { lat: trip.originLat, lng: trip.originLng },
-      destination: { lat: trip.destLat, lng: trip.destLng },
-      maxDeviationKm: trip.maxDeviationKm,
-      minRateMsatPerKm: trip.minRateMsatPerKm,
-    },
-    shipmentsAtHub,
-    matchingHubs,
-    provider,
-  );
+  const origin: GeoPoint = { lat: trip.originLat, lng: trip.originLng };
+  const destination: GeoPoint = { lat: trip.destLat, lng: trip.destLng };
+  const tripInput = {
+    origin,
+    destination,
+    maxDeviationKm: trip.maxDeviationKm,
+    minRateMsatPerKm: trip.minRateMsatPerKm,
+  };
 
-  // Ratings shown on every card (MATCHING.md §3): the sender's and those of
-  // every hub involved — current hub plus each proposed drop. One grouped
-  // query for the whole board, computed from the reviews table on read.
+  const cardMeta = new Map<
+    string,
+    { currentHubId: string; remainingKm: number; row: typeof shipments.$inferSelect }
+  >();
+  const toShipmentAtHub = (e: BoardEntry, remainingKm: number): ShipmentAtHub => ({
+    shipmentId: e.shipment.id,
+    currentHubId: e.stay.hubId,
+    destHubId: e.shipment.destHubId,
+    poolMsat: remainingWorkPool(e.bundle, remainingKm),
+    carrierBonusMsat: e.bundle.carrierBonusAvailableMsat,
+    totalKm: e.shipment.distanceKm,
+    remainingKm,
+    dimsCm: {
+      lengthCm: e.shipment.dimLCm,
+      widthCm: e.shipment.dimWCm,
+      heightCm: e.shipment.dimHCm,
+    },
+    weightG: e.shipment.weightG,
+    undeclared: e.shipment.undeclared,
+  });
+  const candidates: MatchCandidate[] = [];
+
+  // Haversine group: one batch, the pre-ADR-031 path verbatim.
+  const havShipments: ShipmentAtHub[] = [];
+  for (const e of entries) {
+    if (e.shipment.distanceMetric !== 'haversine') continue;
+    const remainingKm = havProvider.distanceKm(e.from, e.to);
+    if (!(remainingKm > 0)) continue;
+    havShipments.push(toShipmentAtHub(e, remainingKm));
+    cardMeta.set(e.shipment.id, {
+      currentHubId: e.stay.hubId,
+      remainingKm,
+      row: e.shipment,
+    });
+  }
+  candidates.push(...rankBoard(tripInput, havShipments, matchingHubs, havProvider));
+
+  // Road group: resolve every pair the ranking will touch (cache-first,
+  // router on miss), then rank each shipment against the hubs resolved FOR
+  // IT. Whatever stays cold in this refresh is omitted — the availability
+  // policy of ADR-031: the board never blocks and never mixes metrics.
+  const roadEntries = entries.filter((e) => e.shipment.distanceMetric === 'road');
+  if (roadEntries.length > 0) {
+    const dedupe = (points: GeoPoint[]): GeoPoint[] => {
+      const seen = new Map<string, GeoPoint>();
+      for (const p of points) if (!seen.has(pointKeyOf(p))) seen.set(pointKeyOf(p), p);
+      return [...seen.values()];
+    };
+    const sPoints = dedupe(roadEntries.map((e) => e.from));
+    const tPoints = dedupe(roadEntries.map((e) => e.to));
+    const hPoints = dedupe(matchingHubs.map((h) => h.location));
+    // Three matrices cover detour, gross and r_S: O→(S,Dc), S→(H,T), H→(T,Dc).
+    const map: PairMap = new Map();
+    const merge = (m: PairMap) => {
+      for (const [k, v] of m) map.set(k, v);
+    };
+    merge(await app.roadRouting.resolveMatrix(db, [origin], [...sPoints, destination]));
+    merge(await app.roadRouting.resolveMatrix(db, sPoints, [...hPoints, ...tPoints]));
+    merge(await app.roadRouting.resolveMatrix(db, hPoints, [...tPoints, destination]));
+    if (hasPair(map, origin, destination)) {
+      const roadProvider = providerFromPairMap(map);
+      for (const e of roadEntries) {
+        if (!hasPair(map, origin, e.from) || !hasPair(map, e.from, e.to)) continue;
+        const remainingKm = roadProvider.distanceKm(e.from, e.to);
+        if (!(remainingKm > 0)) continue;
+        // S/T must ALWAYS be in the list — evaluateShipment looks the route
+        // ends up by id and drops the whole card when either is missing
+        // (packages/shared/src/matching.ts contract). Their own unresolved
+        // pairs are safe: the engine skips a candidate hub it cannot price
+        // (UnresolvedDistanceError), so a hole in the road map costs at most
+        // one drop option, never the shipment.
+        const routeEndIds = new Set([e.stay.hubId, e.shipment.destHubId]);
+        const hubsForThis = matchingHubs.filter(
+          (h) =>
+            routeEndIds.has(h.hubId) ||
+            (hasPair(map, e.from, h.location) &&
+              hasPair(map, h.location, destination) &&
+              hasPair(map, h.location, e.to)),
+        );
+        const [card] = rankBoard(
+          tripInput,
+          [toShipmentAtHub(e, remainingKm)],
+          hubsForThis,
+          roadProvider,
+        );
+        if (card) {
+          candidates.push(card);
+          cardMeta.set(e.shipment.id, {
+            currentHubId: e.stay.hubId,
+            remainingKm,
+            row: e.shipment,
+          });
+        }
+      }
+    }
+  }
+
+  // Same total order as a single rankBoard call (core's comparator).
+  candidates.sort(compareCandidates);
+
+  // Ratings shown on every card (MATCHING.md §3): only the hubs' now (ADR-027
+  // — the sender is no longer a reviewable subject). Current hub plus each
+  // proposed drop. One grouped query for the whole board, from the reviews
+  // table on read.
   const ratingSubjects: RatingSubject[] = [];
   for (const c of candidates) {
-    const meta = cardMeta.get(c.shipmentId)!;
-    ratingSubjects.push({ userId: meta.row.senderId, role: 'sender' });
     for (const hubId of [
-      meta.currentHubId,
+      cardMeta.get(c.shipmentId)!.currentHubId,
       c.bestDropHub.hubId,
       ...c.alternatives.map((o) => o.hubId),
     ]) {
@@ -514,24 +666,35 @@ async function buildBoard(app: App, trip: typeof carrierTrips.$inferSelect, carr
     const option = (o: (typeof c)['bestDropHub']) => ({
       hubId: o.hubId,
       hubName: hubName(o.hubId),
+      // Same defensive normalization as hubDtos: a non-array jsonb row must
+      // not reach consumers that iterate it.
+      openingHours: Array.isArray(hubById.get(o.hubId)?.openingHours)
+        ? (hubById.get(o.hubId)!.openingHours as OpeningHoursEntry[])
+        : [],
       detourKm: o.detourKm,
       netMsat: msat(o.netMsat),
       finalizationBonusMsat: msat(o.finalizationBonusMsat),
       surplusMsat: msat(o.surplusMsat),
       hubRating: hubRating(o.hubId),
+      // ADR-029 §3: the card marks manual hubs — choosing one opens a
+      // deposit request instead of booking instantly.
+      requiresConfirmation: o.requiresConfirmation,
     });
     return {
       shipmentId: c.shipmentId,
+      codename: meta.row.codename,
       isMatch: c.isMatch,
       bestDropHub: option(c.bestDropHub),
       alternatives: c.alternatives.map(option),
       currentHubId: meta.currentHubId,
       currentHubName: hubName(meta.currentHubId),
-      senderRating: ratingOf(ratings, meta.row.senderId, 'sender'),
       currentHubRating: hubRating(meta.currentHubId),
       destHubId: meta.row.destHubId,
       remainingKm: meta.remainingKm,
       totalKm: meta.row.distanceKm,
+      // ADR-031: which metric every km and msat of this card was computed
+      // with — the same one leg_request will freeze.
+      distanceMetric: meta.row.distanceMetric,
       custodyBondMsat: msat(meta.row.custodyBondMsat),
       dims: {
         lengthCm: meta.row.dimLCm,
@@ -542,6 +705,7 @@ async function buildBoard(app: App, trip: typeof carrierTrips.$inferSelect, carr
       undeclared: meta.row.undeclared,
       // The shipment's FROZEN snapshot (ADR-008): the card's indicative €
       // must use the same rate that will govern the carrier's payout.
+      // (No senderRating: only hubs are reviewable now — ADR-027.)
       eurRate: {
         satsPerEur: meta.row.eurRateSnapshot,
         source: meta.row.eurRateSource,

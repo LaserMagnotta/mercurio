@@ -42,8 +42,49 @@ artt. 14/21 GDPR) e il **driver S3-compatibile per il blob storage delle
 foto** (ADR-023: stessa interfaccia `BlobStore` di ADR-020, selezione da
 config con `PHOTO_STORAGE_DRIVER` — default filesystem, invariato — MinIO
 nel docker-compose di sviluppo solo per testare il driver stesso, refcount e
-purge invariati). **Da implementare**: app mobile. **Todo umano**: revisione
-dei testi legali da parte di un legale.
+purge invariati) e il **deploy di produzione** (ADR-024: immagini multi-stage
+per api e web, compose su singolo VPS in `infra/production/` con Caddy come
+unica origin pubblica — `/api/*` al proxy, stesso contratto same-origin
+dell'ADR-018 — migrazioni come servizio one-shot, segreti solo da env, backup
+di Postgres e foto; guida in [DEPLOY.md](DEPLOY.md)) e il **cambio EUR→sats
+reale** (ADR-025: mediana di tre ticker BTC/EUR pubblici senza chiave, presi
+solo server-side e tenuti in cache 5 minuti dietro lo stesso `EurRateProvider`
+di ADR-008 — la matematica intera non cambia; una fonte rotta è l'outlier e
+viene scartata. Il tasso fisso da env resta il default di sviluppo, perché i
+sats di regtest non hanno un prezzo di mercato, mentre in produzione **nessun
+cambio può venire da un default**: senza `EUR_RATE_PROVIDER` l'API rifiuta di
+avviarsi, come già fa con `FAKE_WALLETS`. Un feed giù non ferma niente che non
+chieda uno snapshot nuovo — release/refund, check-in/out, ritiri e claim
+leggono il cambio congelato sulla riga — e solo `POST /shipments` risponde
+`503` oltre le 6 ore di età massima, perché lì il cambio si congela per tutta
+la vita della spedizione). Preparando il deploy sono
+emersi e chiusi due difetti che solo la produzione avrebbe rivelato: l'output di
+`tsc` non era eseguibile da Node (import relativi senza estensione — la `dist/`
+non era mai stata eseguita: `pnpm dev` gira su tsx e i test su vitest) e i
+**rate limit anti-abuso erano inerti** (`@fastify/rate-limit` registrato senza
+`await`: nessun limite di RISKS §7 veniva applicato). Sul branch
+`feat/ux-overhaul-1` è in corso la **revisione UX/prodotto** (backlog UX):
+Fase 1 completa (codename delle spedizioni, giacenza in giorni — ADR-026,
+recensioni solo hub — ADR-027, audit importi EUR+sats) e Fase 2 in corso —
+orari di apertura dell'hub, **foto del locale + email di contatto + avviso di
+deposito via outbox** ([ADR-028](adr/ADR-028-hub-venue-and-deposit-notice.md)),
+**guadagno stimato/puntuale su ogni richiesta della dashboard hub**
+(`estimateHubFeeRange`, ECONOMICS §7) e **accetta/rifiuta dell'hub d'arrivo
+sulle richieste di deposito** ([ADR-029](adr/ADR-029-arrival-hub-deposit-request.md):
+fase `requested` senza denaro, finestra di risposta 30 min, `auto_accept`
+default false, richieste pendenti in cima alla dashboard); Fase 3: **hub
+discovery a scala 10k** ([ADR-030](adr/ADR-030-hub-discovery-scale.md):
+mappa navigabile con clustering, bbox+ricerca+paginazione, spedizioni in
+attesa per hub — reverse trip planning); Fase 4: **routing stradale nel
+pricing** ([ADR-031](adr/ADR-031-road-routing.md): metrica per spedizione,
+OSRM self-hosted opzionale, polilinee reali sulla mappa del viaggio);
+Fase 5: **de-slop della UI** (icone SVG uniche al posto delle emoji, copy
+asciutta it+en, importi sats+€ verificati ovunque) e **picker hub sulla
+ricerca paginata** (ADR-030 «Aggiornamento 2026-07-18»: combobox q+near,
+lookup mirati per nome, contratto legacy di `GET /hubs` ritirato).
+**Da implementare**: app mobile. **Todo umano**: revisione dei testi legali da parte di un legale;
+acquisto di VPS e dominio; un check di uptime esterno su `/api/health`;
+preparazione del grafo OSRM quando ci sarà l'host (DEPLOY §10).
 
 ## Documenti
 
@@ -54,6 +95,7 @@ dei testi legali da parte di un legale.
 | [ESCROW.md](ESCROW.md)             | Pagamenti senza custodia: hold invoice dirette P2P, coordinatore per preimage, interfacce `WalletConnection`/`EscrowCoordinator` |
 | [MATCHING.md](MATCHING.md)         | Matching vettore ↔ spedizioni: deviazione, scelta dell'hub, tariffa suggerita, ordinamento bacheca                               |
 | [RISKS.md](RISKS.md)               | Integrità senza arbitro, anti-abuso, identità, svincolo a fine giacenza, GDPR, punti legali ⚖️                                   |
+| [DEPLOY.md](DEPLOY.md)             | Guida al deploy: prerequisiti, env, primo deploy, aggiornamento, backup e ripristino                                            |
 | [legal/TOS.md](legal/TOS.md)       | Termini di servizio: contratto tra pari, esiti deterministici, svincolo marciano — ogni clausola cita la transizione            |
 | [legal/PRIVACY.md](legal/PRIVACY.md) | Informativa privacy (artt. 13-14 GDPR): basi per ruolo, minimizzazione by design, retention foto, export/cancellazione        |
 
@@ -84,6 +126,14 @@ dei testi legali da parte di un legale.
 | [ADR-021](adr/ADR-021-in-page-qr-scanner.md)        | Scanner QR in pagina: BarcodeDetector nativo, campo testo come fallback universale, nessun decoder nel bundle |
 | [ADR-022](adr/ADR-022-sender-creation-photos.md)    | Foto del mittente alla creazione: certificazione nell'evento `created`, upload con le guardie di ADR-020 |
 | [ADR-023](adr/ADR-023-s3-blob-storage-driver.md)    | Driver S3-compatibile per il blob storage delle foto (MinIO/Garage), selezione da config, MinIO dev opt-in |
+| [ADR-024](adr/ADR-024-production-deploy.md)         | Deploy: immagini multi-stage, compose su singolo VPS, Caddy unica origin, segreti solo da env |
+| [ADR-025](adr/ADR-025-eur-rate-market-provider.md)  | Cambio EUR→sats reale: mediana di ticker pubblici senza chiave, cache in processo, fisso solo per dev |
+| [ADR-026](adr/ADR-026-storage-in-days.md)           | Giacenza in giorni (cap 7 subito); i 30 giorni via bond a rinnovo rolling, da implementare a parte |
+| [ADR-027](adr/ADR-027-reviews-hub-only.md)          | Recensioni: l'unico soggetto recensibile è l'hub (emenda ADR-017) |
+| [ADR-028](adr/ADR-028-hub-venue-and-deposit-notice.md) | Foto del locale (tabella + store separati), email di contatto dell'hub, avviso di deposito via outbox |
+| [ADR-029](adr/ADR-029-arrival-hub-deposit-request.md) | Accetta/rifiuta dell'hub d'arrivo sulle richieste di deposito: fase `requested` senza denaro, `leg_accept` → `leg_request`+`deposit_accept`, `auto_accept` default false |
+| [ADR-030](adr/ADR-030-hub-discovery-scale.md) | Hub discovery a scala 10k: bbox+ricerca+paginazione su GET /hubs, mappa con clustering a griglia, spedizioni in attesa per hub (reverse trip planning) |
+| [ADR-031](adr/ADR-031-road-routing.md) | Routing stradale OSRM **nel pricing** (decisione utente): metrica congelata per spedizione, cache `road_distances` first-write-wins, polilinee reali sulla mappa del viaggio, router opzionale con degrado dichiarato |
 
 ## Stato delle decisioni
 

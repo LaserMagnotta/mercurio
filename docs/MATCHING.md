@@ -27,10 +27,24 @@ peso, contenuto non dichiarato sì/no).
 
 ## 2. Distanza e deviazione
 
-### Metrica: haversine × fattore di circuità (MVP)
+### Metrica: congelata per spedizione (ADR-031); haversine × 1.3 come base
 
-`d(x, y) = haversine(x, y) × k`, con `k = 1.3` (rapporto tipico strada/linea d'aria in
-Europa). Scelta motivata in ADR-007, in sintesi:
+Dall'[ADR-031](adr/ADR-031-road-routing.md) (decisione utente, 2026-07-18)
+ogni spedizione ha una **metrica congelata alla creazione**
+(`shipments.distance_metric`): `'road'` — distanze stradali OSRM, lette dalla
+cache first-write-wins `road_distances` — quando la coppia
+origine→destinazione è risolvibile in quel momento, `'haversine'` altrimenti.
+TUTTI i numeri di questo documento (D, r, Δr, detour, surplus, prezzi
+congelati) usano la metrica della spedizione, mai un misto; la bacheca
+calcola per gruppi di metrica e fonde con lo stesso ordine totale (§3). Un
+router irraggiungibile non blocca mai la bacheca: le carte road con coppie
+fredde sono omesse in quel refresh, le operazioni di denaro su coppie fredde
+rispondono 503 riprovabile, i numeri advisory ripiegano dichiaratamente su
+haversine.
+
+La metrica di base resta `d(x, y) = haversine(x, y) × k`, con `k = 1.3`
+(rapporto tipico strada/linea d'aria in Europa). Scelta motivata in ADR-007,
+in sintesi:
 
 - **Coerenza interna**: la stessa metrica è usata sia per il **prezzo** della tratta
   (`Δr`, ECONOMICS.md) sia per il **filtro** di deviazione. Gli errori sistematici
@@ -66,8 +80,11 @@ Candidati: tutti gli hub `H` (incluso `T` stesso) tali che:
 2. **progresso positivo e non-banale**: `r_S − d(H,T) ≥ max(5 km, 5% × D)`; la
    consegna diretta a destinazione (`H = T`, progresso `r_S`) è sempre ammessa,
    anche sotto soglia (ECONOMICS.md §6);
-3. l'hub ha il wallet connesso e accetta automaticamente di vincolare il bond di
-   custodia (hold invoice — ADR-013; accettazione automatica, ARCHITECTURE §4).
+3. l'hub ha il wallet connesso — deve **poter** vincolare il bond di custodia
+   se accetta (hold invoice — ADR-013). Dall'[ADR-029](adr/ADR-029-arrival-hub-deposit-request.md)
+   anche gli hub **manuali** sono candidati: la loro opzione è marcata
+   `requiresConfirmation` («richiede conferma») e sceglierli apre una
+   richiesta di deposito invece di prenotare all'istante.
 
 Per ogni candidato si calcolano (ECONOMICS.md, modello B — le percentuali degli hub
 si applicano al lordo della tratta):
@@ -121,11 +138,13 @@ vettore. `H1` resta visibile come alternativa.
 
 La bacheca dell'hub mostra tutte le spedizioni in stato `AT_HUB` presso quell'hub
 (e, in una vista "lungo il tuo viaggio", quelle negli hub vicini alla rotta).
-**Esclusioni**: le spedizioni con una tratta in corso (pendente, prenotata o in
-transito) e quelle con un **claim del destinatario vivo** (pendente o `CLAIMED`
-— [ADR-016](adr/ADR-016-recipient-claim.md)): dalla richiesta di claim il pacco
-sparisce dalla bacheca e ogni `leg_accept` è respinto; se la finestra di
-funding del claim scade, il pacco ricompare.
+**Esclusioni**: le spedizioni con una tratta in corso (**richiesta** — ADR-029 —,
+pendente, prenotata o in transito) e quelle con un **claim del destinatario
+vivo** (pendente o `CLAIMED`
+— [ADR-016](adr/ADR-016-recipient-claim.md)): dalla richiesta — di deposito o
+di claim — il pacco sparisce dalla bacheca e ogni `leg_request` concorrente è
+respinto; se la richiesta si dissolve (rifiuto, scadenza, annullamento) o la
+finestra di funding del claim scade, il pacco ricompare.
 
 1. **Sezione "Per te" (match)**: spedizioni con `surplus(H*) ≥ 0` e `detour(H*) ≤ dev_max`,
    evidenziate, ordinate per `surplus(H*)` **decrescente**.
@@ -134,9 +153,10 @@ funding del claim scade, il pacco ricompare.
    visibili perché la tariffa minima è una preferenza: il vettore può accettare comunque.
 
 Ogni card mostra: netto in sats (+ € indicativo), deviazione stimata, hub di consegna
-proposto `H*` con alternative, bond richiesto, dimensioni/peso, rating del mittente e
-degli hub coinvolti. Il netto mostrato è quello **congelato all'accettazione**: nessuna
-sorpresa dopo.
+proposto `H*` con alternative, bond richiesto, dimensioni/peso e il rating **degli hub
+coinvolti** (l'hub corrente e ogni hub di consegna proposto — dall'[ADR-027](adr/ADR-027-reviews-hub-only.md)
+il mittente non è più recensibile, quindi la card non ne mostra il rating). Il netto
+mostrato è quello **congelato all'accettazione**: nessuna sorpresa dopo.
 
 Complessità: `O(spedizioni × hub)` a richiesta — irrilevante ai volumi MVP. Quando
 servirà: indice spaziale (PostGIS) e pre-filtro dei candidati con bounding box

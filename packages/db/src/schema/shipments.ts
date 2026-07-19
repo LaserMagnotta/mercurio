@@ -10,9 +10,9 @@ import {
   timestamp,
   uuid,
 } from 'drizzle-orm/pg-core';
-import { shipmentStatusEnum } from './enums';
-import { hubs } from './hubs';
-import { users } from './users';
+import { distanceMetricEnum, shipmentStatusEnum } from './enums.js';
+import { hubs } from './hubs.js';
+import { users } from './users.js';
 
 // A shipment (ARCHITECTURE.md sec.4). `offerMsat` is a SPENDING COMMITMENT,
 // not a prefunded pot: money moves leg by leg via direct P2P hold invoices
@@ -36,6 +36,13 @@ export const shipments = pgTable('shipments', {
   // the OTP — the plaintext lives solely in the tracking email.
   recipientClaimTokenHash: text('recipient_claim_token_hash'),
   qrToken: text('qr_token').notNull().unique(),
+  // Human-sayable handle ("Tasso-Ambrato-742"), shown everywhere a shipment is
+  // cited (board, tracking, hub dashboard, emails). The UUID and qrToken stay
+  // the real identifiers: the codename is a LABEL, never a credential — it is
+  // short and guessable on purpose, so nothing authorizes on it. Minted
+  // server-side at POST /shipments with a collision-retry loop; the unique
+  // index is the backstop for the race the probe cannot close.
+  codename: text('codename').notNull().unique(),
 
   dimLCm: integer('dim_l_cm').notNull(),
   dimWCm: integer('dim_w_cm').notNull(),
@@ -55,7 +62,7 @@ export const shipments = pgTable('shipments', {
     .notNull()
     .default(sql`0`),
   custodyBondMsat: bigint('custody_bond_msat', { mode: 'bigint' }).notNull(),
-  maxStorageHours: integer('max_storage_hours').notNull(), // <= 168h in MVP (ESCROW.md sec.4, CLTV budget)
+  maxStorageDays: integer('max_storage_days').notNull(), // <= 7 in MVP (ESCROW.md sec.4, CLTV budget; ADR-026)
 
   // Frozen at creation and used for the shipment's whole life (ADR-008): no
   // recalculation against a live rate mid-journey.
@@ -66,6 +73,10 @@ export const shipments = pgTable('shipments', {
   status: shipmentStatusEnum('status').notNull().default('draft'),
   // Frozen origin->destination distance (D in ECONOMICS.md); recomputed on `reroute`.
   distanceKm: doublePrecision('distance_km').notNull(),
+  // ADR-031: the metric that froze distanceKm — and prices every leg of this
+  // shipment for its whole life, reroutes included. 'road' only when OSRM
+  // resolved the route at creation; pre-ADR-031 rows default to 'haversine'.
+  distanceMetric: distanceMetricEnum('distance_metric').notNull().default('haversine'),
 
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });

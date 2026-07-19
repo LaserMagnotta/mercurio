@@ -2,7 +2,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { PGlite } from '@electric-sql/pglite';
 import { drizzle } from 'drizzle-orm/pglite';
-import * as schema from './schema/index';
+import * as schema from './schema/index.js';
 
 /**
  * An in-process Postgres (WASM, via pglite) with every migration applied.

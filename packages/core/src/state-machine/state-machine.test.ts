@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ShipmentEvent, ShipmentEventType, ShipmentState, TransitionResult } from '@mercurio/shared';
 import { SHIPMENT_STATES } from '@mercurio/shared';
-import { transition } from './state-machine';
+import { transition } from './state-machine.js';
 import {
   BOND_MSAT,
   CARRIER_BONUS_MSAT,
@@ -27,9 +27,11 @@ import {
   originStay,
   pendingClaim,
   pendingFinalLeg,
+  pendingFinalRequest,
   pendingLeg,
+  pendingRequest,
   validEvent,
-} from './fixtures';
+} from './fixtures.js';
 
 function expectOk(result: TransitionResult): asserts result is Extract<TransitionResult, { ok: true }> {
   if (!result.ok) {
@@ -208,16 +210,144 @@ describe('origin_checkin', () => {
 });
 
 // ---------------------------------------------------------------------------
-// #4 leg_accept
+// #4a leg_request (ADR-029) — the money-free request phase
 
-describe('leg_accept', () => {
+describe('leg_request', () => {
   const ctx = ctxForState('AT_HUB');
 
-  it('opens the three holds of ESCROW.md §3 and arms the funding window', () => {
-    const result = transition('AT_HUB', validEvent('leg_accept'), ctx);
+  it('freezes the price, arms the response window and moves NO money', () => {
+    const result = transition('AT_HUB', validEvent('leg_request'), ctx);
+    expectOk(result);
+    expect(result.nextState).toBe('AT_HUB');
+    expect(result.effects).toEqual([
+      {
+        kind: 'schedule_timeout',
+        timeout: 'deposit_response',
+        refId: IDS.leg,
+        at: DEADLINES.response,
+      },
+      {
+        kind: 'append_custody_event',
+        type: 'deposit_requested',
+        actorUserId: IDS.carrier,
+        legId: IDS.leg,
+        hubStayId: null,
+        payload: {
+          toHubId: IDS.intermediateHub,
+          grossMsat: PRICING.grossMsat,
+          depHubFeeMsat: PRICING.depHubFeeMsat,
+          arrHubFeeMsat: PRICING.arrHubFeeMsat,
+          netMsat: PRICING.netMsat,
+          finalizationBonusMsat: 0n,
+          finalizationHubBonusMsat: 0n,
+          custodyBondMsat: BOND_MSAT,
+          responseDeadlineAt: DEADLINES.response,
+        },
+      },
+    ]);
+  });
+
+  it('the request never carries a payment or ledger effect (ADR-029 invariant)', () => {
+    const result = transition('AT_HUB', validEvent('leg_request'), ctx);
+    expectOk(result);
+    expect(
+      result.effects.filter((e) =>
+        [
+          'create_conditional_payment',
+          'release_conditional_payment',
+          'refund_conditional_payment',
+          'request_instant_payment',
+          'post_ledger_entry',
+        ].includes(e.kind),
+      ),
+    ).toEqual([]);
+  });
+
+  it('final leg: the frozen Π_h share is documented in the request payload', () => {
+    const event = {
+      ...validEvent('leg_request'),
+      toHubId: IDS.destHub,
+      toHubUserId: IDS.destHubUser,
+      pricing: FINAL_PRICING,
+      finalizationHubBonusMsat: HUB_BONUS_MSAT,
+    } as ShipmentEvent;
+    const result = transition('AT_HUB', event, ctx);
+    expectOk(result);
+    const custody = result.effects.find((e) => e.kind === 'append_custody_event');
+    expect(custody).toMatchObject({
+      type: 'deposit_requested',
+      payload: {
+        finalizationBonusMsat: CARRIER_BONUS_MSAT,
+        finalizationHubBonusMsat: HUB_BONUS_MSAT,
+      },
+    });
+    expect(result.effects.filter((e) => e.kind === 'create_conditional_payment')).toEqual([]);
+  });
+
+  it.each([
+    ['carrier trip not active', { carrierTripActive: false }],
+    ['carrier wallet disconnected', { carrierWalletConnected: false }],
+    ['arrival hub wallet disconnected', { arrivalHubWalletConnected: false }],
+    ['arrival hub equals current hub', { toHubId: IDS.originHub }],
+    ['inconsistent pricing', { pricing: { ...PRICING, netMsat: PRICING.netMsat + 1n } }],
+    [
+      'zero gross',
+      { pricing: { grossMsat: 0n, depHubFeeMsat: 0n, arrHubFeeMsat: 0n, netMsat: 0n, finalizationBonusMsat: 0n } },
+    ],
+    ['negative carrier bonus', { pricing: { ...PRICING, finalizationBonusMsat: -1n } }],
+    ['negative hub bonus', { finalizationHubBonusMsat: -1n }],
+    // Only the leg that delivers to the destination may carry either share.
+    ['carrier bonus on a non-final leg', { pricing: { ...PRICING, finalizationBonusMsat: 1_000n } }],
+    ['hub bonus on a non-final leg', { finalizationHubBonusMsat: HUB_BONUS_MSAT }],
+  ])('guard: %s', (_name, patch) => {
+    expectRejected(
+      transition('AT_HUB', { ...validEvent('leg_request'), ...patch } as ShipmentEvent, ctx),
+      'guard_failed',
+    );
+  });
+
+  it('guard: only one pending request at a time (board-exclusive, decisione C)', () => {
+    expectRejected(
+      transition('AT_HUB', validEvent('leg_request'), { ...ctx, pendingLegRequest: pendingRequest() }),
+      'guard_failed',
+    );
+  });
+
+  it('guard: only one pending leg at a time', () => {
+    expectRejected(
+      transition('AT_HUB', validEvent('leg_request'), { ...ctx, leg: pendingLeg() }),
+      'guard_failed',
+    );
+  });
+
+  it('guard: rejected while a recipient claim is pending', () => {
+    expectRejected(
+      transition('AT_HUB', validEvent('leg_request'), { ...ctx, pendingClaim: pendingClaim() }),
+      'guard_failed',
+    );
+  });
+
+  it('guard: a stale finalization-bonus hold blocks new requests', () => {
+    expectRejected(
+      transition('AT_HUB', validEvent('leg_request'), { ...ctx, finalizationBonusHold: bonusHold() }),
+      'guard_failed',
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #4b deposit_accept (ADR-029) — bit-per-bit the pre-ADR-029 leg_accept
+
+describe('deposit_accept', () => {
+  const ctx = { ...ctxForState('AT_HUB'), pendingLegRequest: pendingRequest() };
+
+  it('creates EXACTLY the old leg_accept holds and arms the funding window', () => {
+    const result = transition('AT_HUB', validEvent('deposit_accept'), ctx);
     expectOk(result);
     expect(result.nextState).toBe('AT_HUB'); // booked only when funded
     expect(result.effects).toEqual([
+      // The 3 holds of ESCROW.md §3 — identical payer/payee/amount/ref to
+      // what leg_accept created before ADR-029 (the "bit-per-bit" promise).
       {
         kind: 'create_conditional_payment',
         purpose: 'leg_payment',
@@ -242,11 +372,12 @@ describe('leg_accept', () => {
         amountMsat: BOND_MSAT,
         ref: { type: 'hub_stay', id: IDS.arrivalStay },
       },
+      { kind: 'cancel_timeout', timeout: 'deposit_response', refId: IDS.leg },
       { kind: 'schedule_timeout', timeout: 'leg_funding', refId: IDS.leg, at: DEADLINES.funding },
       {
         kind: 'append_custody_event',
         type: 'leg_accepted',
-        actorUserId: IDS.carrier,
+        actorUserId: IDS.intermediateHubUser, // the hub is the accepting party
         legId: IDS.leg,
         hubStayId: null,
         payload: {
@@ -263,15 +394,9 @@ describe('leg_accept', () => {
     ]);
   });
 
-  it('final leg: the payment hold binds gross + Π_v and a fourth hold freezes Π_h (ADR-014)', () => {
-    const event = {
-      ...validEvent('leg_accept'),
-      toHubId: IDS.destHub,
-      toHubUserId: IDS.destHubUser,
-      pricing: FINAL_PRICING,
-      finalizationHubBonusMsat: HUB_BONUS_MSAT,
-    } as ShipmentEvent;
-    const result = transition('AT_HUB', event, ctx);
+  it('final request: the payment hold binds gross + Π_v and a fourth hold freezes Π_h (ADR-014)', () => {
+    const finalCtx = { ...ctxForState('AT_HUB'), pendingLegRequest: pendingFinalRequest() };
+    const result = transition('AT_HUB', validEvent('deposit_accept'), finalCtx);
     expectOk(result);
     const holds = result.effects.filter((e) => e.kind === 'create_conditional_payment');
     expect(holds).toEqual([
@@ -317,54 +442,212 @@ describe('leg_accept', () => {
     });
   });
 
-  it('final leg with a zero hub share creates no fourth hold (mirrors zero fees)', () => {
-    const event = {
-      ...validEvent('leg_accept'),
-      toHubId: IDS.destHub,
-      toHubUserId: IDS.destHubUser,
-      pricing: FINAL_PRICING,
-      finalizationHubBonusMsat: 0n,
-    } as ShipmentEvent;
-    const result = transition('AT_HUB', event, ctx);
+  it('final request with a zero hub share creates no fourth hold (mirrors zero fees)', () => {
+    const finalCtx = {
+      ...ctxForState('AT_HUB'),
+      pendingLegRequest: { ...pendingFinalRequest(), finalizationHubBonusMsat: 0n },
+    };
+    const result = transition('AT_HUB', validEvent('deposit_accept'), finalCtx);
     expectOk(result);
     expect(result.effects.filter((e) => e.kind === 'create_conditional_payment')).toHaveLength(3);
   });
 
-  it.each([
-    ['carrier trip not active', { carrierTripActive: false }],
-    ['carrier wallet disconnected', { carrierWalletConnected: false }],
-    ['arrival hub without auto-accept', { arrivalHubAutoAccepts: false }],
-    ['arrival hub wallet disconnected', { arrivalHubWalletConnected: false }],
-    ['arrival hub equals current hub', { toHubId: IDS.originHub }],
-    ['inconsistent pricing', { pricing: { ...PRICING, netMsat: PRICING.netMsat + 1n } }],
-    [
-      'zero gross',
-      { pricing: { grossMsat: 0n, depHubFeeMsat: 0n, arrHubFeeMsat: 0n, netMsat: 0n, finalizationBonusMsat: 0n } },
-    ],
-    ['negative carrier bonus', { pricing: { ...PRICING, finalizationBonusMsat: -1n } }],
-    ['negative hub bonus', { finalizationHubBonusMsat: -1n }],
-    // Only the leg that delivers to the destination may carry either share.
-    ['carrier bonus on a non-final leg', { pricing: { ...PRICING, finalizationBonusMsat: 1_000n } }],
-    ['hub bonus on a non-final leg', { finalizationHubBonusMsat: HUB_BONUS_MSAT }],
-  ])('guard: %s', (_name, patch) => {
+  it('guard: no pending request to accept', () => {
     expectRejected(
-      transition('AT_HUB', { ...validEvent('leg_accept'), ...patch } as ShipmentEvent, ctx),
+      transition('AT_HUB', validEvent('deposit_accept'), ctxForState('AT_HUB')),
       'guard_failed',
     );
   });
 
-  it('guard: only one pending leg at a time', () => {
+  it('guard: accepting after the response window is rejected', () => {
     expectRejected(
-      transition('AT_HUB', validEvent('leg_accept'), { ...ctx, leg: pendingLeg() }),
+      transition('AT_HUB', { ...validEvent('deposit_accept'), now: at(31) } as ShipmentEvent, ctx),
       'guard_failed',
     );
   });
 
-  it('guard: a stale finalization-bonus hold blocks new acceptances', () => {
+  it('guard: arrival hub wallet must be connected to bind its bond', () => {
     expectRejected(
-      transition('AT_HUB', validEvent('leg_accept'), { ...ctx, finalizationBonusHold: bonusHold() }),
+      transition(
+        'AT_HUB',
+        { ...validEvent('deposit_accept'), arrivalHubWalletConnected: false } as ShipmentEvent,
+        ctx,
+      ),
       'guard_failed',
     );
+  });
+
+  it('guard: a stale finalization-bonus hold blocks the accept', () => {
+    expectRejected(
+      transition('AT_HUB', validEvent('deposit_accept'), { ...ctx, finalizationBonusHold: bonusHold() }),
+      'guard_failed',
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #4c–e deposit_reject / deposit_request_expired / deposit_request_cancel:
+// zero-cost dissolutions (ADR-029 — no hold ever existed).
+
+const MONEY_EFFECT_KINDS = [
+  'create_conditional_payment',
+  'release_conditional_payment',
+  'refund_conditional_payment',
+  'request_instant_payment',
+  'post_ledger_entry',
+];
+
+describe('deposit_reject', () => {
+  const ctx = { ...ctxForState('AT_HUB'), pendingLegRequest: pendingRequest() };
+
+  it('documents the refusal, disarms the window, notifies the carrier — zero money', () => {
+    const result = transition('AT_HUB', validEvent('deposit_reject'), ctx);
+    expectOk(result);
+    expect(result.nextState).toBe('AT_HUB');
+    expect(result.effects).toEqual([
+      { kind: 'cancel_timeout', timeout: 'deposit_response', refId: IDS.leg },
+      {
+        kind: 'append_custody_event',
+        type: 'handoff_rejected',
+        actorUserId: IDS.intermediateHubUser,
+        legId: IDS.leg,
+        hubStayId: null,
+        payload: { stage: 'deposit_request', reason: 'shelf is full this week' },
+      },
+      {
+        kind: 'queue_email',
+        to: 'carrier',
+        template: 'deposit_request_rejected',
+        payload: { hubId: IDS.intermediateHub, outcome: 'rejected', reason: 'shelf is full this week' },
+      },
+    ]);
+    expect(result.effects.filter((e) => MONEY_EFFECT_KINDS.includes(e.kind))).toEqual([]);
+  });
+
+  it('guard: a reason is required (documentation, ADR-012)', () => {
+    expectRejected(
+      transition('AT_HUB', { ...validEvent('deposit_reject'), reason: '  ' } as ShipmentEvent, ctx),
+      'guard_failed',
+    );
+  });
+
+  it('guard: no pending request to reject', () => {
+    expectRejected(
+      transition('AT_HUB', validEvent('deposit_reject'), ctxForState('AT_HUB')),
+      'guard_failed',
+    );
+  });
+});
+
+describe('deposit_request_expired', () => {
+  const ctx = { ...ctxForState('AT_HUB'), pendingLegRequest: pendingRequest() };
+
+  it('the silent hub: chain event + carrier email, consumes its own timer, zero money', () => {
+    const result = transition('AT_HUB', validEvent('deposit_request_expired'), ctx);
+    expectOk(result);
+    expect(result.nextState).toBe('AT_HUB');
+    expect(result.effects).toEqual([
+      {
+        kind: 'append_custody_event',
+        type: 'expired',
+        actorUserId: null,
+        legId: IDS.leg,
+        hubStayId: null,
+        payload: { reason: 'deposit_response' },
+      },
+      {
+        kind: 'queue_email',
+        to: 'carrier',
+        template: 'deposit_request_rejected',
+        payload: { hubId: IDS.intermediateHub, outcome: 'expired' },
+      },
+    ]);
+    expect(result.effects.filter((e) => MONEY_EFFECT_KINDS.includes(e.kind))).toEqual([]);
+  });
+
+  it('guard: cannot expire before the window closes', () => {
+    expectRejected(
+      transition('AT_HUB', { type: 'deposit_request_expired', now: at(29) }, ctx),
+      'guard_failed',
+    );
+  });
+
+  it('guard: no pending request to expire', () => {
+    expectRejected(
+      transition('AT_HUB', validEvent('deposit_request_expired'), ctxForState('AT_HUB')),
+      'guard_failed',
+    );
+  });
+});
+
+describe('deposit_request_cancel', () => {
+  const ctx = { ...ctxForState('AT_HUB'), pendingLegRequest: pendingRequest() };
+
+  it('the carrier withdraws: window disarmed, chain event, no email, zero money', () => {
+    const result = transition('AT_HUB', validEvent('deposit_request_cancel'), ctx);
+    expectOk(result);
+    expect(result.nextState).toBe('AT_HUB');
+    expect(result.effects).toEqual([
+      { kind: 'cancel_timeout', timeout: 'deposit_response', refId: IDS.leg },
+      {
+        kind: 'append_custody_event',
+        type: 'expired',
+        actorUserId: IDS.carrier,
+        legId: IDS.leg,
+        hubStayId: null,
+        payload: { reason: 'deposit_request_cancelled' },
+      },
+    ]);
+    expect(result.effects.filter((e) => MONEY_EFFECT_KINDS.includes(e.kind))).toEqual([]);
+  });
+
+  it('guard: no pending request to cancel', () => {
+    expectRejected(
+      transition('AT_HUB', validEvent('deposit_request_cancel'), ctxForState('AT_HUB')),
+      'guard_failed',
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Deposit-request interactions with the rest of the protocol (ADR-029)
+
+describe('deposit-request interactions (ADR-029)', () => {
+  const pendingReqCtx = { ...ctxForState('AT_HUB'), pendingLegRequest: pendingRequest() };
+
+  it('recipient_claim, boost, reroute and cancel are rejected while a request is pending', () => {
+    expectRejected(transition('AT_HUB', validEvent('recipient_claim'), pendingReqCtx), 'guard_failed');
+    expectRejected(transition('AT_HUB', validEvent('boost'), pendingReqCtx), 'guard_failed');
+    expectRejected(transition('AT_HUB', validEvent('reroute'), pendingReqCtx), 'guard_failed');
+    expectRejected(transition('AT_HUB', { type: 'cancel' }, pendingReqCtx), 'guard_failed');
+  });
+
+  it('storage_expiry with a pending request: only the response window dissolves — zero request money', () => {
+    const result = transition('AT_HUB', validEvent('storage_expiry'), pendingReqCtx);
+    expectOk(result);
+    expect(result.nextState).toBe('FORFEITED');
+    expect(result.effects).toEqual([
+      { kind: 'cancel_timeout', timeout: 'deposit_response', refId: IDS.leg },
+      // The stay's own bond refund + chain event follow, as in every expiry.
+      { kind: 'refund_conditional_payment', paymentId: IDS.originHubBond },
+      {
+        kind: 'post_ledger_entry',
+        eventType: 'hub_bond_refunded',
+        ref: { type: 'hub_stay', id: IDS.originStay },
+        postings: [
+          { ownerType: 'shipment', ownerId: IDS.shipment, accountKind: 'commitment', amountMsat: -BOND_MSAT },
+          { ownerType: 'user', ownerId: IDS.originHubUser, accountKind: 'external_wallet', amountMsat: BOND_MSAT },
+        ],
+      },
+      {
+        kind: 'append_custody_event',
+        type: 'expired',
+        actorUserId: null,
+        legId: null,
+        hubStayId: IDS.originStay,
+        payload: { reason: 'storage' },
+      },
+    ]);
   });
 });
 
@@ -1747,8 +2030,8 @@ describe('recipient_claimed_pickup', () => {
 describe('claim interactions with the rest of the protocol (ADR-016)', () => {
   const pendingClaimCtx = { ...ctxForState('AT_HUB'), pendingClaim: pendingClaim() };
 
-  it('leg_accept is rejected while a claim is pending: the parcel left the board', () => {
-    expectRejected(transition('AT_HUB', validEvent('leg_accept'), pendingClaimCtx), 'guard_failed');
+  it('leg_request is rejected while a claim is pending: the parcel left the board', () => {
+    expectRejected(transition('AT_HUB', validEvent('leg_request'), pendingClaimCtx), 'guard_failed');
   });
 
   it('boost, reroute and cancel are rejected while a claim is pending', () => {
@@ -1857,10 +2140,15 @@ const LEGAL: Record<string, ShipmentEventType[]> = {
   DRAFT: ['origin_hub_accept', 'cancel'],
   AWAITING_DROPOFF: ['origin_checkin', 'cancel'],
   // leg_funded / leg_funding_expired are state-legal in AT_HUB but need a
-  // pending leg (claim_funded / claim_funding_expired a pending claim): with
-  // the bare AT_HUB fixture they fail on the guard instead.
+  // pending leg (claim_funded / claim_funding_expired a pending claim, the
+  // deposit_* answers a pending request): with the bare AT_HUB fixture they
+  // fail on the guard instead.
   AT_HUB: [
-    'leg_accept',
+    'leg_request',
+    'deposit_accept',
+    'deposit_reject',
+    'deposit_request_expired',
+    'deposit_request_cancel',
     'leg_funded',
     'leg_funding_expired',
     'recipient_claim',
@@ -1885,7 +2173,11 @@ const ALL_EVENT_TYPES: ShipmentEventType[] = [
   'create',
   'origin_hub_accept',
   'origin_checkin',
-  'leg_accept',
+  'leg_request',
+  'deposit_accept',
+  'deposit_reject',
+  'deposit_request_expired',
+  'deposit_request_cancel',
   'leg_funded',
   'leg_funding_expired',
   'pickup_checkout',
@@ -1939,6 +2231,14 @@ describe('state × event matrix', () => {
         }
         if (state === 'AT_HUB' && (eventType === 'claim_funded' || eventType === 'claim_funding_expired')) {
           ctx = { ...ctx, pendingClaim: pendingClaim() };
+        }
+        if (
+          state === 'AT_HUB' &&
+          ['deposit_accept', 'deposit_reject', 'deposit_request_expired', 'deposit_request_cancel'].includes(
+            eventType,
+          )
+        ) {
+          ctx = { ...ctx, pendingLegRequest: pendingRequest() };
         }
         cases.push([state, eventType, ctx]);
       }

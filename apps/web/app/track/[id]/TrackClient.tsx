@@ -13,15 +13,14 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import { ApiError } from '../../../lib/api/client';
 import {
-  getHubs,
   getShipment,
   getShipmentPhotos,
   getWallet,
   recipientClaim,
   type ClaimCreated,
-  type Hub,
   type ShipmentDetail,
 } from '../../../lib/api/endpoints';
+import { useHubs, hubNameFrom } from '../../../lib/hub-lookup';
 import { useApiErrorMessage } from '../../../lib/api-error-message';
 import { useSession } from '../../../lib/session';
 import { formatDateTime } from '../../../lib/format';
@@ -31,6 +30,7 @@ import {
   statusDescriptionKey,
 } from '../../../lib/shipment-status';
 import { Amount } from '../../../components/Amount';
+import { Codename } from '../../../components/Codename';
 import { PhotoStrip } from '../../../components/PhotoStrip';
 import { QrCode } from '../../../components/QrCode';
 import { StatusBadge } from '../../../components/StatusBadge';
@@ -76,7 +76,6 @@ export function TrackClient({ id }: { id: string }) {
   const [availablePhotos, setAvailablePhotos] = useState<ReadonlySet<string>>(new Set());
   const [isParticipant, setIsParticipant] = useState<boolean | null>(null);
   const [walletConnected, setWalletConnected] = useState<boolean | null>(null);
-  const [hubs, setHubs] = useState<Hub[]>([]);
   const [token, setToken] = useState('');
   const [showTokenQr, setShowTokenQr] = useState(false);
   const [claim, setClaim] = useState<ClaimCreated | null>(null);
@@ -109,11 +108,8 @@ export function TrackClient({ id }: { id: string }) {
       .catch(() => setWalletConnected(false));
   }, [sessionLoading, user, load]);
 
-  useEffect(() => {
-    getHubs()
-      .then((res) => setHubs(res.hubs))
-      .catch(() => setHubs([]));
-  }, []);
+  // Targeted lookup (ADR-030): the page names only the parcel's current hub.
+  const hubs = useHubs([detail?.currentHubId]);
 
   if (sessionLoading) return <p className="muted">{tCommon('loading')}</p>;
 
@@ -132,8 +128,7 @@ export function TrackClient({ id }: { id: string }) {
     );
   }
 
-  const hubName = (hubId: string | null) =>
-    hubId ? (hubs.find((h) => h.id === hubId)?.name ?? `${hubId.slice(0, 8)}…`) : '—';
+  const hubName = (hubId: string | null) => hubNameFrom(hubs, hubId);
 
   const submitClaim = (e: FormEvent) => {
     e.preventDefault();
@@ -214,7 +209,12 @@ export function TrackClient({ id }: { id: string }) {
     <div className="stack">
       <section>
         <div className="row-between">
-          <h1>{t('title')}</h1>
+          <div>
+            <p className="muted">{t('title')}</p>
+            <h1>
+              <Codename value={detail.codename} className="codename-lg" />
+            </h1>
+          </div>
           <span className="row">
             <StatusBadge status={detail.status} />
             <button type="button" className="btn btn-sm" onClick={() => void load()}>

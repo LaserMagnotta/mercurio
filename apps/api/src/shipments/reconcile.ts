@@ -21,7 +21,7 @@ import {
   getAccountBalance,
   journalEntries,
 } from '@mercurio/db';
-import type { LifecycleDeps } from './executor';
+import type { LifecycleDeps } from './executor.js';
 
 export interface ReconciliationReport {
   checkedPayments: number;

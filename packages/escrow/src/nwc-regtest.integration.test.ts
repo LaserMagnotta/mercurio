@@ -23,11 +23,11 @@ import {
   getAccountBalance,
   journalEntries,
 } from '@mercurio/db';
-import { NwcWallet, parseNwcUri, probeNwcWallet, type NwcCapabilities } from './adapters/nwc';
-import { PreimageCoordinator } from './coordinator';
-import type { CoordinatorEvent } from './types';
-import { VOLUMES, localBalanceMsat, preflightNode, waitFor } from './testing/regtest';
-import { createEscrowWorld, type EscrowWorld } from './testing/world';
+import { NwcWallet, parseNwcUri, probeNwcWallet, type NwcCapabilities } from './adapters/nwc.js';
+import { PreimageCoordinator } from './coordinator.js';
+import type { CoordinatorEvent } from './types.js';
+import { VOLUMES, localBalanceMsat, preflightNode, waitFor } from './testing/regtest.js';
+import { createEscrowWorld, type EscrowWorld } from './testing/world.js';
 
 const AMOUNT = 100_000n; // msat = 100 sat
 const RELAY_URL = process.env.NWC_RELAY ?? 'ws://127.0.0.1:7447';

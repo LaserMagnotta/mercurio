@@ -14,6 +14,7 @@ import type {
   hubDto,
   meShipmentsDto,
   meTripsDto,
+  OpeningHoursEntry,
   photoUploadedDto,
   shipmentCreatedDto,
   shipmentDetailDto,
@@ -87,16 +88,19 @@ export const activateCarrierRole = () =>
 export interface RegisterHubInput {
   name: string;
   address: string;
+  /** Optional venue contact address, distinct from the account email (ADR-028):
+   *  deposit-request notifications go here when set. */
+  contactEmail?: string;
   lat: number;
   lng: number;
-  openingHours: Record<string, string>;
+  openingHours: OpeningHoursEntry[];
   maxDimCmL: number;
   maxDimCmW: number;
   maxDimCmH: number;
   maxWeightG: number;
   acceptsUndeclared: boolean;
   feePercent: number;
-  maxStorageHours: number;
+  maxStorageDays: number;
   autoAccept: boolean;
 }
 
@@ -136,40 +140,145 @@ export const connectWallet = (kind: WalletKind, connectionSecret: string) =>
 
 // --------------------------------------------------------------------- hubs
 
-export const getHubs = () => apiFetch<{ hubs: Hub[] }>('/hubs');
+export interface HubSearchParams {
+  /** Viewport filter "minLat,minLng,maxLat,maxLng". */
+  bbox?: string;
+  /** Case-insensitive substring on name and address. */
+  q?: string;
+  /** "lat,lng": sort by distance from here; fills each hub's distanceKm. */
+  near?: string;
+  limit?: number;
+  offset?: number;
+}
+
+/** Paginated hub discovery (ADR-030): the page plus the pre-pagination total. */
+export const searchHubs = (params: HubSearchParams) =>
+  apiFetch<{ hubs: Hub[]; total: number }>('/hubs', { query: { ...params } });
+
+export const getHub = (id: string) => apiFetch<Hub>(`/hubs/${id}`);
+
+/** One shipment waiting for a carrier at a hub (ADR-030 reverse trip
+ *  planning): indicative gross ceiling, never a frozen per-leg price. */
+export interface HubWaitingShipment {
+  shipmentId: string;
+  codename: string;
+  destHubId: string;
+  destHubName: string;
+  remainingKm: number;
+  dims: { lengthCm: number; widthCm: number; heightCm: number };
+  weightG: number;
+  undeclared: boolean;
+  custodyBondMsat: string;
+  maxGrossMsat: string;
+  eurRate: EurRate;
+}
+
+export const getHubWaitingShipments = (hubId: string) =>
+  apiFetch<{ hubId: string; shipments: HubWaitingShipment[] }>(
+    `/hubs/${hubId}/waiting-shipments`,
+  );
 
 // Response of GET /hubs/mine/requests (the hub owner's dashboard) — shaped
 // in the API route, typed here explicitly like the other non-DTO endpoints.
 
+/** The shipment's frozen exchange snapshot (ADR-008): sats-first amounts carry
+ *  the rate that governs them so every one shows "≈ €" (matches eurRateDto). */
+export interface EurRate {
+  satsPerEur: string;
+  source: string;
+  at: string;
+}
+
+/** What the hub earns from a dashboard row (Fase 2 punto 7): an exact figure
+ *  where an adjacent leg is priced, a "from–to" range where the leg split is
+ *  not known yet. Both in msat, rendered sats-first + indicative € via Amount. */
+export type ProjectedEarning =
+  | { kind: 'exact'; msat: string }
+  | { kind: 'range'; minMsat: string; maxMsat: string };
+
 export interface HubAcceptRequest {
   shipmentId: string;
+  codename: string;
   destHubId: string;
   dims: { lengthCm: number; widthCm: number; heightCm: number };
   weightG: number;
   undeclared: boolean;
   custodyBondMsat: string;
-  maxStorageHours: number;
+  maxStorageDays: number;
+  projectedEarning: ProjectedEarning;
+  eurRate: EurRate;
   createdAt: string;
 }
 
 export interface HubStaySummary {
   hubStayId: string;
   shipmentId: string;
+  codename: string;
   status: 'reserved' | 'active';
   /** Lowercase DB enum (e.g. "at_hub") — uppercase it for ShipmentState. */
   shipmentStatus: string;
   storageDeadlineAt: string | null;
   custodyBondMsat: string;
+  projectedEarning: ProjectedEarning;
+  eurRate: EurRate;
   destHubId: string;
+}
+
+/** An arrival deposit request (ADR-029): a carrier asked to drop a parcel at
+ *  this hub; the leg sits in 'requested' until the hub answers, and the
+ *  earning is EXACT (the leg's arrival fee was frozen at the request). */
+export interface HubDepositRequest {
+  shipmentId: string;
+  legId: string;
+  codename: string;
+  fromHubId: string;
+  destHubId: string;
+  dims: { lengthCm: number; widthCm: number; heightCm: number };
+  weightG: number;
+  undeclared: boolean;
+  custodyBondMsat: string;
+  maxStorageDays: number;
+  responseDeadlineAt: string | null;
+  projectedEarning: ProjectedEarning;
+  eurRate: EurRate;
+  requestedAt: string;
 }
 
 export interface HubDashboard {
   hubId: string;
+  /** ADR-029 / punto 9: pinned on top, soonest response deadline first. */
+  depositRequests: HubDepositRequest[];
   acceptRequests: HubAcceptRequest[];
   stays: HubStaySummary[];
 }
 
 export const getMyHubRequests = () => apiFetch<HubDashboard>('/hubs/mine/requests');
+
+// --------------------------------------------------------- venue photos (ADR-028)
+
+export interface VenuePhoto {
+  sha256: string;
+  createdAt: string;
+}
+
+/** Public list of a hub's venue photos (bytes come from venuePhotoUrl). */
+export const getVenuePhotos = (hubId: string) =>
+  apiFetch<{ photos: VenuePhoto[] }>(`/hubs/${hubId}/venue-photos`);
+
+/** Same-origin URL of one venue photo's bytes (usable in <img src>). Public —
+ *  no session needed (ADR-028), unlike shipment photos. */
+export const venuePhotoUrl = (hubId: string, sha256: string) =>
+  `/api/hubs/${hubId}/venue-photos/${sha256}`;
+
+/** Owner-only: upload a re-encoded, EXIF-stripped venue photo (ADR-028). */
+export const uploadVenuePhoto = (photo: CapturedPhoto) =>
+  apiUploadJpeg<{ sha256: string; duplicated: boolean }>(
+    `/hubs/mine/venue-photos/${photo.sha256}`,
+    photo.blob,
+  );
+
+export const deleteVenuePhoto = (sha256: string) =>
+  apiFetch<{ deleted: true }>(`/hubs/mine/venue-photos/${sha256}`, { method: 'DELETE' });
 
 // ---------------------------------------------------------------- shipments
 
@@ -332,8 +441,39 @@ export interface LegPricing {
   finalizationBonusMsat: string;
 }
 
+/** ADR-029: opening a leg toward an auto-accept hub books it instantly
+ *  ('pending_funding'); toward a manual hub it opens a deposit REQUEST
+ *  ('requested') the hub must answer within responseDeadlineAt. */
 export const acceptLeg = (shipmentId: string, tripId: string, toHubId: string) =>
-  apiFetch<{ legId: string; fundingDeadlineAt: string; pricing: LegPricing }>(
-    `/shipments/${shipmentId}/legs`,
-    { method: 'POST', body: { tripId, toHubId } },
+  apiFetch<{
+    legId: string;
+    status: 'pending_funding' | 'requested';
+    responseDeadlineAt: string;
+    fundingDeadlineAt: string | null;
+    requiresHubConfirmation: boolean;
+    pricing: LegPricing;
+  }>(`/shipments/${shipmentId}/legs`, { method: 'POST', body: { tripId, toHubId } });
+
+// ----------------------------------------- deposit-request answers (ADR-029)
+
+/** Arrival hub: accept the pending deposit request — creates the holds and
+ *  opens the funding window (the money moves only from here on). */
+export const depositAccept = (shipmentId: string, legId: string) =>
+  apiFetch<{ status: string; fundingDeadlineAt: string }>(
+    `/shipments/${shipmentId}/legs/${legId}/deposit-accept`,
+    { method: 'POST' },
   );
+
+/** Arrival hub: refuse the request (documentation, ADR-012 — a reason is
+ *  required). Zero money moves; the shipment returns to the board. */
+export const depositReject = (shipmentId: string, legId: string, reason: string) =>
+  apiFetch<{ status: string }>(`/shipments/${shipmentId}/legs/${legId}/deposit-reject`, {
+    method: 'POST',
+    body: { reason },
+  });
+
+/** Carrier: withdraw the pending request to re-target another hub. */
+export const depositCancel = (shipmentId: string, legId: string) =>
+  apiFetch<{ status: string }>(`/shipments/${shipmentId}/legs/${legId}/deposit-cancel`, {
+    method: 'POST',
+  });

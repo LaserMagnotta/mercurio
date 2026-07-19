@@ -1,6 +1,6 @@
 import { pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
-import { authMethodEnum } from './enums';
-import { users } from './users';
+import { authMethodEnum } from './enums.js';
+import { users } from './users.js';
 
 // Magic-link tokens (ADR-009). Only the hash is stored - the raw token is
 // emailed and never persisted - so a DB read alone cannot authenticate.

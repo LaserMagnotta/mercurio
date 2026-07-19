@@ -1,0 +1,163 @@
+# Mercurio — production stack on a single host (ADR-024).
+#
+# NOT to be confused with infra/docker/docker-compose.yml, which is the
+# development fixture (regtest Lightning, Mailpit, MinIO) and must never run
+# in production. There are no Lightning nodes here BY DESIGN: the platform has
+# no wallet and never touches funds (ADR-013) — the wallets are the users'.
+#
+# Usage (from the repo root, see docs/DEPLOY.md):
+#   docker compose -f infra/production/docker-compose.yml up -d --build
+#
+# Only Caddy publishes ports. Postgres, the API and the web app talk over the
+# compose network and are unreachable from outside the host.
+
+name: mercurio
+
+# Docker keeps container logs forever by default, which fills the disk of a
+# small VPS silently. Capped here for every service (ADR-024 §9).
+x-logging: &logging
+  logging:
+    driver: json-file
+    options:
+      max-size: '10m'
+      max-file: '5'
+
+# The API image is used by two services (the app and the one-shot migration),
+# so both point at the same build and the same tag: compose builds it once.
+x-api-image: &api-image
+  build:
+    context: ../..
+    dockerfile: infra/production/api.Dockerfile
+  image: mercurio-api:local
+
+# Composed from the Postgres credentials rather than kept in .env as a fifth
+# copy of the same password: one place to rotate, no way for the two to drift
+# apart. Keep the password URL-safe (docs/DEPLOY.md) — it lands in a URL here.
+x-database-url: &database-url
+  DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    <<: *logging
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # Migrations run as their own one-shot service (ADR-024 §6): the API only
+  # starts once this has exited 0, so a failed migration blocks the deploy
+  # loudly instead of crash-looping an API against a schema it cannot use.
+  migrate:
+    <<: [*api-image, *logging]
+    restart: 'no'
+    command: ['node', 'node_modules/@mercurio/db/dist/migrate.js']
+    environment: *database-url
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    <<: [*api-image, *logging]
+    restart: unless-stopped
+    # Everything the API reads (COORDINATOR_KEY, WEB_URL, SMTP_*, photo
+    # storage) comes straight from .env — no secret is ever written here.
+    env_file: .env
+    environment:
+      <<: *database-url
+      NODE_ENV: production
+      PORT: 3001
+      # Caddy is the only way in, so X-Forwarded-For is trustworthy here and
+      # the per-IP anti-abuse limits (RISKS §7) key on the real client.
+      TRUST_PROXY: 'true'
+    volumes:
+      - photos:/var/lib/mercurio/photos
+      - venue-photos:/var/lib/mercurio/venue-photos
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  web:
+    build:
+      context: ../..
+      dockerfile: infra/production/web.Dockerfile
+    image: mercurio-web:local
+    restart: unless-stopped
+    <<: *logging
+    environment:
+      NODE_ENV: production
+      # Read at runtime by the server-rendered pages (hub list, public QR
+      # status). Browsers never use this: they reach the API same-origin
+      # through Caddy (ADR-018, ADR-024 §4).
+      API_URL: http://api:3001
+    depends_on:
+      api:
+        condition: service_healthy
+
+  # OSRM road routing (ADR-031) — OPTIONAL, behind the `routing` profile:
+  #
+  #   docker compose -f infra/production/docker-compose.yml --profile routing up -d
+  #
+  # Requires the preprocessed graph in ./osrm-data (built OFF this host — the
+  # extraction needs 10-16 GB of RAM; see docs/DEPLOY.md) and OSRM_URL set in
+  # .env so the API knows where to ask. Without either, the stack runs exactly
+  # as before ADR-031: shipments are born on the haversine metric and the maps
+  # draw straight lines. No service depends on this one BY DESIGN: a dead
+  # router degrades boards and maps, it never blocks them.
+  #
+  # --mmap keeps the resident memory in the low hundreds of MB (the OS page
+  # cache does the work) instead of loading the ~5 GB graph into RAM;
+  # --max-table-size covers the board's distance matrices (default is 100).
+  osrm:
+    image: ghcr.io/project-osrm/osrm-backend:v5.27.1
+    profiles: [routing]
+    restart: unless-stopped
+    <<: *logging
+    command:
+      [
+        'osrm-routed',
+        '--algorithm',
+        'mld',
+        '--mmap',
+        '--max-table-size',
+        '8000',
+        '/data/italy-latest.osrm',
+      ]
+    volumes:
+      - ./osrm-data:/data:ro
+
+  # The single public origin, and the only service with published ports.
+  # Certificates are obtained and renewed automatically (ADR-024 §3).
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    <<: *logging
+    ports:
+      - '80:80'
+      - '443:443'
+    environment:
+      MERCURIO_DOMAIN: ${MERCURIO_DOMAIN:?set MERCURIO_DOMAIN in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data # certificates and ACME account keys — back this up
+      - caddy-config:/config
+    depends_on:
+      - web
+
+volumes:
+  postgres-data:
+  photos: # PHOTO_STORAGE_DIR (ADR-020 fs driver); back up with the database
+  venue-photos: # VENUE_PHOTO_STORAGE_DIR (ADR-028); back up with the database
+  caddy-data:
+  caddy-config:

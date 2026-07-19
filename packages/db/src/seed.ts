@@ -1,7 +1,7 @@
 import postgres from 'postgres';
 import { drizzle } from 'drizzle-orm/postgres-js';
-import * as schema from './schema/index';
-import { seedDemoData } from './seed-data';
+import * as schema from './schema/index.js';
+import { seedDemoData } from './seed-data.js';
 
 const connectionString =
   process.env.DATABASE_URL ?? 'postgres://mercurio:mercurio@localhost:5432/mercurio';

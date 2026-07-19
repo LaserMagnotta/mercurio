@@ -13,9 +13,9 @@ import {
   journalEntries,
   shipmentTimers,
 } from '@mercurio/db';
-import { pumpWalletEvents } from './pump';
-import { fireDueTimers } from './timers';
-import { retryEscrowIntents } from './reconcile';
+import { pumpWalletEvents } from './pump.js';
+import { fireDueTimers } from './timers.js';
+import { retryEscrowIntents } from './reconcile.js';
 import {
   createLifecycleWorld,
   createShipmentAtHub,
@@ -23,7 +23,7 @@ import {
   doubleConfirmCheckout,
   sha,
   type LifecycleWorld,
-} from './test-world';
+} from './test-world.js';
 
 async function bookAndPickup(world: LifecycleWorld) {
   const { id, qrToken } = await createShipmentAtHub(world);

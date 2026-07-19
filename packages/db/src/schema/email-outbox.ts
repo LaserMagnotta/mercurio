@@ -1,5 +1,5 @@
 import { integer, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
-import { emailStatusEnum } from './enums';
+import { emailStatusEnum } from './enums.js';
 
 // Transactional email outbox (ARCHITECTURE.md sec.4): notifications are
 // queued in the SAME transaction as the domain event and sent by a worker -

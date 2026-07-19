@@ -7,8 +7,8 @@ export type Msat = bigint;
 // protocol.ts is a leaf on purpose (see its header): api.ts needs its
 // constants as VALUES at module scope, and pulling them through this barrel
 // would be a circular value import that evaluates as undefined.
-export * from './protocol';
-export * from './economics';
-export * from './matching';
-export * from './state-machine';
-export * from './api';
+export * from './protocol.js';
+export * from './economics.js';
+export * from './matching.js';
+export * from './state-machine.js';
+export * from './api.js';

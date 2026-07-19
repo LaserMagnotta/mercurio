@@ -1,6 +1,14 @@
 # ADR-017 — Recensioni: ruoli effettivi, stati ammessi, finestra temporale
 
-- Stato: accettato — 2026-07-14; **implementato** lo stesso giorno
+> **Emendato da [ADR-027](ADR-027-reviews-hub-only.md) (2026-07-17): l'unico
+> soggetto recensibile è l'hub.** Mittente e vettore non sono più recensibili;
+> le guardie, gli aggregati e le letture di questo ADR valgono ora per il solo
+> ruolo `hub`. Tutto il resto (stati ammessi, finestra di 30 giorni, autori =
+> partecipanti effettivi, niente modifica/cancellazione, aggregati calcolati in
+> lettura) resta in vigore.
+
+- Stato: accettato — 2026-07-14; **implementato** lo stesso giorno; **emendato
+  da ADR-027** il 2026-07-17
 - Contesto: CLAUDE.md "Recensioni", [ARCHITECTURE.md](../ARCHITECTURE.md) §4
   (tabella `reviews`), [RISKS.md](../RISKS.md) §1 e §7 (la reputazione è
   l'unica sanzione in un sistema senza arbitri)

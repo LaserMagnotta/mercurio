@@ -7,7 +7,8 @@ export default tseslint.config(
   {
     ignores: [
       '**/dist/**',
-      '**/.next/**',
+      // .next* covers NEXT_DIST_DIR variants (e.g. .next-adr031), not just .next
+      '**/.next*/**',
       '**/.turbo/**',
       '**/node_modules/**',
       '**/next-env.d.ts',

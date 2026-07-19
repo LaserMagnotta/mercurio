@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { encodeFakeInvoiceForTests, extractPaymentHash } from './bolt11';
+import { encodeFakeInvoiceForTests, extractPaymentHash } from './bolt11.js';
 
 describe('bolt11 payment_hash round-trip', () => {
   it('recovers an arbitrary 32-byte hash through encode/decode', () => {

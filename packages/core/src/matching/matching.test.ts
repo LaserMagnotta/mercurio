@@ -13,9 +13,13 @@ import type {
   MatchingHub,
   ShipmentAtHub,
 } from '@mercurio/shared';
-import type { DistanceProvider } from './distance';
-import { createHaversineDistanceProvider, haversineKm } from './distance';
-import { rankBoard } from './matching';
+import type { DistanceProvider } from './distance.js';
+import {
+  createHaversineDistanceProvider,
+  haversineKm,
+  UnresolvedDistanceError,
+} from './distance.js';
+import { rankBoard } from './matching.js';
 
 /** Plane geometry in km: x = lng, y = lat. */
 const pt = (x: number, y: number): GeoPoint => ({ lat: y, lng: x });
@@ -94,6 +98,7 @@ describe('MATCHING.md §2 — the numeric example on plane geometry', () => {
       netMsat: 3_350_000n,
       finalizationBonusMsat: 350_000n,
       surplusMsat: 2_197_000n,
+      requiresConfirmation: false,
     });
     // H1: detour = √1000 + √925 + √1625 − 100 = 2.348 km; progress = 60 −
     // √925 = 29.586 km; gross = 3.75 € × 29586/60000 = 1.849 € (sat floor);
@@ -107,6 +112,7 @@ describe('MATCHING.md §2 — the numeric example on plane geometry', () => {
         netMsat: 1_481_000n,
         finalizationBonusMsat: 0n,
         surplusMsat: 1_011_400n,
+        requiresConfirmation: false,
       },
     ]);
     // H3 (detour 31.7 km > 15) is excluded outright, S itself gives zero
@@ -148,6 +154,7 @@ describe('MATCHING.md §2 — the numeric example on plane geometry', () => {
       netMsat: 3_000_000n,
       finalizationBonusMsat: 0n,
       surplusMsat: 1_847_000n,
+      requiresConfirmation: false,
     });
   });
 });
@@ -193,12 +200,11 @@ describe('candidate filters (MATCHING.md §2, conditions 1–3)', () => {
     expect(board[0]!.bestDropHub.hubId).toBe('T');
   });
 
-  it('excludes hubs that cannot take the parcel: inactive, no wallet, no auto-accept, size, weight, undeclared', () => {
+  it('excludes hubs that cannot take the parcel: inactive, no wallet, size, weight, undeclared', () => {
     const mid = pt(50, 0);
     const rejected = [
       hub('H-inactive', mid, 1000, { active: false }),
       hub('H-no-wallet', mid, 1000, { walletConnected: false }),
-      hub('H-manual', mid, 1000, { autoAcceptDeposits: false }),
       hub('H-small', mid, 1000, { maxDimsCm: { lengthCm: 5, widthCm: 5, heightCm: 5 } }),
       hub('H-light', mid, 1000, { maxWeightG: 100 }),
       hub('H-declared-only', mid, 1000, { acceptsUndeclared: false }),
@@ -206,6 +212,18 @@ describe('candidate filters (MATCHING.md §2, conditions 1–3)', () => {
     const ids = bestIds([S, T, ...rejected], shipment({ ...axisShipment, undeclared: true }));
     for (const r of rejected) expect(ids).not.toContain(r.hubId);
     expect(ids).toContain('T');
+  });
+
+  it('a MANUAL hub is a candidate marked requiresConfirmation (ADR-029)', () => {
+    const manual = hub('H-manual', pt(50, 0), 1000, { autoAcceptDeposits: false });
+    const board = rankBoard(axisTrip, [axisShipment], [S, T, manual], euclidean);
+    expect(board).toHaveLength(1);
+    const options = [board[0]!.bestDropHub, ...board[0]!.alternatives];
+    const manualOption = options.find((o) => o.hubId === 'H-manual');
+    expect(manualOption?.requiresConfirmation).toBe(true);
+    // Auto-accept hubs stay unmarked: instant booking is their advantage.
+    const autoOption = options.find((o) => o.hubId === 'T');
+    expect(autoOption?.requiresConfirmation).toBe(false);
   });
 
   it('allows rotated parcels: a 60×10×10 box fits a 15×80×12 limit', () => {
@@ -236,6 +254,52 @@ describe('candidate filters (MATCHING.md §2, conditions 1–3)', () => {
     const bad = shipment({ shipmentId: 'bad-bonus', carrierBonusMsat: -1n });
     const board = rankBoard(axisTrip, [bad, axisShipment], [S, T], euclidean);
     expect(board.map((c) => c.shipmentId)).toEqual(['ship-1']);
+  });
+});
+
+describe('unanswerable pairs (ADR-031: partial road coverage)', () => {
+  // Same one-dimensional geometry as the filter suite: direct route 100 km,
+  // S at x=10 holding the parcel, T at x=90, one intermediate hub at x=50.
+  const S = hub('S', pt(10, 0), 1000);
+  const T = hub('T', pt(90, 0), 1000);
+  const mid = hub('H-mid', pt(50, 0), 1000);
+  const axisTrip: CarrierTrip = {
+    origin: pt(0, 0),
+    destination: pt(100, 0),
+    maxDeviationKm: 15,
+    minRateMsatPerKm: 0n,
+  };
+  const axisShipment = shipment({ poolMsat: 4_000_000n, totalKm: 80, remainingKm: 80 });
+
+  /** Euclidean everywhere except one unordered pair, which the provider
+   *  cannot answer — the shape of a road router with a hole in its map. */
+  const cursedProvider = (a: GeoPoint, b: GeoPoint): DistanceProvider => ({
+    distanceKm(x, y) {
+      const same = (p: GeoPoint, q: GeoPoint) => p.lat === q.lat && p.lng === q.lng;
+      if ((same(x, a) && same(y, b)) || (same(x, b) && same(y, a))) {
+        throw new UnresolvedDistanceError(`no route (${x.lng},${x.lat})->(${y.lng},${y.lat})`);
+      }
+      return euclidean.distanceKm(x, y);
+    },
+  });
+
+  const optionIds = (board: ReturnType<typeof rankBoard>): string[] =>
+    board.flatMap((c) => [c.bestDropHub, ...c.alternatives].map((o) => o.hubId));
+
+  it('a drop hub with an unanswerable pair disqualifies itself; the shipment stays on the board', () => {
+    const provider = cursedProvider(pt(50, 0), pt(100, 0)); // mid -> trip destination
+    const board = rankBoard(axisTrip, [axisShipment], [S, T, mid], provider);
+    expect(board).toHaveLength(1);
+    expect(optionIds(board)).toContain('T');
+    expect(optionIds(board)).not.toContain('H-mid');
+  });
+
+  it('T unanswerable toward the trip destination forfeits direct delivery, not the shipment', () => {
+    const provider = cursedProvider(pt(90, 0), pt(100, 0)); // T -> trip destination
+    const board = rankBoard(axisTrip, [axisShipment], [S, T, mid], provider);
+    expect(board).toHaveLength(1);
+    expect(optionIds(board)).toContain('H-mid');
+    expect(optionIds(board)).not.toContain('T');
   });
 });
 

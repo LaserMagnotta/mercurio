@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { createTestDb } from '@mercurio/db/test-helpers';
 import { emailOutbox } from '@mercurio/db';
 import { eq } from 'drizzle-orm';
-import { buildApp } from './app';
+import { buildApp } from './app.js';
 
 const CONSENT = { tosVersion: '2026-01-01', privacyVersion: '2026-01-01' };
 
@@ -86,14 +86,18 @@ describe('auth + account HTTP flow', () => {
       address: 'Via Zamboni 5, Bologna',
       lat: 44.4949,
       lng: 11.3426,
-      openingHours: { 'mon-sat': '06:00-21:00' },
+      openingHours: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat'].map((day) => ({
+        day,
+        opens: '06:00',
+        closes: '21:00',
+      })),
       maxDimCmL: 50,
       maxDimCmW: 50,
       maxDimCmH: 50,
       maxWeightG: 15000,
       acceptsUndeclared: true,
       feePercent: 10,
-      maxStorageHours: 72,
+      maxStorageDays: 3,
       autoAccept: true,
     };
     const hubRes = await app.inject({
@@ -152,14 +156,14 @@ describe('auth + account HTTP flow', () => {
         address: 'Somewhere',
         lat: 0,
         lng: 0,
-        openingHours: {},
+        openingHours: [],
         maxDimCmL: 10,
         maxDimCmW: 10,
         maxDimCmH: 10,
         maxWeightG: 1000,
         acceptsUndeclared: false,
         feePercent: 50, // above the 30% cap
-        maxStorageHours: 24,
+        maxStorageDays: 1,
         autoAccept: true,
       },
     });

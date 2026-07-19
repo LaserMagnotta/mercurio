@@ -8,8 +8,8 @@
 
 import { BucketAlreadyOwnedByYou, CreateBucketCommand, S3Client } from '@aws-sdk/client-s3';
 import { beforeAll } from 'vitest';
-import { createS3BlobStore } from './blob-store';
-import { runBlobStoreContractTests } from './blob-store.contract';
+import { createS3BlobStore } from './blob-store.js';
+import { runBlobStoreContractTests } from './blob-store.contract.js';
 
 // Defaults match the docker-compose "minio" service (ADR-023 §5) so the
 // suite runs with zero configuration against the dev fixture; override via

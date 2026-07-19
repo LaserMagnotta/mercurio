@@ -8,16 +8,27 @@
 
 import { useState, type FormEvent } from 'react';
 import { useTranslations } from 'next-intl';
+import { DAY_KEYS, MAX_OPENING_INTERVALS_PER_DAY, MAX_STORAGE_DAYS, type DayKey } from '@mercurio/shared';
 import { registerHubRole } from '../../lib/api/endpoints';
 import { useApiErrorMessage } from '../../lib/api-error-message';
 
-const DAY_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const;
-
 /** Mirrors the API route's zod bounds (apps/api/routes/me.ts `hubBody`). */
 const FEE_MAX = 30;
-const STORAGE_MAX_HOURS = 168;
+const STORAGE_MAX_DAYS = MAX_STORAGE_DAYS;
 
 const isPosInt = (v: string) => /^\d{1,7}$/.test(v) && Number(v) > 0;
+
+/** One (possibly incomplete) open interval being edited. */
+interface HoursInterval {
+  opens: string;
+  closes: string;
+}
+
+const emptyHoursByDay = (): Record<DayKey, HoursInterval[]> => {
+  const result = {} as Record<DayKey, HoursInterval[]>;
+  for (const day of DAY_KEYS) result[day] = [];
+  return result;
+};
 
 export function HubRegisterForm({ onRegistered }: { onRegistered: () => Promise<void> }) {
   const t = useTranslations('hub');
@@ -25,19 +36,34 @@ export function HubRegisterForm({ onRegistered }: { onRegistered: () => Promise<
 
   const [name, setName] = useState('');
   const [address, setAddress] = useState('');
+  const [contactEmail, setContactEmail] = useState('');
   const [lat, setLat] = useState('');
   const [lng, setLng] = useState('');
-  const [hours, setHours] = useState<Record<string, string>>({});
+  const [hours, setHours] = useState<Record<DayKey, HoursInterval[]>>(emptyHoursByDay);
   const [dimL, setDimL] = useState('');
   const [dimW, setDimW] = useState('');
   const [dimH, setDimH] = useState('');
   const [weightG, setWeightG] = useState('');
   const [acceptsUndeclared, setAcceptsUndeclared] = useState(false);
   const [feePercent, setFeePercent] = useState('10');
-  const [maxStorageHours, setMaxStorageHours] = useState('48');
-  const [autoAccept, setAutoAccept] = useState(true);
+  const [maxStorageDays, setMaxStorageDays] = useState('2');
+  // Default FALSE (ADR-029, decisione B): a new hub is manual and reviews
+  // every deposit; "always accept" is an explicit opt-in.
+  const [autoAccept, setAutoAccept] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  const addInterval = (day: DayKey) =>
+    setHours((h) => ({ ...h, [day]: [...h[day], { opens: '', closes: '' }] }));
+
+  const removeInterval = (day: DayKey, index: number) =>
+    setHours((h) => ({ ...h, [day]: h[day].filter((_, i) => i !== index) }));
+
+  const updateInterval = (day: DayKey, index: number, field: keyof HoursInterval, value: string) =>
+    setHours((h) => ({
+      ...h,
+      [day]: h[day].map((iv, i) => (i === index ? { ...iv, [field]: value } : iv)),
+    }));
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -46,21 +72,33 @@ export function HubRegisterForm({ onRegistered }: { onRegistered: () => Promise<
     const latNum = Number(lat);
     const lngNum = Number(lng);
     const feeNum = Number(feePercent.replace(',', '.'));
-    const storageNum = Number(maxStorageHours);
-    const openingHours = Object.fromEntries(
-      DAY_KEYS.map((day) => [day, (hours[day] ?? '').trim()]).filter(([, v]) => v !== ''),
+    const storageNum = Number(maxStorageDays);
+    const hasPartialInterval = DAY_KEYS.some((day) =>
+      hours[day].some((iv) => (iv.opens === '') !== (iv.closes === '')),
+    );
+    const openingHours = DAY_KEYS.flatMap((day) =>
+      hours[day]
+        .filter((iv) => iv.opens !== '' && iv.closes !== '')
+        .map((iv) => ({ day, opens: iv.opens, closes: iv.closes })),
     );
 
+    const contact = contactEmail.trim();
     if (name.trim() === '' || address.trim() === '') return setError(t('validation.required'));
+    // Optional, but if given it must look like an email (mirrors the API).
+    if (contact !== '' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact)) {
+      return setError(t('validation.contactEmail'));
+    }
     if (!Number.isFinite(latNum) || Math.abs(latNum) > 90) return setError(t('validation.coords'));
     if (!Number.isFinite(lngNum) || Math.abs(lngNum) > 180) return setError(t('validation.coords'));
-    if (Object.keys(openingHours).length === 0) return setError(t('validation.hours'));
+    if (hasPartialInterval) return setError(t('validation.hoursIncomplete'));
+    if (openingHours.length === 0) return setError(t('validation.hours'));
+    if (openingHours.some((iv) => iv.opens >= iv.closes)) return setError(t('validation.hoursOrder'));
     if (![dimL, dimW, dimH, weightG].every(isPosInt)) return setError(t('validation.dims'));
     if (!Number.isFinite(feeNum) || feeNum < 0 || feeNum > FEE_MAX) {
       return setError(t('validation.fee', { max: FEE_MAX }));
     }
-    if (!Number.isInteger(storageNum) || storageNum < 1 || storageNum > STORAGE_MAX_HOURS) {
-      return setError(t('validation.storage', { max: STORAGE_MAX_HOURS }));
+    if (!Number.isInteger(storageNum) || storageNum < 1 || storageNum > STORAGE_MAX_DAYS) {
+      return setError(t('validation.storage', { max: STORAGE_MAX_DAYS }));
     }
 
     setBusy(true);
@@ -68,6 +106,7 @@ export function HubRegisterForm({ onRegistered }: { onRegistered: () => Promise<
       await registerHubRole({
         name: name.trim(),
         address: address.trim(),
+        ...(contact !== '' && { contactEmail: contact }),
         lat: latNum,
         lng: lngNum,
         openingHours,
@@ -77,7 +116,7 @@ export function HubRegisterForm({ onRegistered }: { onRegistered: () => Promise<
         maxWeightG: Number(weightG),
         acceptsUndeclared,
         feePercent: feeNum,
-        maxStorageHours: storageNum,
+        maxStorageDays: storageNum,
         autoAccept,
       });
       await onRegistered();
@@ -105,6 +144,17 @@ export function HubRegisterForm({ onRegistered }: { onRegistered: () => Promise<
             value={address}
             onChange={(e) => setAddress(e.target.value)}
           />
+        </div>
+        <div className="field">
+          <label htmlFor="hub-contact">{t('contactEmailLabel')}</label>
+          <input
+            id="hub-contact"
+            type="email"
+            inputMode="email"
+            value={contactEmail}
+            onChange={(e) => setContactEmail(e.target.value)}
+          />
+          <span className="hint">{t('contactEmailHint')}</span>
         </div>
 
         <div className="dims-grid">
@@ -134,15 +184,38 @@ export function HubRegisterForm({ onRegistered }: { onRegistered: () => Promise<
         <fieldset>
           <legend>{t('hoursLegend')}</legend>
           {DAY_KEYS.map((day) => (
-            <div className="field" key={day}>
-              <label htmlFor={`hub-h-${day}`}>{t(`days.${day}`)}</label>
-              <input
-                id={`hub-h-${day}`}
-                type="text"
-                placeholder={t('hoursPlaceholder')}
-                value={hours[day] ?? ''}
-                onChange={(e) => setHours({ ...hours, [day]: e.target.value })}
-              />
+            <div className="opening-hours-day" key={day}>
+              <span className="opening-hours-day-label">{t(`days.${day}`)}</span>
+              {hours[day].length === 0 && <p className="hint">{t('hoursClosed')}</p>}
+              {hours[day].map((iv, i) => (
+                <div className="opening-hours-interval" key={i}>
+                  <input
+                    type="time"
+                    aria-label={t('hoursOpensLabel', { day: t(`days.${day}`) })}
+                    value={iv.opens}
+                    onChange={(e) => updateInterval(day, i, 'opens', e.target.value)}
+                  />
+                  <span aria-hidden="true">–</span>
+                  <input
+                    type="time"
+                    aria-label={t('hoursClosesLabel', { day: t(`days.${day}`) })}
+                    value={iv.closes}
+                    onChange={(e) => updateInterval(day, i, 'closes', e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    onClick={() => removeInterval(day, i)}
+                  >
+                    {t('hoursRemoveInterval')}
+                  </button>
+                </div>
+              ))}
+              {hours[day].length < MAX_OPENING_INTERVALS_PER_DAY && (
+                <button type="button" className="btn btn-sm" onClick={() => addInterval(day)}>
+                  {t('hoursAddInterval')}
+                </button>
+              )}
             </div>
           ))}
           <p className="hint">{t('hoursHint')}</p>
@@ -202,12 +275,12 @@ export function HubRegisterForm({ onRegistered }: { onRegistered: () => Promise<
               id="hub-storage"
               type="number"
               min="1"
-              max={STORAGE_MAX_HOURS}
+              max={STORAGE_MAX_DAYS}
               inputMode="numeric"
-              value={maxStorageHours}
-              onChange={(e) => setMaxStorageHours(e.target.value)}
+              value={maxStorageDays}
+              onChange={(e) => setMaxStorageDays(e.target.value)}
             />
-            <span className="hint">{t('storageHint', { max: STORAGE_MAX_HOURS })}</span>
+            <span className="hint">{t('storageHint', { max: STORAGE_MAX_DAYS })}</span>
           </div>
           <div className="checkbox-row">
             <input

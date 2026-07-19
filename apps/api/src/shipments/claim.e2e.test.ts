@@ -22,11 +22,11 @@ import {
   shipmentTimers,
 } from '@mercurio/db';
 import { verifyCustodyChain } from '@mercurio/core';
-import { pumpWalletEvents } from './pump';
-import { fireDueTimers } from './timers';
-import { dispatchEmailOutbox } from './outbox';
-import { reconcile } from './reconcile';
-import { orderCustodyChain } from './context';
+import { pumpWalletEvents } from './pump.js';
+import { fireDueTimers } from './timers.js';
+import { dispatchEmailOutbox } from './outbox.js';
+import { reconcile } from './reconcile.js';
+import { orderCustodyChain } from './context.js';
 import {
   createLifecycleWorld,
   createShipmentAtHub,
@@ -35,7 +35,7 @@ import {
   INITIAL_BALANCE_MSAT,
   sha,
   type LifecycleWorld,
-} from './test-world';
+} from './test-world.js';
 
 // ECONOMICS.md §5-ter / ADR-016, at 1600 sats/€ (all msat):
 const LEG1_GROSS = 2_880_000n; // 1.80 € — Luca's leg A→C on the work pool
@@ -185,7 +185,8 @@ describe('recipient claim (ADR-016)', () => {
       'created',
       'funded', // origin bond
       'hub_checkin',
-      'leg_accepted',
+      'deposit_requested', // ADR-029: the leg starts as a request…
+      'leg_accepted', // …auto-accepted (auto_accept hub)
       'funded', // leg 1
       'hub_checkout',
       'hub_checkin_intermediate',

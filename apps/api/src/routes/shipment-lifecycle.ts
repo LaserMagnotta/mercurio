@@ -16,13 +16,16 @@ import { randomUUID } from 'node:crypto';
 import { and, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import type { FastifyReply } from 'fastify';
-import { carrierTrips, custodyEvents, hubs, legs, rejections } from '@mercurio/db';
+import { carrierTrips, custodyEvents, emailOutbox, hubs, legs, rejections, users } from '@mercurio/db';
 import { EconomicsError, applyReroute, floorToSat, priceClaim, priceLeg, splitCommitment } from '@mercurio/core';
 import {
   boostBody,
   checkoutConfirmBody,
+  type GeoPoint,
   CHECKOUT_CONFIRMATION_WINDOW_MINUTES,
   claimedPickupBody,
+  DEPOSIT_RESPONSE_WINDOW_MINUTES,
+  depositRejectBody,
   handoffRejectBody,
   hubFeePercentToBp,
   legAcceptBody,
@@ -35,26 +38,31 @@ import {
   rerouteBody,
   TRANSIT_WINDOW_HOURS,
 } from '@mercurio/shared';
-import type { App } from '../app';
-import { requireAuth } from '../plugins/auth-guard';
-import { hashToken } from '../lib/tokens';
-import { hasConnectedWallet } from '../lib/wallets';
-import { parcelFitsHub, storageFitsHub } from '../lib/parcel';
-import { msat } from '../lib/serialize';
+import type { App } from '../app.js';
+import { requireAuth } from '../plugins/auth-guard.js';
+import { hashToken } from '../lib/tokens.js';
+import { pairKeyOf, providerFromPairMap, type PairMap } from '../lib/road-routing.js';
+import { hasConnectedWallet } from '../lib/wallets.js';
+import { parcelFitsHub, storageFitsHub } from '../lib/parcel.js';
+import { msat } from '../lib/serialize.js';
 import {
   loadShipmentBundle,
   remainingWorkPool,
   type HubRow,
   type ShipmentBundle,
-} from '../shipments/context';
-import { executeShipmentTransition } from '../shipments/executor';
-import { ConflictError } from '../shipments/errors';
-import { replyLifecycleError } from './lifecycle-errors';
+} from '../shipments/context.js';
+import { executeShipmentTransition } from '../shipments/executor.js';
+import { ConflictError } from '../shipments/errors.js';
+import { replyLifecycleError } from './lifecycle-errors.js';
 
 const params = z.object({ id: z.string().uuid() });
 
 const hoursFromNow = (now: Date, hours: number) =>
   new Date(now.getTime() + hours * 60 * 60 * 1000);
+// Storage is chosen in DAYS (ADR-026) but the timer is armed at an absolute
+// instant, and the 72/24 h warnings still count in hours — so a stay's window
+// is just days × 24 h.
+const daysFromNow = (now: Date, days: number) => hoursFromNow(now, days * 24);
 const minutesFromNow = (now: Date, minutes: number) =>
   new Date(now.getTime() + minutes * 60 * 1000);
 
@@ -68,6 +76,37 @@ export function registerShipmentLifecycleRoutes(app: App) {
       return null;
     }
     return bundle;
+  }
+
+  /** ADR-031: money distances resolve strictly in the SHIPMENT's frozen
+   *  metric. For 'road', every pair must come from the road_distances cache
+   *  (router on miss); when any pair stays cold the operation is refused as
+   *  RETRIABLE (503) — never silently repriced on another metric, which
+   *  would break the determinism the frozen metric exists for. 'haversine'
+   *  shipments get the plain ADR-007 provider, untouched. Returns null after
+   *  replying 503. */
+  async function metricDistanceOr503(
+    bundle: ShipmentBundle,
+    pairs: [GeoPoint, GeoPoint][],
+    reply: FastifyReply,
+  ): Promise<((a: GeoPoint, b: GeoPoint) => number) | null> {
+    if (bundle.shipment.distanceMetric !== 'road') {
+      return deps().distance.distanceKm.bind(deps().distance);
+    }
+    const map: PairMap = new Map();
+    for (const [a, b] of pairs) {
+      const metres = await app.roadRouting.resolvePair(app.db, a, b);
+      if (metres === null) {
+        await reply.code(503).send({
+          error: 'road_routing_unavailable',
+          message: 'road distance temporarily unresolvable — retry shortly',
+        });
+        return null;
+      }
+      map.set(pairKeyOf(a, b), metres);
+    }
+    const provider = providerFromPairMap(map);
+    return provider.distanceKm.bind(provider);
   }
 
   function qrMatches(bundle: ShipmentBundle, qrToken: string): boolean {
@@ -94,7 +133,7 @@ export function registerShipmentLifecycleRoutes(app: App) {
       }
       const s = bundle.shipment;
       const problem =
-        parcelFitsHub(s, originHub) ?? storageFitsHub(s.maxStorageHours, originHub);
+        parcelFitsHub(s, originHub) ?? storageFitsHub(s.maxStorageDays, originHub);
       if (problem) return reply.code(422).send({ error: problem });
       try {
         await executeShipmentTransition(deps(), {
@@ -134,7 +173,7 @@ export function registerShipmentLifecycleRoutes(app: App) {
           event: {
             type: 'origin_checkin',
             photoSha256: request.body.photoSha256,
-            storageDeadlineAt: hoursFromNow(now, bundle.shipment.maxStorageHours).toISOString(),
+            storageDeadlineAt: daysFromNow(now, bundle.shipment.maxStorageDays).toISOString(),
           },
         });
       } catch (err) {
@@ -146,6 +185,11 @@ export function registerShipmentLifecycleRoutes(app: App) {
   );
 
   // ------------------------------------------------------------- row 4
+  // ADR-029: choosing a drop hub opens a deposit REQUEST (leg_request, no
+  // money). When the hub auto-accepts, the API fires deposit_accept right
+  // away — the pre-consent that preserves the old instant booking; when it is
+  // manual, the request waits on the hub's dashboard (30-minute window) and
+  // the hub is notified with the ADR-028 deposit-request email.
   app.post(
     '/shipments/:id/legs',
     { schema: { params, body: legAcceptBody }, preHandler: requireAuth },
@@ -180,19 +224,27 @@ export function registerShipmentLifecycleRoutes(app: App) {
       ) {
         return reply.code(422).send({ error: 'self_payment_impossible' });
       }
-      const problem = parcelFitsHub(s, toHub) ?? storageFitsHub(s.maxStorageHours, toHub);
+      const problem = parcelFitsHub(s, toHub) ?? storageFitsHub(s.maxStorageDays, toHub);
       if (problem) return reply.code(422).send({ error: problem, hubId: toHub.id });
 
       const destHub = bundle.hubById.get(s.destHubId)!;
-      const d = deps().distance.distanceKm.bind(deps().distance);
-      const remainingKm = d(
-        { lat: currentHub.lat, lng: currentHub.lng },
-        { lat: destHub.lat, lng: destHub.lng },
-      );
+      const sPoint = { lat: currentHub.lat, lng: currentHub.lng };
+      const tPoint = { lat: destHub.lat, lng: destHub.lng };
+      const hPoint = { lat: toHub.lat, lng: toHub.lng };
       const isFinal = toHub.id === s.destHubId;
-      const progressKm = isFinal
-        ? remainingKm
-        : remainingKm - d({ lat: toHub.lat, lng: toHub.lng }, { lat: destHub.lat, lng: destHub.lng });
+      const d = await metricDistanceOr503(
+        bundle,
+        isFinal
+          ? [[sPoint, tPoint]]
+          : [
+              [sPoint, tPoint],
+              [hPoint, tPoint],
+            ],
+        reply,
+      );
+      if (!d) return;
+      const remainingKm = d(sPoint, tPoint);
+      const progressKm = isFinal ? remainingKm : remainingKm - d(hPoint, tPoint);
 
       let pricing;
       try {
@@ -213,37 +265,94 @@ export function registerShipmentLifecycleRoutes(app: App) {
       }
       const finalizationHubBonusMsat = isFinal ? floorToSat(bundle.hubBonusAvailableMsat) : 0n;
 
+      // The hub auto-accepts only if it opted in AND can bond (wallet). A
+      // manual request notifies the hub (reusing the ADR-028 template) at its
+      // venue contact address, falling back to the account email — the outbox
+      // row rides the leg_request transaction (outbox invariant).
+      const toHubWalletConnected = await hasConnectedWallet(app.db, toHub.userId);
+      const willAutoAccept = toHub.autoAccept && toHubWalletConnected;
+      let depositRequestTo: string | null = null;
+      if (!willAutoAccept) {
+        const [owner] = await app.db
+          .select({ email: users.email })
+          .from(users)
+          .where(eq(users.id, toHub.userId));
+        depositRequestTo = toHub.contactEmail ?? owner?.email ?? null;
+      }
+
       const legId = randomUUID();
-      const arrivalHubStayId = randomUUID();
-      const fundingDeadlineAt = minutesFromNow(now, LEG_FUNDING_WINDOW_MINUTES);
+      const responseDeadlineAt = minutesFromNow(now, DEPOSIT_RESPONSE_WINDOW_MINUTES);
       try {
         await executeShipmentTransition(deps(), {
           shipmentId: s.id,
           event: {
-            type: 'leg_accept',
+            type: 'leg_request',
             legId,
             carrierId,
             carrierWalletConnected: await hasConnectedWallet(app.db, carrierId),
             carrierTripActive: tripActive,
             toHubId: toHub.id,
             toHubUserId: toHub.userId,
-            arrivalHubStayId,
-            arrivalHubAutoAccepts: toHub.autoAccept,
-            arrivalHubWalletConnected: await hasConnectedWallet(app.db, toHub.userId),
+            arrivalHubWalletConnected: toHubWalletConnected,
             pricing,
             finalizationHubBonusMsat,
-            fundingDeadlineAt: fundingDeadlineAt.toISOString(),
+            responseDeadlineAt: responseDeadlineAt.toISOString(),
           },
           legMeta: { tripId: trip.id, progressKm },
+          ...(depositRequestTo && {
+            persistBefore: async (tx: typeof app.db) => {
+              await tx.insert(emailOutbox).values({
+                to: depositRequestTo,
+                template: 'hub_deposit_request',
+                payload: {
+                  shipmentId: s.id,
+                  // The departure hub of the leg — where the parcel starts.
+                  hubId: currentHub.id,
+                  destHubId: s.destHubId,
+                  maxStorageDays: s.maxStorageDays,
+                  undeclared: s.undeclared,
+                  legId,
+                },
+              });
+            },
+          }),
         });
       } catch (err) {
         if (await replyLifecycleError(reply, err)) return;
         throw err;
       }
 
+      // Pre-consent (ADR-029 §2): fire the accept in its own transaction, as
+      // shipment creation does for the origin hub. A failure leaves the leg
+      // 'requested': the 30-minute window dissolves it back onto the board —
+      // never a half-booked leg.
+      let fundingDeadlineAt: Date | null = null;
+      if (willAutoAccept) {
+        const acceptNow = deps().now();
+        const deadline = minutesFromNow(acceptNow, LEG_FUNDING_WINDOW_MINUTES);
+        try {
+          await executeShipmentTransition(deps(), {
+            shipmentId: s.id,
+            event: {
+              type: 'deposit_accept',
+              now: acceptNow.toISOString(),
+              arrivalHubStayId: randomUUID(),
+              arrivalHubWalletConnected: true,
+              fundingDeadlineAt: deadline.toISOString(),
+            },
+          });
+          fundingDeadlineAt = deadline;
+        } catch (err) {
+          request.log.warn({ err }, 'auto deposit-accept failed; leg stays requested');
+        }
+      }
+
       return reply.code(201).send({
         legId,
-        fundingDeadlineAt: fundingDeadlineAt.toISOString(),
+        status: fundingDeadlineAt ? 'pending_funding' : 'requested',
+        responseDeadlineAt: responseDeadlineAt.toISOString(),
+        fundingDeadlineAt: fundingDeadlineAt?.toISOString() ?? null,
+        requiresHubConfirmation: !fundingDeadlineAt,
         pricing: {
           grossMsat: msat(pricing.grossMsat),
           depHubFeeMsat: msat(pricing.depHubFeeMsat),
@@ -253,6 +362,110 @@ export function registerShipmentLifecycleRoutes(app: App) {
         },
         finalizationHubBonusMsat: msat(finalizationHubBonusMsat),
       });
+    },
+  );
+
+  // ---------------------------------------------- ADR-029 deposit answers
+  // The arrival hub answers a pending request from its dashboard; the
+  // requesting carrier may withdraw. All three resolve the SAME requested
+  // leg, so they share the params shape and the pending-request lookup.
+  const legParams = z.object({ id: z.string().uuid(), legId: z.string().uuid() });
+
+  app.post(
+    '/shipments/:id/legs/:legId/deposit-accept',
+    { schema: { params: legParams }, preHandler: requireAuth },
+    async (request, reply) => {
+      const bundle = await loadOr404(request.params.id, reply);
+      if (!bundle) return;
+      const req = bundle.ctx.pendingLegRequest;
+      if (!req || req.legId !== request.params.legId) {
+        return reply.code(409).send({ error: 'no_pending_deposit_request' });
+      }
+      if (req.toHubUserId !== request.userId) {
+        return reply.code(403).send({ error: 'not_arrival_hub' });
+      }
+      // Same physical re-check as the origin accept: the hub's declared
+      // constraints must still hold at the moment it commits its bond.
+      const toHub = bundle.hubById.get(req.toHubId)!;
+      const problem =
+        parcelFitsHub(bundle.shipment, toHub) ??
+        storageFitsHub(bundle.shipment.maxStorageDays, toHub);
+      if (problem) return reply.code(422).send({ error: problem });
+
+      const now = deps().now();
+      const fundingDeadlineAt = minutesFromNow(now, LEG_FUNDING_WINDOW_MINUTES);
+      try {
+        await executeShipmentTransition(deps(), {
+          shipmentId: bundle.shipment.id,
+          event: {
+            type: 'deposit_accept',
+            now: now.toISOString(),
+            arrivalHubStayId: randomUUID(),
+            arrivalHubWalletConnected: await hasConnectedWallet(app.db, request.userId!),
+            fundingDeadlineAt: fundingDeadlineAt.toISOString(),
+          },
+        });
+      } catch (err) {
+        if (await replyLifecycleError(reply, err)) return;
+        throw err;
+      }
+      return { status: 'pending_funding', fundingDeadlineAt: fundingDeadlineAt.toISOString() };
+    },
+  );
+
+  app.post(
+    '/shipments/:id/legs/:legId/deposit-reject',
+    { schema: { params: legParams, body: depositRejectBody }, preHandler: requireAuth },
+    async (request, reply) => {
+      const bundle = await loadOr404(request.params.id, reply);
+      if (!bundle) return;
+      const req = bundle.ctx.pendingLegRequest;
+      if (!req || req.legId !== request.params.legId) {
+        return reply.code(409).send({ error: 'no_pending_deposit_request' });
+      }
+      if (req.toHubUserId !== request.userId) {
+        return reply.code(403).send({ error: 'not_arrival_hub' });
+      }
+      try {
+        await executeShipmentTransition(deps(), {
+          shipmentId: bundle.shipment.id,
+          event: {
+            type: 'deposit_reject',
+            rejectedById: request.userId!,
+            reason: request.body.reason,
+          },
+        });
+      } catch (err) {
+        if (await replyLifecycleError(reply, err)) return;
+        throw err;
+      }
+      return { status: 'AT_HUB' };
+    },
+  );
+
+  app.post(
+    '/shipments/:id/legs/:legId/deposit-cancel',
+    { schema: { params: legParams }, preHandler: requireAuth },
+    async (request, reply) => {
+      const bundle = await loadOr404(request.params.id, reply);
+      if (!bundle) return;
+      const req = bundle.ctx.pendingLegRequest;
+      if (!req || req.legId !== request.params.legId) {
+        return reply.code(409).send({ error: 'no_pending_deposit_request' });
+      }
+      if (req.carrierId !== request.userId) {
+        return reply.code(403).send({ error: 'not_the_requesting_carrier' });
+      }
+      try {
+        await executeShipmentTransition(deps(), {
+          shipmentId: bundle.shipment.id,
+          event: { type: 'deposit_request_cancel' },
+        });
+      } catch (err) {
+        if (await replyLifecycleError(reply, err)) return;
+        throw err;
+      }
+      return { status: 'AT_HUB' };
     },
   );
 
@@ -363,7 +576,7 @@ export function registerShipmentLifecycleRoutes(app: App) {
             hubId: toHub.id,
             integrityConfirmed: request.body.integrityConfirmed,
             photoSha256: request.body.photoSha256,
-            storageDeadlineAt: hoursFromNow(now, bundle.shipment.maxStorageHours).toISOString(),
+            storageDeadlineAt: daysFromNow(now, bundle.shipment.maxStorageDays).toISOString(),
           },
         });
       } catch (err) {
@@ -401,7 +614,7 @@ export function registerShipmentLifecycleRoutes(app: App) {
             hubId: fromHub.id,
             returnHubStayId: randomUUID(),
             photoSha256: request.body.photoSha256,
-            storageDeadlineAt: hoursFromNow(now, bundle.shipment.maxStorageHours).toISOString(),
+            storageDeadlineAt: daysFromNow(now, bundle.shipment.maxStorageDays).toISOString(),
           },
         });
       } catch (err) {
@@ -480,10 +693,11 @@ export function registerShipmentLifecycleRoutes(app: App) {
       }
 
       const destHub = bundle.hubById.get(s.destHubId)!;
-      const remainingKm = deps().distance.distanceKm(
-        { lat: currentHub.lat, lng: currentHub.lng },
-        { lat: destHub.lat, lng: destHub.lng },
-      );
+      const claimFrom = { lat: currentHub.lat, lng: currentHub.lng };
+      const claimTo = { lat: destHub.lat, lng: destHub.lng };
+      const dClaim = await metricDistanceOr503(bundle, [[claimFrom, claimTo]], reply);
+      if (!dClaim) return;
+      const remainingKm = dClaim(claimFrom, claimTo);
       let pricing;
       try {
         pricing = priceClaim({
@@ -653,10 +867,13 @@ export function registerShipmentLifecycleRoutes(app: App) {
       const destHub = bundle.hubById.get(bundle.shipment.destHubId);
       let atRemainingKm = bundle.shipment.distanceKm;
       if (bundle.state === 'AT_HUB' && currentHub && destHub) {
-        atRemainingKm = deps().distance.distanceKm(
-          { lat: currentHub.lat, lng: currentHub.lng },
-          { lat: destHub.lat, lng: destHub.lng },
-        );
+        const boostFrom = { lat: currentHub.lat, lng: currentHub.lng };
+        const boostTo = { lat: destHub.lat, lng: destHub.lng };
+        // The boost enters the pool math at this r (money): shipment metric,
+        // strict — a road shipment with a cold pair asks the sender to retry.
+        const dBoost = await metricDistanceOr503(bundle, [[boostFrom, boostTo]], reply);
+        if (!dBoost) return;
+        atRemainingKm = dBoost(boostFrom, boostTo);
       }
       try {
         await executeShipmentTransition(deps(), {
@@ -690,7 +907,10 @@ export function registerShipmentLifecycleRoutes(app: App) {
       const currentHub = currentHubOf(bundle);
       if (!currentHub) return reply.code(409).send({ error: 'parcel_not_idle_at_hub' });
       const { newDestHubId, newRecipientEmail } = request.body;
-      const d = deps().distance.distanceKm.bind(deps().distance);
+      const herePoint = { lat: currentHub.lat, lng: currentHub.lng };
+      // ADR-031: the reroute opens a new segment but KEEPS the shipment's
+      // birth metric — D* and every later r must stay comparable with the
+      // boosts and pool already recorded in that metric.
 
       let event;
       let shipmentPatch;
@@ -700,12 +920,23 @@ export function registerShipmentLifecycleRoutes(app: App) {
         if (newDest.userId === s.senderId) {
           return reply.code(422).send({ error: 'sender_owns_hub' });
         }
-        const problem = parcelFitsHub(s, newDest) ?? storageFitsHub(s.maxStorageHours, newDest);
+        const problem = parcelFitsHub(s, newDest) ?? storageFitsHub(s.maxStorageDays, newDest);
         if (problem) return reply.code(422).send({ error: problem, hubId: newDest.id });
-        const newRemainingKm = d(
-          { lat: currentHub.lat, lng: currentHub.lng },
-          { lat: newDest.lat, lng: newDest.lng },
+        const oldDest = bundle.hubById.get(s.destHubId)!;
+        const oldDestPoint = { lat: oldDest.lat, lng: oldDest.lng };
+        const newDestPoint = { lat: newDest.lat, lng: newDest.lng };
+        const d = await metricDistanceOr503(
+          bundle,
+          bundle.state === 'AWAITING_PICKUP'
+            ? [[herePoint, newDestPoint]]
+            : [
+                [herePoint, newDestPoint],
+                [herePoint, oldDestPoint],
+              ],
+          reply,
         );
+        if (!d) return;
+        const newRemainingKm = d(herePoint, newDestPoint);
         if (!(newRemainingKm > 0)) return reply.code(422).send({ error: 'hubs_too_close' });
 
         // The reroute opens a fresh price segment (ECONOMICS.md §5-6): the
@@ -718,11 +949,7 @@ export function registerShipmentLifecycleRoutes(app: App) {
         if (bundle.state === 'AWAITING_PICKUP') {
           frozenWorkMsat = postArrivalBoostWork(bundle);
         } else {
-          const oldDest = bundle.hubById.get(s.destHubId)!;
-          const oldRemainingKm = d(
-            { lat: currentHub.lat, lng: currentHub.lng },
-            { lat: oldDest.lat, lng: oldDest.lng },
-          );
+          const oldRemainingKm = d(herePoint, oldDestPoint);
           frozenWorkMsat = applyReroute(
             s.segmentWorkMsat,
             s.distanceKm,
@@ -749,13 +976,13 @@ export function registerShipmentLifecycleRoutes(app: App) {
         // Recipient-only change: no money, no segment change; the machine
         // rotates the OTP and (at the destination) re-invites immediately.
         const destHub = bundle.hubById.get(s.destHubId)!;
-        const remainingKm =
-          bundle.state === 'AWAITING_PICKUP'
-            ? s.distanceKm // at destination r = 0; payload-only value must be > 0
-            : d(
-                { lat: currentHub.lat, lng: currentHub.lng },
-                { lat: destHub.lat, lng: destHub.lng },
-              );
+        let remainingKm = s.distanceKm; // at destination r = 0; payload-only value must be > 0
+        if (bundle.state !== 'AWAITING_PICKUP') {
+          const destPoint = { lat: destHub.lat, lng: destHub.lng };
+          const d = await metricDistanceOr503(bundle, [[herePoint, destPoint]], reply);
+          if (!d) return;
+          remainingKm = d(herePoint, destPoint);
+        }
         event = {
           type: 'reroute' as const,
           newDestHubId: null,

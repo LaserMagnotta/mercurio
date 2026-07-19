@@ -2,7 +2,7 @@
 // the API (which builds the inputs from DB rows and serves the ranked board).
 // The algorithm itself lives in @mercurio/core/matching — pure functions only.
 
-import type { Msat } from './index';
+import type { Msat } from './index.js';
 
 /** WGS84 coordinates in decimal degrees (DB columns `hubs.lat` / `hubs.lng`). */
 export interface GeoPoint {
@@ -44,9 +44,10 @@ export interface MatchingHub {
   maxDimsCm: DimensionsCm;
   maxWeightG: number;
   acceptsUndeclared: boolean;
-  /** Candidate condition 3 (MATCHING.md §2): only a hub with a connected
-   *  wallet AND automatic deposit acceptance can bind its custody bond when a
-   *  leg is accepted, with no human in the loop (ADR-013, ARCHITECTURE §4). */
+  /** Candidate condition 3 (MATCHING.md §2, amended by ADR-029): the hub must
+   *  have a connected wallet (it must be ABLE to bind its custody bond if it
+   *  accepts). A MANUAL hub is a candidate too — its options are marked
+   *  `requiresConfirmation` and choosing one opens a deposit request. */
   walletConnected: boolean;
   autoAcceptDeposits: boolean;
 }
@@ -88,6 +89,9 @@ export interface DropHubOption {
   /** net − rate_min × detour: what the leg pays beyond the carrier's floor.
    *  Negative = how far it falls short of being worth it. */
   surplusMsat: Msat;
+  /** ADR-029 §3: true when the hub is manual — dropping here opens a deposit
+   *  request instead of booking instantly ("richiede conferma"). */
+  requiresConfirmation: boolean;
 }
 
 /** One board card: a shipment with its proposed drop hub and alternatives. */
@@ -121,6 +125,14 @@ export const MAX_ROUTE_WAYPOINTS = 9;
 
 /** Road/great-circle circuity factor k: d = haversine × k (ADR-007). */
 export const ROAD_CIRCUITY_FACTOR = 1.3;
+
+/** Which metric froze a shipment's money distances (ADR-031). Chosen at
+ *  creation — 'road' when the OSRM router resolves the route, 'haversine'
+ *  (ADR-007) otherwise — and never changed afterwards, reroutes included:
+ *  the pool math divides distances by distances, and numerator and
+ *  denominator must never come from different metrics. */
+export const DISTANCE_METRICS = ['haversine', 'road'] as const;
+export type DistanceMetric = (typeof DISTANCE_METRICS)[number];
 
 /** Alternative drop hubs shown on a board card ("2–3", MATCHING.md §2). */
 export const MAX_ALTERNATIVE_DROP_HUBS = 3;

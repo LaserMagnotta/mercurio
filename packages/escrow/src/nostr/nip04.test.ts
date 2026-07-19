@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { schnorr } from '@noble/curves/secp256k1.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
-import { nip04Decrypt, nip04Encrypt } from './nip04';
+import { nip04Decrypt, nip04Encrypt } from './nip04.js';
 
 function keypair() {
   const secretKey = schnorr.utils.randomSecretKey();

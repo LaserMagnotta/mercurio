@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { hubFeePercentToBp } from './economics';
+import { hubFeePercentToBp } from './economics.js';
 
 describe('hubFeePercentToBp', () => {
   it('converts numeric(5,2) strings losslessly', () => {

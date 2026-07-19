@@ -3,11 +3,17 @@
 // The engine itself lives in @mercurio/core/state-machine — pure functions
 // only, and the ONLY source of money movements (ARCHITECTURE.md §5).
 
-import type { LegPricing } from './economics';
-import type { Msat, ShipmentState } from './index';
+import type { LegPricing } from './economics.js';
+import type { Msat, ShipmentState } from './index.js';
 
 /** Funding window for the three per-leg hold invoices (ARCHITECTURE.md §5 row 5). */
 export const LEG_FUNDING_WINDOW_MINUTES = 60;
+
+/** How long a manual arrival hub has to answer a deposit request (ADR-029,
+ *  decisione A): wall-clock, same family as the funding window. While the
+ *  request is pending the shipment is off the board, so the window is short —
+ *  the carrier can cancel and re-target sooner. */
+export const DEPOSIT_RESPONSE_WINDOW_MINUTES = 30;
 
 /**
  * MVP deadline policy (ARCHITECTURE.md §5 leaves the durations open; these
@@ -46,26 +52,43 @@ export const CUSTODY_EVENT_TYPES = [
   'boosted',
   'expired',
   'cancelled',
+  // ADR-029 (appended: enum values only ever ADD). Only the REQUEST gets a
+  // new type; the accept reuses 'leg_accepted', reject reuses
+  // 'handoff_rejected' (same primitive: the receiving party declines) and
+  // expiry/cancel reuse 'expired' with a payload reason.
+  'deposit_requested',
 ] as const;
 export type CustodyEventType = (typeof CUSTODY_EVENT_TYPES)[number];
 
-/** Timer families the worker schedules on behalf of the state machine. */
-export const TIMEOUT_KINDS = ['leg_funding', 'pickup', 'transit', 'storage', 'claim_funding'] as const;
+/** Timer families the worker schedules on behalf of the state machine.
+ *  'deposit_response' (appended, ADR-029) is the manual arrival hub's answer
+ *  window, armed at leg_request and disarmed by the hub's answer. */
+export const TIMEOUT_KINDS = [
+  'leg_funding',
+  'pickup',
+  'transit',
+  'storage',
+  'claim_funding',
+  'deposit_response',
+] as const;
 export type TimeoutKind = (typeof TIMEOUT_KINDS)[number];
 
 /** Notifications the docs prescribe (flow steps 6–7, table row 12; tracking
- *  mail with the claim token — ADR-016). OTP and storage-deadline reminders
- *  are the worker's business, not transitions. */
+ *  mail with the claim token — ADR-016; deposit-request outcome to the
+ *  carrier — ADR-029 "il vettore è avvisato e sceglie un altro hub"). OTP and
+ *  storage-deadline reminders are the worker's business, not transitions. */
 export type EmailTemplate =
   | 'parcel_tracking'
   | 'parcel_at_intermediate_hub'
   | 'parcel_arrived'
   | 'parcel_delivered'
-  | 'handoff_rejected';
+  | 'handoff_rejected'
+  | 'deposit_request_rejected';
 
 /** Effects address people by role; the API resolves the actual address.
- *  The recipient may not even have an account (identified by email only). */
-export type EmailRecipientRole = 'sender' | 'recipient';
+ *  The recipient may not even have an account (identified by email only).
+ *  'carrier' is the requester of the pending deposit request (ADR-029). */
+export type EmailRecipientRole = 'sender' | 'recipient' | 'carrier';
 
 export type PaymentPurpose = 'leg_payment' | 'custody_bond' | 'finalization_bonus' | 'claim_payment';
 
@@ -241,6 +264,32 @@ export interface PendingClaim {
   fundingDeadlineAt: string;
 }
 
+/**
+ * A deposit request pending on a MANUAL arrival hub (ADR-029) — the money-free
+ * phase before deposit_accept creates the holds. Non-null from leg_request
+ * until the hub answers (deposit_accept → ActiveLeg takes over) or the request
+ * dissolves (deposit_reject / deposit_request_expired / deposit_request_cancel).
+ * While set, the shipment is off the board and leg_request / recipient_claim /
+ * boost / reroute / cancel are all rejected (decisione C — board-exclusive,
+ * like a pending claim). NO conditional payment exists in this phase: a
+ * request that dies liquidates exactly zero msat.
+ */
+export interface PendingLegRequest {
+  legId: string;
+  carrierId: string;
+  fromHubId: string;
+  fromHubUserId: string;
+  toHubId: string;
+  toHubUserId: string;
+  /** Amounts frozen at the REQUEST (ADR-029: the carrier sees what they would
+   *  collect before the hub answers); deposit_accept freezes nothing new. */
+  pricing: LegPricing;
+  /** Frozen hub share Π_h for a final leg (0n otherwise) — recorded in the
+   *  deposit_requested chain event; the 4th hold's amount at accept. */
+  finalizationHubBonusMsat: Msat;
+  responseDeadlineAt: string;
+}
+
 export interface ShipmentContext {
   shipmentId: string;
   senderId: string;
@@ -266,15 +315,27 @@ export interface ShipmentContext {
    *  lives in pendingClaim instead — the two never alias (ADR-016). */
   finalizationBonusHold: FinalizationBonusHold | null;
   pendingClaim: PendingClaim | null;
+  /** The deposit request awaiting the arrival hub's answer (ADR-029).
+   *  Mutually exclusive with `leg` and `pendingClaim` by machine guards. */
+  pendingLegRequest: PendingLegRequest | null;
 }
 
 /**
- * The 17 protocol events of ARCHITECTURE.md §5 (leg_checkin covers both table
+ * The protocol events of ARCHITECTURE.md §5 (leg_checkin covers both table
  * rows 8 and 9 — the guard on the check-in hub decides intermediate vs
  * destination) plus the explicit leg_funding_expired (the "finestra scaduta"
  * arm of row 5: money moves, so it must be a transition) plus the four
  * recipient-claim events of ADR-016 (rows 18–21), which mirror the leg
  * funding cycle: request → funded/expired → physical pickup.
+ *
+ * ADR-029 split table row 4 in two: `leg_request` (carrier; freezes the price,
+ * moves NO money, arms the response window) and `deposit_accept` (arrival hub;
+ * exactly the old leg_accept's effect — creates the holds and arms funding).
+ * An auto_accept hub is a pre-consent: the API fires deposit_accept right
+ * after leg_request, preserving today's behavior. The negative outcomes
+ * (deposit_reject / deposit_request_expired / deposit_request_cancel) dissolve
+ * the request at zero cost and put the shipment back on the board.
+ *
  * Ids for entities born in a transition (legs, hub stays) are minted by the
  * caller and passed in, keeping the function pure and the effects replayable.
  * Timestamps are ISO 8601 UTC strings; `now` is injected, never read from a
@@ -288,22 +349,55 @@ export type ShipmentEvent =
   | { type: 'origin_hub_accept'; hubStayId: string; hubWalletConnected: boolean }
   | { type: 'origin_checkin'; photoSha256: string[]; storageDeadlineAt: string }
   | {
-      type: 'leg_accept';
+      /** ADR-029: the carrier asks the arrival hub to host the parcel. The
+       *  price is frozen HERE (the carrier must see what they would collect)
+       *  but no hold exists until deposit_accept — a dissolved request costs
+       *  zero. The old "hub must auto-accept" guard is gone: only a connected
+       *  wallet is required (the hub must be ABLE to bond, if it accepts). */
+      type: 'leg_request';
       legId: string;
       carrierId: string;
       carrierWalletConnected: boolean;
       carrierTripActive: boolean;
       toHubId: string;
       toHubUserId: string;
-      arrivalHubStayId: string;
-      arrivalHubAutoAccepts: boolean;
       arrivalHubWalletConnected: boolean;
       pricing: LegPricing;
-      /** Hub share Π_h of the finalization bonus to freeze into the fourth
-       *  hold (ADR-014). MUST be 0 unless the leg delivers to the destination
-       *  hub; may be 0 there too (share floored to 0, or already refrozen). */
+      /** Hub share Π_h of the finalization bonus, frozen at the request and
+       *  bound into the fourth hold at deposit_accept (ADR-014). MUST be 0
+       *  unless the leg delivers to the destination hub; may be 0 there too
+       *  (share floored to 0, or already refrozen). */
       finalizationHubBonusMsat: Msat;
+      responseDeadlineAt: string;
+    }
+  | {
+      /** ADR-029: the arrival hub says yes — exactly the old leg_accept's
+       *  effect: the 3–4 holds are created, the funding window is armed, the
+       *  chain records `leg_accepted`. The stay id is minted now (the stay is
+       *  born with its bond hold, like every other stay). */
+      type: 'deposit_accept';
+      now: string;
+      arrivalHubStayId: string;
+      arrivalHubWalletConnected: boolean;
       fundingDeadlineAt: string;
+    }
+  | {
+      /** ADR-029: the arrival hub says no. Documentation, not a judgment
+       *  (ADR-012): a rejections row (stage deposit_request) plus the chain
+       *  event; zero holds ever existed, zero money moves. */
+      type: 'deposit_reject';
+      /** The hub owner filing the refusal (chain actor + rejections row). */
+      rejectedById: string;
+      reason: string;
+    }
+  | {
+      /** ADR-029: the response window elapsed with no answer (worker). */
+      type: 'deposit_request_expired';
+      now: string;
+    }
+  | {
+      /** ADR-029: the carrier withdraws the request to re-target quickly. */
+      type: 'deposit_request_cancel';
     }
   | { type: 'leg_funded'; now: string; pickupDeadlineAt: string }
   | { type: 'leg_funding_expired'; now: string }

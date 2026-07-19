@@ -15,7 +15,6 @@ import { createTripBody } from '@mercurio/shared';
 import {
   activateCarrierRole,
   createTrip,
-  getHubs,
   getMyTrips,
   getSuggestedRate,
   getWallet,
@@ -23,6 +22,7 @@ import {
   type MeTrips,
   type SuggestedRate,
 } from '../../lib/api/endpoints';
+import { HubPicker } from '../../components/HubPicker';
 import { ApiError } from '../../lib/api/client';
 import { useApiErrorMessage } from '../../lib/api-error-message';
 import { useSession } from '../../lib/session';
@@ -48,14 +48,15 @@ export default function CarrierPage() {
   const { user, loading } = useSession();
   const errorMessage = useApiErrorMessage();
 
-  const [hubs, setHubs] = useState<Hub[]>([]);
   const [walletConnected, setWalletConnected] = useState<boolean | null>(null);
   const [trip, setTrip] = useState<Trip | null>(null);
   const [suggested, setSuggested] = useState<SuggestedRate | null>(null);
 
   const [manualCoords, setManualCoords] = useState(false);
-  const [originHubId, setOriginHubId] = useState('');
-  const [destHubId, setDestHubId] = useState('');
+  // Full Hub objects (HubPicker, ADR-030): the trip declaration needs their
+  // coordinates, not just the ids.
+  const [originHub, setOriginHub] = useState<Hub | null>(null);
+  const [destHub, setDestHub] = useState<Hub | null>(null);
   const [originLat, setOriginLat] = useState('');
   const [originLng, setOriginLng] = useState('');
   const [destLat, setDestLat] = useState('');
@@ -64,12 +65,6 @@ export default function CarrierPage() {
   const [rateSats, setRateSats] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    getHubs()
-      .then((res) => setHubs(res.hubs))
-      .catch(() => setHubs([]));
-  }, []);
 
   useEffect(() => {
     if (!user) return;
@@ -109,20 +104,18 @@ export default function CarrierPage() {
         destLng: Number(destLng),
       };
     }
-    const origin = hubs.find((h) => h.id === originHubId);
-    const dest = hubs.find((h) => h.id === destHubId);
     return {
-      originLat: origin?.lat ?? Number.NaN,
-      originLng: origin?.lng ?? Number.NaN,
-      destLat: dest?.lat ?? Number.NaN,
-      destLng: dest?.lng ?? Number.NaN,
+      originLat: originHub?.lat ?? Number.NaN,
+      originLng: originHub?.lng ?? Number.NaN,
+      destLat: destHub?.lat ?? Number.NaN,
+      destLng: destHub?.lng ?? Number.NaN,
     };
   };
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
-    if (!manualCoords && originHubId !== '' && originHubId === destHubId) {
+    if (!manualCoords && originHub !== null && originHub.id === destHub?.id) {
       setError(t('sameOriginDest'));
       return;
     }
@@ -165,20 +158,6 @@ export default function CarrierPage() {
     }
   };
 
-  const hubSelect = (id: string, label: string, value: string, onChange: (v: string) => void) => (
-    <div className="field">
-      <label htmlFor={id}>{label}</label>
-      <select id={id} value={value} onChange={(e) => onChange(e.target.value)} required>
-        <option value="">{t('pickHub')}</option>
-        {hubs.map((h) => (
-          <option key={h.id} value={h.id}>
-            {h.name} — {h.address}
-          </option>
-        ))}
-      </select>
-    </div>
-  );
-
   return (
     <div className="stack">
       <h1>{t('title')}</h1>
@@ -215,8 +194,22 @@ export default function CarrierPage() {
 
         {!manualCoords ? (
           <>
-            {hubSelect('trip-origin', t('originLabel'), originHubId, setOriginHubId)}
-            {hubSelect('trip-dest', t('destLabel'), destHubId, setDestHubId)}
+            <HubPicker
+              id="trip-origin"
+              label={t('originLabel')}
+              value={originHub}
+              onChange={setOriginHub}
+              excludeIds={[destHub?.id]}
+            />
+            {/* Destinations sorted by distance from the picked origin. */}
+            <HubPicker
+              id="trip-dest"
+              label={t('destLabel')}
+              value={destHub}
+              onChange={setDestHub}
+              near={originHub ? { lat: originHub.lat, lng: originHub.lng } : undefined}
+              excludeIds={[originHub?.id]}
+            />
           </>
         ) : (
           <>

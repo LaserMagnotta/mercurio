@@ -11,10 +11,10 @@ import {
   getAccountBalance,
   journalEntries,
 } from '@mercurio/db';
-import { FakeLightningNetwork, type FakeWalletConnection } from './adapters/fake';
-import { PreimageCoordinator } from './coordinator';
-import { EscrowError, type WalletConnection } from './types';
-import { createEscrowWorld, type EscrowWorld } from './testing/world';
+import { FakeLightningNetwork, type FakeWalletConnection } from './adapters/fake.js';
+import { PreimageCoordinator } from './coordinator.js';
+import { EscrowError, type WalletConnection } from './types.js';
+import { createEscrowWorld, type EscrowWorld } from './testing/world.js';
 
 const AMOUNT = 5_000_000n; // 5000 sat
 const HOLD_WINDOW_S = 3600;

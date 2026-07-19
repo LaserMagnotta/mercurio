@@ -1,8 +1,8 @@
 import { z } from 'zod';
-import type { App } from '../app';
-import { requestMagicLink, verifyMagicLink } from '../lib/auth';
-import { AuthError } from '../lib/errors';
-import { revokeSession, SESSION_COOKIE } from '../lib/session';
+import type { App } from '../app.js';
+import { requestMagicLink, verifyMagicLink } from '../lib/auth.js';
+import { AuthError } from '../lib/errors.js';
+import { revokeSession, SESSION_COOKIE } from '../lib/session.js';
 
 const AUTH_ERROR_STATUS: Record<AuthError['code'], number> = {
   invalid_token: 400,

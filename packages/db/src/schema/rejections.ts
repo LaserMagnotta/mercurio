@@ -1,9 +1,9 @@
 import { pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
-import { rejectionStageEnum } from './enums';
-import { shipments } from './shipments';
-import { legs } from './legs';
-import { hubStays } from './hub-stays';
-import { users } from './users';
+import { rejectionStageEnum } from './enums.js';
+import { shipments } from './shipments.js';
+import { legs } from './legs.js';
+import { hubStays } from './hub-stays.js';
+import { users } from './users.js';
 
 // A rejected handoff (ADR-012, RISKS.md sec.1): documentation, not a
 // dispute. Custody never passes and no money moves - it only notifies the

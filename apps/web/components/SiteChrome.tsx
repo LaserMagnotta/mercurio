@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { useSession } from '../lib/session';
+import { Icon, type IconName } from './Icon';
 
 const LOCALE_COOKIE = 'MERCURIO_LOCALE';
 
@@ -19,7 +20,7 @@ export function SiteHeader() {
       <div className="app-header-inner">
         <Link href="/" className="brand">
           <span className="brand-mark" aria-hidden="true">
-            ☿
+            <Icon name="mercury" />
           </span>
           Mercurio
         </Link>
@@ -50,12 +51,12 @@ export function SiteHeader() {
   );
 }
 
-const NAV_ITEMS = [
-  { href: '/', key: 'home', icon: '⌂' },
-  { href: '/send', key: 'send', icon: '📦' },
-  { href: '/carrier', key: 'carrier', icon: '🚗' },
-  { href: '/hubs', key: 'hubs', icon: '🏪' },
-  { href: '/wallet', key: 'wallet', icon: '⚡' },
+const NAV_ITEMS: ReadonlyArray<{ href: string; key: string; icon: IconName }> = [
+  { href: '/', key: 'home', icon: 'home' },
+  { href: '/send', key: 'send', icon: 'parcel' },
+  { href: '/carrier', key: 'carrier', icon: 'car' },
+  { href: '/hubs', key: 'hubs', icon: 'storefront' },
+  { href: '/wallet', key: 'wallet', icon: 'bolt' },
 ] as const;
 
 export function SiteNav() {
@@ -71,7 +72,7 @@ export function SiteNav() {
           aria-current={isCurrent(item.href) ? 'page' : undefined}
         >
           <span className="nav-icon" aria-hidden="true">
-            {item.icon}
+            <Icon name={item.icon} />
           </span>
           {t(item.key)}
         </Link>

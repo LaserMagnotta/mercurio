@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { createTestDb } from './test-helpers';
-import { findOrCreateAccount, getAccountBalance, postJournalEntry } from './ledger';
-import { users } from './schema/index';
+import { createTestDb } from './test-helpers.js';
+import { findOrCreateAccount, getAccountBalance, postJournalEntry } from './ledger.js';
+import { users } from './schema/index.js';
 
 describe('ledger (double-entry, ADR-010)', () => {
   it('posts a balanced journal entry and updates balances (no cached balance: read via SUM)', async () => {
@@ -75,7 +75,7 @@ describe('ledger (double-entry, ADR-010)', () => {
       kind: 'external_wallet',
     });
 
-    const { journalEntries, postings } = await import('./schema/index');
+    const { journalEntries, postings } = await import('./schema/index.js');
     await expect(
       db.transaction(async (tx) => {
         const [entry] = await tx

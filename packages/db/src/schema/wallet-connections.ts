@@ -1,6 +1,6 @@
 import { jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
-import { walletKindEnum, walletStatusEnum } from './enums';
-import { users } from './users';
+import { walletKindEnum, walletStatusEnum } from './enums.js';
+import { users } from './users.js';
 
 // The user's own Lightning wallet connection (ESCROW.md sec.5, ADR-013).
 // `connectionSecretEncrypted` holds the NWC connection string / node

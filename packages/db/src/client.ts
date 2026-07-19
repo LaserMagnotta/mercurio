@@ -1,7 +1,7 @@
 import postgres from 'postgres';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
-import * as schema from './schema/index';
+import * as schema from './schema/index.js';
 
 // Single connection factory for the whole monorepo. DATABASE_URL matches
 // the credentials in infra/docker/docker-compose.yml for local dev.

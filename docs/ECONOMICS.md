@@ -48,9 +48,13 @@ destinazione solo dall'ultima (come hub di arrivo), gli hub intermedi da due tra
 `P` è un **impegno di spesa**, non un fondo prefinanziato: si paga tratta per tratta
 con hold invoice dirette mittente→vettore (ADR-013). Tutti i calcoli reali sono in
 **msat** sul valore in sats congelato alla creazione (ADR-008); qui si usano € per
-leggibilità. Le distanze sono quelle del
-`DistanceProvider` (haversine × 1.3, ADR-007): la stessa metrica per prezzo e
-matching, così le distorsioni si annullano a vicenda.
+leggibilità. Le distanze sono quelle della **metrica congelata della
+spedizione** ([ADR-031](adr/ADR-031-road-routing.md)): stradale OSRM
+(`'road'`, dalla cache first-write-wins `road_distances`) per le spedizioni
+nate col router disponibile, haversine × 1.3 (ADR-007) per le altre — sempre
+la STESSA metrica per prezzo e matching, dalla creazione alla consegna, così
+le distorsioni si annullano a vicenda e ogni importo resta ricalcolabile dal
+solo database (§6.3).
 
 ## 3. I tre modelli
 
@@ -380,3 +384,31 @@ sopravvive al multi-tratta; in compenso il vettore che fa la tratta unica comple
 netta l'**80%** (4,00 €). L'esempio nel CLAUDE.md è già stato allineato (lordo
 `5 € × 40/100 = 2 €`, netto 1,60 €, fee hub calcolate sul lordo del vettore):
 nessuna divergenza residua.
+
+## 7. Guadagno dell'hub mostrato in dashboard (Fase 2 punto 7)
+
+Il CLAUDE.md chiede che la dashboard dell'hub mostri «la percentuale che
+riceverebbe». La percentuale da sola non è una cifra: `estimateHubFeeRange`
+(`@mercurio/core/economics`) la traduce in sats (+ € indicativo) su **ogni
+richiesta** della dashboard, con questa regola:
+
+- **cifra puntuale dove la tratta è nota**: se una tratta adiacente alla giacenza
+  è già prezzata (`legs.dep_hub_fee_msat`/`arr_hub_fee_msat` congelati
+  all'accettazione, §3), la si mostra così com'è — è denaro reale, non una stima;
+- **stima «da–a» altrove**: dove la scomposizione del viaggio non è ancora nota
+  (richiesta di deposito al primo hub, giacenza all'origine prima della prima
+  tratta), si mostra l'intervallo della fee su una singola tratta al variare
+  della distanza percorsa `Δr`. La fee è `f × lordo` con `lordo = pool × Δr/r`
+  (Model B, §3): il **massimo** è la tratta unica fino a destinazione
+  (`Δr = r ⇒ lordo = pool`), il **minimo** la tratta più corta ammissibile
+  (`Δr = max(5 km, 5% D)`, `minLegProgressKm`), con l'intervallo che collassa a
+  un punto se il pacco è già più vicino della soglia minima.
+
+Gli estremi sono **prezzi reali che il motore potrebbe congelare**, mai sopra di
+essi: stessa scala di arrotondamenti al sat di `priceLeg`, e i test verificano
+che `min`/`max` coincidano con `priceLeg` sulla tratta più corta e su quella
+unica. È matematica di sola visualizzazione (non muove denaro) ma è
+denaro-forme, quindi vive in `@mercurio/core` con i suoi test (CLAUDE.md:
+nessuna logica di denaro senza test). Π_h (premio di finalizzazione dell'hub di
+destinazione, ADR-014) resta fuori da questa cifra: qui si mostra solo la **fee
+sul lordo di tratta**.

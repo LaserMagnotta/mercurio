@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createTestDb } from '@mercurio/db/test-helpers';
 import { users } from '@mercurio/db';
-import { createSession, getSessionUserId, revokeAllSessions, revokeSession } from './session';
+import { createSession, getSessionUserId, revokeAllSessions, revokeSession } from './session.js';
 
 async function makeUser(db: Awaited<ReturnType<typeof createTestDb>>) {
   const [user] = await db.insert(users).values({ email: 'alice@example.com' }).returning();
@@ -43,7 +43,7 @@ describe('session', () => {
     // that must be exercised, not just assumed correct.
     const { sessions } = await import('@mercurio/db');
     const { eq } = await import('drizzle-orm');
-    const { hashToken } = await import('./tokens');
+    const { hashToken } = await import('./tokens.js');
     await db
       .update(sessions)
       .set({ expiresAt: new Date(Date.now() - 1000) })

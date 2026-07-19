@@ -16,12 +16,12 @@ import {
   sha256String,
   type PhotoKind,
 } from '@mercurio/shared';
-import type { App } from '../app';
-import { requireAuth } from '../plugins/auth-guard';
-import { sha256Hex } from '../lib/blob-store';
-import { isJpeg, jpegHasGpsExif } from '../lib/photo-validation';
-import { loadShipmentBundle, type ShipmentBundle } from '../shipments/context';
-import { isShipmentParticipant } from '../shipments/participants';
+import type { App } from '../app.js';
+import { requireAuth } from '../plugins/auth-guard.js';
+import { sha256Hex } from '../lib/blob-store.js';
+import { isJpeg, jpegHasGpsExif } from '../lib/photo-validation.js';
+import { loadShipmentBundle, type ShipmentBundle } from '../shipments/context.js';
+import { isShipmentParticipant } from '../shipments/participants.js';
 
 const shipmentParams = z.object({ id: z.string().uuid() });
 const photoParams = z.object({ id: z.string().uuid(), sha256: sha256String });

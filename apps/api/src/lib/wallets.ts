@@ -21,7 +21,7 @@ import {
   type NwcEncryption,
   type WalletResolver,
 } from '@mercurio/escrow';
-import { openSecret } from './secret-box';
+import { openSecret } from './secret-box.js';
 
 export interface WalletResolverOptions {
   key: Buffer;

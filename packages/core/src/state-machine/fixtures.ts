@@ -10,6 +10,7 @@ import type {
   FinalizationBonusHold,
   LegPricing,
   PendingClaim,
+  PendingLegRequest,
   ShipmentContext,
   ShipmentEvent,
   ShipmentState,
@@ -78,6 +79,7 @@ export const FINAL_PRICING: LegPricing = {
 };
 
 export const DEADLINES = {
+  response: at(30), // ADR-029: deposit response window
   funding: at(60),
   pickup: at(120),
   transit: at(600),
@@ -100,6 +102,35 @@ export function baseCtx(): ShipmentContext {
     leg: null,
     finalizationBonusHold: null,
     pendingClaim: null,
+    pendingLegRequest: null,
+  };
+}
+
+/** A deposit request pending on the (manual) intermediate hub (ADR-029):
+ *  the money-free mirror of pendingLeg() — same frozen pricing, no payment
+ *  ids because no hold exists yet. */
+export function pendingRequest(): PendingLegRequest {
+  return {
+    legId: IDS.leg,
+    carrierId: IDS.carrier,
+    fromHubId: IDS.originHub,
+    fromHubUserId: IDS.originHubUser,
+    toHubId: IDS.intermediateHub,
+    toHubUserId: IDS.intermediateHubUser,
+    pricing: PRICING,
+    finalizationHubBonusMsat: 0n,
+    responseDeadlineAt: DEADLINES.response,
+  };
+}
+
+/** Destination-bound variant: final pricing plus the frozen Π_h share. */
+export function pendingFinalRequest(): PendingLegRequest {
+  return {
+    ...pendingRequest(),
+    toHubId: IDS.destHub,
+    toHubUserId: IDS.destHubUser,
+    pricing: FINAL_PRICING,
+    finalizationHubBonusMsat: HUB_BONUS_MSAT,
   };
 }
 
@@ -227,7 +258,7 @@ export function validEvent(type: ShipmentEvent['type']): ShipmentEvent {
       return { type, hubStayId: IDS.originStay, hubWalletConnected: true };
     case 'origin_checkin':
       return { type, photoSha256: ['photo-a'], storageDeadlineAt: DEADLINES.storage };
-    case 'leg_accept':
+    case 'leg_request':
       return {
         type,
         legId: IDS.leg,
@@ -236,13 +267,25 @@ export function validEvent(type: ShipmentEvent['type']): ShipmentEvent {
         carrierTripActive: true,
         toHubId: IDS.intermediateHub,
         toHubUserId: IDS.intermediateHubUser,
-        arrivalHubStayId: IDS.arrivalStay,
-        arrivalHubAutoAccepts: true,
         arrivalHubWalletConnected: true,
         pricing: PRICING,
         finalizationHubBonusMsat: 0n,
+        responseDeadlineAt: DEADLINES.response,
+      };
+    case 'deposit_accept':
+      return {
+        type,
+        now: at(10),
+        arrivalHubStayId: IDS.arrivalStay,
+        arrivalHubWalletConnected: true,
         fundingDeadlineAt: DEADLINES.funding,
       };
+    case 'deposit_reject':
+      return { type, rejectedById: IDS.intermediateHubUser, reason: 'shelf is full this week' };
+    case 'deposit_request_expired':
+      return { type, now: at(31) };
+    case 'deposit_request_cancel':
+      return { type };
     case 'leg_funded':
       return { type, now: at(30), pickupDeadlineAt: DEADLINES.pickup };
     case 'leg_funding_expired':

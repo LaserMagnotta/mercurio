@@ -1,18 +1,21 @@
 import { count, desc, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
-import type { App } from '../app';
+import type { App } from '../app.js';
 import { carrierTrips, hubs, shipments, users } from '@mercurio/db';
-import { listQuery } from '@mercurio/shared';
-import { requireAuth } from '../plugins/auth-guard';
-import { activateCarrierRole, deleteAccount, exportUserData, getRoles } from '../lib/account';
-import { msat } from '../lib/serialize';
+import { listQuery, MAX_STORAGE_DAYS, openingHoursDto } from '@mercurio/shared';
+import { requireAuth } from '../plugins/auth-guard.js';
+import { activateCarrierRole, deleteAccount, exportUserData, getRoles } from '../lib/account.js';
+import { msat } from '../lib/serialize.js';
 
 const hubBody = z.object({
   name: z.string().min(1).max(200),
   address: z.string().min(1).max(300),
+  // Optional venue contact address, distinct from the account email (ADR-028):
+  // deposit-request notifications go here when set. Never exposed publicly.
+  contactEmail: z.string().email().max(300).optional(),
   lat: z.number().min(-90).max(90),
   lng: z.number().min(-180).max(180),
-  openingHours: z.record(z.string()),
+  openingHours: openingHoursDto,
   maxDimCmL: z.number().int().positive(),
   maxDimCmW: z.number().int().positive(),
   maxDimCmH: z.number().int().positive(),
@@ -21,8 +24,11 @@ const hubBody = z.object({
   // Cap on hub fees (ECONOMICS.md sec.5, "tetto di validazione sulle fee hub"):
   // above this an hub is never worth the matching surplus for a carrier.
   feePercent: z.number().min(0).max(30),
-  maxStorageHours: z.number().int().positive().max(168), // ESCROW.md sec.4 CLTV budget
-  autoAccept: z.boolean().default(true),
+  maxStorageDays: z.number().int().positive().max(MAX_STORAGE_DAYS), // ESCROW.md sec.4 CLTV budget (ADR-026)
+  // Default FALSE (ADR-029, decisione B): a new hub is manual and reviews
+  // every deposit before committing bond and shelf space; auto-accept is an
+  // explicit opt-in ("accetta sempre").
+  autoAccept: z.boolean().default(false),
 });
 
 export function registerMeRoutes(app: App) {
@@ -61,6 +67,7 @@ export function registerMeRoutes(app: App) {
           userId: request.userId!,
           name: b.name,
           address: b.address,
+          contactEmail: b.contactEmail ?? null,
           lat: b.lat,
           lng: b.lng,
           openingHours: b.openingHours,
@@ -70,7 +77,7 @@ export function registerMeRoutes(app: App) {
           maxWeightG: b.maxWeightG,
           acceptsUndeclared: b.acceptsUndeclared,
           feePercent: b.feePercent.toFixed(2),
-          maxStorageHours: b.maxStorageHours,
+          maxStorageDays: b.maxStorageDays,
           autoAccept: b.autoAccept,
           active: true,
         })
@@ -119,12 +126,18 @@ export function registerMeRoutes(app: App) {
       return {
         items: rows.map((s) => ({
           id: s.id,
+          codename: s.codename,
           status: s.status.toUpperCase(),
           originHubId: s.originHubId,
           originHubName: hubName(s.originHubId),
           destHubId: s.destHubId,
           destHubName: hubName(s.destHubId),
           offerMsat: msat(s.offerMsat),
+          eurRate: {
+            satsPerEur: s.eurRateSnapshot,
+            source: s.eurRateSource,
+            at: s.eurRateAt.toISOString(),
+          },
           createdAt: s.createdAt.toISOString(),
         })),
         total,
@@ -186,7 +199,7 @@ export function registerMeRoutes(app: App) {
   });
 
   app.delete('/me', { preHandler: requireAuth }, async (request, reply) => {
-    await deleteAccount(app.db, request.userId!, app.blobStore);
+    await deleteAccount(app.db, request.userId!, app.blobStore, app.venueBlobStore);
     reply.clearCookie('mercurio_session', { path: '/' });
     return { ok: true };
   });

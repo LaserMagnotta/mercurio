@@ -8,16 +8,16 @@
 import { describe, expect, it } from 'vitest';
 import { emailOutbox, photos } from '@mercurio/db';
 import { PHOTO_MAX_BYTES } from '@mercurio/shared';
-import { sha256Hex } from '../lib/blob-store';
-import { buildJpeg, buildJpegWithExif, PNG_MAGIC } from '../lib/photo-test-fixtures';
-import { pumpWalletEvents } from './pump';
+import { sha256Hex } from '../lib/blob-store.js';
+import { buildJpeg, buildJpegWithExif, PNG_MAGIC } from '../lib/photo-test-fixtures.js';
+import { pumpWalletEvents } from './pump.js';
 import {
   CANONICAL_CREATE_BODY,
   createLifecycleWorld,
   declareTrip,
   type LifecycleWorld,
   type Persona,
-} from './test-world';
+} from './test-world.js';
 
 /** Create the canonical shipment and check it in at hub A declaring the
  *  given REAL photo hashes (test-world's createShipmentAtHub declares a
@@ -380,8 +380,8 @@ describe('photo upload → download (ADR-020)', () => {
       cookie: world.marco.cookie,
       expect: 200,
     });
-    const { deleteAccount } = await import('../lib/account');
-    await deleteAccount(world.db, world.mario.id, world.app.blobStore);
+    const { deleteAccount } = await import('../lib/account.js');
+    await deleteAccount(world.db, world.mario.id, world.app.blobStore, world.app.venueBlobStore);
     expect(await world.db.select().from(photos)).toHaveLength(0);
     expect(await world.app.blobStore.get(hash)).toBeNull();
   });

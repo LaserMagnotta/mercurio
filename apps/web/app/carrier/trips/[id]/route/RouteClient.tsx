@@ -97,6 +97,7 @@ export function RouteClient({
         origin={route.origin}
         destination={route.destination}
         stops={route.stops}
+        routeGeometry={route.routeGeometry}
         labels={{
           origin: t('origin'),
           destination: t('destination'),
@@ -105,6 +106,14 @@ export function RouteClient({
           preview: t('previewBadge'),
         }}
       />
+      <p className="hint">
+        {t('roadPathNote')}
+        {/* ADR-031: dashed hops mean the road shape was unavailable — the
+            chord is drawn instead. Display only, never a price. */}
+        {[route.routeGeometry.direct, ...route.routeGeometry.segments].some(
+          (s) => s.source === 'straight',
+        ) && ` ${t('straightFallback')}`}
+      </p>
 
       <div className="stack-sm">
         <a

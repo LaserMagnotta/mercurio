@@ -36,7 +36,7 @@ import {
   journalEntries,
   postJournalEntry,
 } from '@mercurio/db';
-import { decryptPreimage, encryptPreimage, generatePreimage } from './crypto';
+import { decryptPreimage, encryptPreimage, generatePreimage } from './crypto.js';
 import {
   EscrowError,
   type ConditionalPaymentId,
@@ -45,7 +45,7 @@ import {
   type CreateConditionalPaymentParams,
   type EscrowCoordinator,
   type WalletResolver,
-} from './types';
+} from './types.js';
 
 type PaymentRow = typeof conditionalPayments.$inferSelect;
 

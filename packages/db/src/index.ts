@@ -4,6 +4,6 @@
 // constraints (journal entries summing to zero, append-only ledger) are
 // enforced in the database itself via triggers, not just in code (ADR-010).
 
-export * from './schema/index';
-export * from './client';
-export * from './ledger';
+export * from './schema/index.js';
+export * from './client.js';
+export * from './ledger.js';

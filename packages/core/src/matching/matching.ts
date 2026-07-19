@@ -19,8 +19,10 @@ import type {
   ShipmentAtHub,
 } from '@mercurio/shared';
 import { MAX_ALTERNATIVE_DROP_HUBS, MIN_LEG_PROGRESS_KM } from '@mercurio/shared';
-import { EconomicsError, priceLeg } from '../economics/economics';
-import type { DistanceProvider } from './distance';
+import type { GeoPoint } from '@mercurio/shared';
+import { EconomicsError, priceLeg } from '../economics/economics.js';
+import type { DistanceProvider } from './distance.js';
+import { UnresolvedDistanceError } from './distance.js';
 
 const kmToMeters = (km: number): number => Math.round(km * 1000);
 
@@ -32,13 +34,15 @@ function fitsDims(parcel: DimensionsCm, limit: DimensionsCm): boolean {
   return p.every((side, i) => side <= (l[i] ?? 0));
 }
 
-/** Candidate conditions 1 and 3 of MATCHING.md §2: the hub is active, takes
- *  this parcel physically, and can bind its custody bond unattended. */
+/** Candidate conditions 1 and 3 of MATCHING.md §2 (amended by ADR-029): the
+ *  hub is active, takes this parcel physically, and could bind its custody
+ *  bond if it accepts (wallet connected). A MANUAL hub is a candidate too —
+ *  its option is marked `requiresConfirmation` and choosing it opens a
+ *  deposit request instead of booking instantly. */
 function hubAcceptsParcel(hub: MatchingHub, shipment: ShipmentAtHub): boolean {
   return (
     hub.active &&
     hub.walletConnected &&
-    hub.autoAcceptDeposits &&
     shipment.weightG <= hub.maxWeightG &&
     fitsDims(shipment.dimsCm, hub.maxDimsCm) &&
     (!shipment.undeclared || hub.acceptsUndeclared)
@@ -54,8 +58,10 @@ function compareOptions(a: DropHubOption, b: DropHubOption): number {
 }
 
 /** Board order (MATCHING.md §3): matches first, surplus(H*) desc within each
- *  section, shipmentId as the deterministic tiebreaker. */
-function compareCandidates(a: MatchCandidate, b: MatchCandidate): number {
+ *  section, shipmentId as the deterministic tiebreaker. Exported since
+ *  ADR-031: the API ranks per-metric groups separately (one rankBoard call
+ *  per DistanceProvider) and must merge them under this SAME total order. */
+export function compareCandidates(a: MatchCandidate, b: MatchCandidate): number {
   if (a.isMatch !== b.isMatch) return a.isMatch ? -1 : 1;
   if (a.bestDropHub.surplusMsat !== b.bestDropHub.surplusMsat) {
     return b.bestDropHub.surplusMsat > a.bestDropHub.surplusMsat ? 1 : -1;
@@ -91,13 +97,26 @@ function evaluateShipment(
   }
 
   const originToCurrentKm = distance.distanceKm(trip.origin, currentHub.location);
+  // A provider may be unable to answer one specific pair (ADR-031: a road
+  // router can hold no route for a combination while answering the rest).
+  // Inside the candidate loop that only disqualifies the hub at hand — the
+  // same self-disqualification as a fee above the cap. Outside the loop
+  // (O→S above, O→Dc in rankBoard) a miss is still a caller bug and throws.
+  const tryDistanceKm = (a: GeoPoint, b: GeoPoint): number | null => {
+    try {
+      return distance.distanceKm(a, b);
+    } catch (error) {
+      if (error instanceof UnresolvedDistanceError) return null;
+      throw error;
+    }
+  };
   const options: DropHubOption[] = [];
   for (const hub of hubs) {
     if (!hubAcceptsParcel(hub, shipment)) continue;
     const isDestination = hub.hubId === shipment.destHubId;
-    const hubToDestM = isDestination
-      ? 0
-      : kmToMeters(distance.distanceKm(hub.location, destHub.location));
+    const hubToDestKm = isDestination ? 0 : tryDistanceKm(hub.location, destHub.location);
+    if (hubToDestKm === null) continue;
+    const hubToDestM = kmToMeters(hubToDestKm);
     const progressM = remainingM - hubToDestM;
     // Positive, non-trivial progress: r_S − d(H,T) ≥ max(5 km, 5% × D). The
     // integer comparisons mirror priceLeg's guard exactly, so pricing below
@@ -125,11 +144,10 @@ function evaluateShipment(
       throw error;
     }
 
-    const detourKm =
-      originToCurrentKm +
-      distance.distanceKm(currentHub.location, hub.location) +
-      distance.distanceKm(hub.location, trip.destination) -
-      directKm;
+    const currentToHubKm = tryDistanceKm(currentHub.location, hub.location);
+    const hubToTripDestKm = tryDistanceKm(hub.location, trip.destination);
+    if (currentToHubKm === null || hubToTripDestKm === null) continue;
+    const detourKm = originToCurrentKm + currentToHubKm + hubToTripDestKm - directKm;
     if (!Number.isFinite(detourKm)) continue;
     // The metric satisfies the triangle inequality, so detour ≥ 0 up to float
     // noise; clamp so an injected test provider can't produce a negative cost.
@@ -149,6 +167,10 @@ function evaluateShipment(
       netMsat,
       finalizationBonusMsat: pricing.finalizationBonusMsat,
       surplusMsat: netMsat - thresholdMsat,
+      // ADR-029 §3: dropping at a manual hub opens a request the hub must
+      // confirm — the card marks it so the carrier knows booking is not
+      // instant (auto-accept hubs keep their natural market advantage).
+      requiresConfirmation: !hub.autoAcceptDeposits,
     });
   }
   if (options.length === 0) return null;
