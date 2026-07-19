@@ -128,12 +128,14 @@ preparazione del grafo OSRM quando ci sarà l'host (DEPLOY §10).
 | [ADR-023](adr/ADR-023-s3-blob-storage-driver.md)    | Driver S3-compatibile per il blob storage delle foto (MinIO/Garage), selezione da config, MinIO dev opt-in |
 | [ADR-024](adr/ADR-024-production-deploy.md)         | Deploy: immagini multi-stage, compose su singolo VPS, Caddy unica origin, segreti solo da env |
 | [ADR-025](adr/ADR-025-eur-rate-market-provider.md)  | Cambio EUR→sats reale: mediana di ticker pubblici senza chiave, cache in processo, fisso solo per dev |
-| [ADR-026](adr/ADR-026-storage-in-days.md)           | Giacenza in giorni (cap 7 subito); i 30 giorni via bond a rinnovo rolling, da implementare a parte |
+| [ADR-026](adr/ADR-026-storage-in-days.md)           | Giacenza in giorni (cap 7 subito); i 30 giorni via bond a rinnovo rolling (attuati da ADR-033) |
 | [ADR-027](adr/ADR-027-reviews-hub-only.md)          | Recensioni: l'unico soggetto recensibile è l'hub (emenda ADR-017) |
 | [ADR-028](adr/ADR-028-hub-venue-and-deposit-notice.md) | Foto del locale (tabella + store separati), email di contatto dell'hub, avviso di deposito via outbox |
 | [ADR-029](adr/ADR-029-arrival-hub-deposit-request.md) | Accetta/rifiuta dell'hub d'arrivo sulle richieste di deposito: fase `requested` senza denaro, `leg_accept` → `leg_request`+`deposit_accept`, `auto_accept` default false |
 | [ADR-030](adr/ADR-030-hub-discovery-scale.md) | Hub discovery a scala 10k: bbox+ricerca+paginazione su GET /hubs, mappa con clustering a griglia, spedizioni in attesa per hub (reverse trip planning) |
 | [ADR-031](adr/ADR-031-road-routing.md) | Routing stradale OSRM **nel pricing** (decisione utente): metrica congelata per spedizione, cache `road_distances` first-write-wins, polilinee reali sulla mappa del viaggio, router opzionale con degrado dichiarato |
+| [ADR-032](adr/ADR-032-hub-opening-hours.md) | Orari di apertura strutturati per hub (intervalli per giorno, max 3), validazione condivisa, UI dedicata |
+| [ADR-033](adr/ADR-033-rolling-bond-renewal.md) | Rinnovo rolling del bond hub (finestre ≤7 giorni, timer `bond_renewal`, mancato rinnovo = svincolo anticipato): giacenza fino a **30 giorni** (ADR-026 Parte 2) |
 
 ## Stato delle decisioni
 

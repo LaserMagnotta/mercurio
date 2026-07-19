@@ -24,8 +24,9 @@ prefinanziato che copre l'intera spedizione; cadono se i flussi diventano per-tr
    fisici; la certificazione si sblocca a pagamento avvenuto.
 4. **Wallet degli utenti** connessi via NWC o adapter diretti (`WalletConnection`);
    il dominio parla solo con `EscrowCoordinator` (ESCROW §5).
-5. **Giacenza massima 7 giorni nell'MVP**: il bond hub è il lock più lungo e il
-   budget CLTV di un HTLC pendente deve restare sano.
+5. **Nessun HTLC oltre il budget CLTV sano di 7 giorni**: nell'MVP questo
+   cappava la giacenza a 7 giorni; da ADR-033 il bond hub si rinnova rolling
+   a finestre ≤7 giorni e la giacenza arriva a 30.
 
 ## Alternative considerate
 

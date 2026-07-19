@@ -91,8 +91,11 @@ la pendenza è l'incentivo voluto. Con tratta unica il vettore netta
   beneficiario fissato o torna al mittente (invariante 2 di ARCHITECTURE §5).
 - **Quarta hold nella finestra di funding della tratta finale**: il mittente
   paga due hold (pagamento tratta + premio hub); `LEG_BOOKED` richiede
-  tutte e quattro _held_. Il lock della hold `Π_h` dura fino al ritiro
-  (transito + giacenza ≤ 7 giorni: stesso budget CLTV del bond hub, ESCROW §4).
+  tutte e quattro _held_. Il lock della hold `Π_h` dura fino al ritiro —
+  entro il budget CLTV di 7 giorni finché la giacenza a destinazione resta
+  breve. Con le giacenze lunghe di ADR-033 la `Π_h` **non** rinnova rolling
+  (limite noto, accettato lì): oltre la sua finestra scade e degrada senza
+  perdita — il premio torna al mittente e il ritiro procede senza bonus.
 - **Ultimo miglio più appetibile**: si somma alle valvole di ECONOMICS §5
   (boost, reroute) riducendo il "last mile starvation" residuo del modello B.
 - **La bacheca cambia**: il netto mostrato per una tratta finale include
