@@ -101,7 +101,10 @@ export function registerShipmentRoutes(app: App) {
       let distanceKm = 0;
       if (app.roadRouting.enabled) {
         const metres = await app.roadRouting.resolvePair(app.db, originPoint, destPoint);
-        if (metres !== null && metres > 0) {
+        // A resolved 0 is an ANSWER (hubs on the same road point), not a
+        // miss: keep the road metric and let the hubs_too_close guard below
+        // refuse it, instead of silently rebranding the pair 'haversine'.
+        if (metres !== null) {
           distanceMetric = 'road';
           distanceKm = metres / 1000;
         }

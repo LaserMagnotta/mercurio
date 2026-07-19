@@ -268,6 +268,44 @@ describe('road routing in pricing (ADR-031)', () => {
     }
   });
 
+  it('a resolved 0 m pair is an answer: creation refuses hubs_too_close, never rebrands haversine', async () => {
+    // Hub Z sits in hub A's ~11 m quantization cell: resolvePair answers 0
+    // without touching the router (samePoint contract in road-routing.ts).
+    // Pre-fix (review C4) the `metres > 0` guard treated that 0 as a miss
+    // and froze distanceMetric='haversine' with a tiny nonzero km.
+    const [hubZOwner] = await world.db
+      .insert(users)
+      .values({ email: 'hubz@test.local', locale: 'it' })
+      .returning();
+    const [hubZ] = await world.db
+      .insert(hubs)
+      .values({
+        userId: hubZOwner!.id,
+        name: 'Hub Z',
+        address: 'Via Z 1',
+        lat: 0,
+        lng: 0.00001,
+        openingHours: [],
+        maxDimCmL: 50,
+        maxDimCmW: 50,
+        maxDimCmH: 50,
+        maxWeightG: 15_000,
+        acceptsUndeclared: true,
+        feePercent: '10.00',
+        maxStorageDays: 7,
+        autoAccept: true,
+        active: true,
+      })
+      .returning();
+    await world.api({
+      method: 'POST',
+      url: '/shipments',
+      cookie: world.marco.cookie,
+      body: { ...CANONICAL_CREATE_BODY, originHubId: world.hubA, destHubId: hubZ!.id },
+      expect: 422,
+    });
+  });
+
   it('refuses (503, retriable) a road money op that needs a cold pair, then honors the retry', async () => {
     const { id } = await createShipmentAtHub(world);
     // A hub no board has ever seen: its pairs are guaranteed cold. (Earlier

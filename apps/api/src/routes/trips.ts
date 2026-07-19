@@ -346,12 +346,14 @@ export function registerTripRoutes(app: App) {
       // router trouble falls back to the haversine estimate.
       const originPoint = { lat: origin.lat, lng: origin.lng };
       const destPoint = { lat: dest.lat, lng: dest.lng };
-      let routeKm = 0;
+      let routeKm: number | null = null;
       if (app.roadRouting.enabled) {
         const metres = await app.roadRouting.resolvePair(app.db, originPoint, destPoint);
+        // A resolved 0 is an answer, not a miss: mirror creation and refuse,
+        // instead of quoting a haversine figure creation would never freeze.
         if (metres !== null) routeKm = metres / 1000;
       }
-      if (routeKm <= 0) routeKm = app.lifecycle.distance.distanceKm(originPoint, destPoint);
+      if (routeKm === null) routeKm = app.lifecycle.distance.distanceKm(originPoint, destPoint);
       if (routeKm <= 0) return reply.code(422).send({ error: 'hubs_too_close' });
       // Delivered shipments only, dated by their recipient_pickup event.
       const delivered = await app.db
