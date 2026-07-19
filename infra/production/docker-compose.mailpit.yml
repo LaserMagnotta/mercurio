@@ -1,0 +1,32 @@
+# Mercurio — STAGING-ONLY overlay: Mailpit as a local SMTP sink.
+#
+# For a private staging without a real SMTP relay (docs/DEPLOY.md §12): every
+# email the API sends — magic links included — lands in a web inbox instead of
+# reaching anyone. Sign-in becomes: request the link on the site, open Mailpit,
+# click the link. NEVER use this in a real deployment: users would simply never
+# receive anything, and nothing would look broken (the outbox reports success).
+#
+# Usage (both -f flags, order matters):
+#   docker compose -f infra/production/docker-compose.yml \
+#                  -f infra/production/docker-compose.mailpit.yml up -d
+# and in .env:  SMTP_HOST=mailpit  (port 1025 is already the default).
+#
+# The web UI is bound to 127.0.0.1 ON PURPOSE: it shows everyone's magic
+# links, so exposing it (e.g. through the same tunnel as the site) would hand
+# out every account. Only the machine's owner can read it.
+
+services:
+  mailpit:
+    image: axllent/mailpit
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '5'
+    ports:
+      # Host port 8026, not 8025: the dev fixture (infra/docker/) already
+      # publishes its own Mailpit on 8025, and the two can run at once.
+      - '127.0.0.1:8026:8025' # web UI — host-only, never tunneled
+    # No SMTP port published: the API reaches mailpit:1025 over the compose
+    # network; nothing outside this host can inject mail.

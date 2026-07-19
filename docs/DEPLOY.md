@@ -411,16 +411,23 @@ che collega il **proprio** wallet da `/wallet`. Cosa funziona prima che
 qualcuno lo faccia, e cosa no:
 
 - **Non richiedono nessun wallet collegato**: registrazione/login (magic
-  link), registrazione hub, creazione di una spedizione, la bacheca. La
-  spedizione legge `hasConnectedWallet` solo per decidere l'auto-accept
-  dell'hub (`apps/api/src/routes/shipments.ts`), non per bloccare la
-  creazione.
-- **Richiedono un wallet vero e capace di hold invoice**: accettare una
-  tratta (bond vettore), l'hub che accetta un deposito (bond hub), il
-  pagamento di una tratta, la finalizzazione. Fino a quando nessun utente ha
-  collegato un wallet reale, questi passi dello smoke test (§6) restano non
-  verificabili end-to-end — non è un difetto del deploy, è la conseguenza
-  diretta dello zero-custodia.
+  link), registrazione hub, la bacheca. Lato API, anche la creazione di una
+  spedizione: la rotta legge `hasConnectedWallet` solo per decidere
+  l'auto-accept dell'hub (`apps/api/src/routes/shipments.ts`), non per
+  bloccare la creazione.
+- **La UI web è più severa dell'API**: il bottone "Crea la spedizione" resta
+  disabilitato finché il mittente non ha un wallet collegato
+  (`disabled={busy || walletConnected === false}`,
+  `apps/web/app/send/page.tsx`) — coerente con il banner "le hold di
+  pagamento partono da lì", ma verificato **UI-side**, non solo a leggere la
+  rotta API: senza un wallet non si arriva a inviare il form, punto, anche
+  se il server l'avrebbe accettato.
+- **Richiedono un wallet vero e capace di hold invoice**: creare una
+  spedizione dalla UI (vedi sopra), accettare una tratta (bond vettore),
+  l'hub che accetta un deposito (bond hub), il pagamento di una tratta, la
+  finalizzazione. Fino a quando nessun utente ha collegato un wallet reale,
+  questi passi dello smoke test (§6) restano non verificabili end-to-end —
+  non è un difetto del deploy, è la conseguenza diretta dello zero-custodia.
 
 ### Collegare un wallet reale (per l'utente, non per l'host)
 
@@ -451,3 +458,84 @@ all'adapter, per costruzione. La checklist per passare da "nessuno ha ancora
 collegato un wallet" a "flussi di pagamento verificati" è quindi solo
 umana: un utente reale, con un wallet NWC hold-capable, che compie ogni
 passo del ciclo di vita una volta — nessuna variabile d'ambiente cambia.
+
+## 12. Staging da un PC di casa (Tailscale Funnel + Mailpit) — TEMPORANEO
+
+Prima di avere un VPS, un dominio e un relay SMTP reali, questo stesso
+compose può girare da un normale PC e restare comunque raggiungibile da
+internet con TLS vero, usando [Tailscale Funnel](https://tailscale.com/kb/1223/funnel)
+al posto di un reverse proxy pubblico e [Mailpit](https://mailpit.axllent.org/)
+al posto di un relay SMTP. **Provato il 2026-07-19**: signup reale (magic
+link consegnato via Mailpit), doppia registrazione hub con orari
+strutturati (ADR-032), ricerca hub, form di spedizione con calcolo km/EUR/
+sats dal vero `EUR_RATE_PROVIDER=market`, bacheca vettore — tutto raggiunto
+da un URL pubblico reale (`https://<host>.<tailnet>.ts.net`), zero porte
+aperte sul router di casa.
+
+**Non è un deploy di produzione**: è un rig di prova per collaudare il
+prodotto prima che VPS/dominio/SMTP reali siano pronti (§ resto del
+documento resta la via canonica). Non annunciarlo, non condividerlo con
+utenti reali, non fidarti della sua uptime (§ limiti sotto).
+
+### Setup
+
+1. **Tailscale**: installa (`winget install Tailscale.Tailscale` su
+   Windows), `tailscale up` (login nel browser). Nella console admin
+   (`https://login.tailscale.com/admin/dns`) abilita **HTTPS Certificates**,
+   poi abilita **Funnel** per il tailnet (link diretto stampato la prima
+   volta che lanci `tailscale funnel` se non è ancora attivo). Sono due
+   toggle nella tua console, nessuna azione da qui.
+2. **Espone la porta 80 (Caddy)**: `tailscale funnel --bg 80`. Stampa
+   l'hostname pubblico (`<macchina>.<tailnet>.ts.net`) e resta attivo in
+   background tra un riavvio di Docker e l'altro; `tailscale funnel status`
+   per rivedere l'URL, `tailscale funnel --https=443 off` per spegnerlo.
+3. **`.env`**: **`MERCURIO_DOMAIN` deve combaciare esattamente con l'Host
+   che Funnel inoltra** — cioè l'hostname `.ts.net`, con `http://` (non
+   `https://`, non bare): Funnel termina già il TLS al bordo e inoltra
+   HTTP in chiaro a Caddy, quindi Caddy va tenuto in modalità HTTP-pura
+   sullo stesso host, o il suo blocco non combacia e risponde 200 vuoto a
+   tutto (visto succedere: la causa era `MERCURIO_DOMAIN=http://localhost`
+   lasciato dal test locale — Caddy ignorava ogni richiesta con
+   `Host: <macchina>.ts.net` perché non è `localhost`).
+   ```
+   MERCURIO_DOMAIN=http://<macchina>.<tailnet>.ts.net
+   WEB_URL=https://<macchina>.<tailnet>.ts.net
+   SMTP_HOST=mailpit
+   ```
+4. **Mailpit al posto di un relay vero**:
+   [`infra/production/docker-compose.mailpit.yml`](../infra/production/docker-compose.mailpit.yml)
+   è un overlay — mai un servizio del compose base, mai un default:
+   ```sh
+   docker compose -f infra/production/docker-compose.yml \
+                  -f infra/production/docker-compose.mailpit.yml up -d --build
+   ```
+   La sua UI (`http://localhost:8026`, porta 8026 apposta per non litigare
+   con l'8025 già usato dal Mailpit di `infra/docker/`, la fixture di
+   sviluppo) resta bindata a `127.0.0.1`: **non va mai infilata nel
+   Funnel**, mostra i magic link di chiunque.
+
+### Limiti (perché resta "temporaneo" e non un'alternativa al VPS)
+
+- **Nessuna email esce davvero.** Ogni email — magic link incluso — finisce
+  in Mailpit, non nella casella di un utente vero. Va bene per collaudare
+  la UI e i flussi; non è un test SMTP (quello resta da fare contro il
+  relay reale, §9 di questo documento).
+- **Il PC deve restare acceso e Docker Desktop deve restare sano.** Su
+  questa macchina Docker Desktop ha un bug di avvio noto (socket
+  `dockerInference` che va in stallo, si risolve rinominando
+  `%LOCALAPPDATA%\Docker\run`): un riavvio Windows può quindi lasciare lo
+  staging giù finché qualcuno non se ne accorge e non rilancia Docker.
+  Nessun problema del genere esiste su un VPS con Docker Engine puro.
+- **Un solo host è già la topologia di produzione (ADR-024 §3)**; qui però
+  si aggiunge una dipendenza in più — Tailscale stesso — e un uptime che
+  dipende dal PC di casa restare acceso, non da un provider con SLA.
+- **`TRUST_PROXY=true` (fisso nel compose) presume che Caddy veda l'IP vero
+  del client in `X-Forwarded-For`.** Con Funnel in mezzo questo non è
+  verificato quanto il caso VPS (dove ADR-024 §8 lo dimostra con un test
+  reale): se un giorno serve fidarsi dei rate limit per IP su questo rig,
+  va riverificato con lo stesso esperimento (105 richieste, IP finti,
+  aspettarsi tutte nello stesso bucket).
+- **`COORDINATOR_KEY` generata qui è a perdere**: non è pensata per
+  sopravvivere al passaggio al VPS vero (locale nuova macchina, nuova
+  chiave, nessun dato di questo rig si porta dietro — è un rig di prova,
+  non uno stato da migrare).
