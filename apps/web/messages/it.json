@@ -465,7 +465,6 @@
     "needWallet": "Collega il tuo wallet Lightning: il bond di custodia di ogni deposito parte da lì.",
     "goWallet": "Collega il wallet",
     "acceptTitle": "Richieste di deposito",
-    "acceptIntro": "Spedizioni che chiedono di partire dal tuo hub: accettare blocca il tuo bond finché un vettore non ritira il pacco.",
     "requestsIntro": "Richieste in attesa di una tua risposta. Quelle in arrivo hanno una scadenza: rispondi prima che decadano.",
     "arrivalBadge": "In arrivo",
     "originBadge": "In partenza",

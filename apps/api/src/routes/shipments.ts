@@ -116,9 +116,13 @@ export function registerShipmentRoutes(app: App) {
 
       const shipmentId = randomUUID();
       const qrToken = generateToken().token;
-      const codename = await mintCodename(app.db);
+      // Three independent reads, one round trip of latency instead of three.
+      const [codename, senderWalletConnected, originHubWalletConnected] = await Promise.all([
+        mintCodename(app.db),
+        hasConnectedWallet(app.db, senderId),
+        hasConnectedWallet(app.db, originHub.userId),
+      ]);
       const segmentWorkMsat = splitCommitment(offerMsat).workMsat;
-      const senderWalletConnected = await hasConnectedWallet(app.db, senderId);
 
       // The origin hub auto-accepts only if it opted in AND has a connected
       // wallet to bond (checked once, reused for the accept below). When it does
@@ -127,7 +131,6 @@ export function registerShipmentRoutes(app: App) {
       // back to the account email. The outbox row is written in the SAME
       // transaction as the shipment (outbox invariant): no mail for a shipment
       // that failed to create.
-      const originHubWalletConnected = await hasConnectedWallet(app.db, originHub.userId);
       const willAutoAccept = originHub.autoAccept && originHubWalletConnected;
       let depositRequestTo: string | null = null;
       if (!willAutoAccept) {

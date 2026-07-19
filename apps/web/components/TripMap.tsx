@@ -43,7 +43,9 @@ export interface TripMapProps {
   origin: { lat: number; lng: number };
   destination: { lat: number; lng: number };
   stops: TripMapStop[];
-  routeGeometry?: TripMapRouteGeometry;
+  // Required: the endpoint always emits a geometry (router down = straight
+  // segments, ADR-031), so an optional prop would keep a dead fallback alive.
+  routeGeometry: TripMapRouteGeometry;
   labels: {
     origin: string;
     destination: string;
@@ -85,7 +87,7 @@ export default function TripMap({
   // Fit the road shapes too: a real road can bow far outside the marker hull.
   const boundsPoints: LatLngTuple[] = [
     ...markerPath,
-    ...(routeGeometry?.segments.flatMap((seg) => seg.points) ?? []),
+    ...routeGeometry.segments.flatMap((seg) => seg.points),
   ];
   const bounds = latLngBounds(boundsPoints).pad(0.25);
 
@@ -96,40 +98,30 @@ export default function TripMap({
         attribution={OSM_ATTRIBUTION}
       />
 
-      {routeGeometry ? (
-        <>
-          {/* The trip as it would be with no parcels: muted tone underneath. */}
-          <Polyline
-            positions={routeGeometry.direct.points}
-            pathOptions={{
-              color: ACCENT,
-              weight: 3,
-              opacity: 0.35,
-              ...(routeGeometry.direct.source === 'straight' && { dashArray: '6 10' }),
-            }}
-          />
-          {/* The actual visit-order path, hop by hop; dashed = straight
-              fallback (no road shape available right now). */}
-          {routeGeometry.segments.map((seg, i) => (
-            <Polyline
-              key={i}
-              positions={seg.points}
-              pathOptions={{
-                color: ACCENT,
-                weight: 4,
-                opacity: 0.9,
-                ...(seg.source === 'straight' && { dashArray: '6 10' }),
-              }}
-            />
-          ))}
-        </>
-      ) : (
-        // No geometry from the endpoint: the pre-ADR-031 single chord path.
+      {/* The trip as it would be with no parcels: muted tone underneath. */}
+      <Polyline
+        positions={routeGeometry.direct.points}
+        pathOptions={{
+          color: ACCENT,
+          weight: 3,
+          opacity: 0.35,
+          ...(routeGeometry.direct.source === 'straight' && { dashArray: '6 10' }),
+        }}
+      />
+      {/* The actual visit-order path, hop by hop; dashed = straight
+          fallback (no road shape available right now). */}
+      {routeGeometry.segments.map((seg, i) => (
         <Polyline
-          positions={markerPath}
-          pathOptions={{ color: ACCENT, weight: 4, opacity: 0.85 }}
+          key={i}
+          positions={seg.points}
+          pathOptions={{
+            color: ACCENT,
+            weight: 4,
+            opacity: 0.9,
+            ...(seg.source === 'straight' && { dashArray: '6 10' }),
+          }}
         />
-      )}
+      ))}
 
       <Marker position={[origin.lat, origin.lng]} icon={marker(DOT_SVG, 'map-marker-endpoint')}>
         <Popup>{labels.origin}</Popup>

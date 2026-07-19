@@ -1,20 +1,23 @@
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
+import { ROAD_CIRCUITY_FACTOR } from '@mercurio/shared';
 import type { Db } from './client.js';
 import { hubs, shipments, users } from './schema/index.js';
 
-// Haversine × 1.3 circuity (ADR-007), inlined so the db package does not
-// depend on @mercurio/core just for the seed. The demo shipment's frozen
-// distance MUST be what the API's provider would compute: a hardcoded 100 km
-// made remainingKm (105.23) exceed totalKm and broke the carrier board on a
-// freshly seeded database (remainingPool throws invalid_distance).
+// Haversine × circuity (ADR-007), inlined so the db package does not depend
+// on @mercurio/core just for the seed — but the FACTOR comes from shared
+// (already a dependency): the demo shipment's frozen distance MUST be what
+// the API's provider would compute, and a hardcoded 100 km once made
+// remainingKm (105.23) exceed totalKm and broke the carrier board on a
+// freshly seeded database (remainingPool throws invalid_distance). A
+// recalibrated factor must not reopen that gap.
 function demoDistanceKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
   const rad = (deg: number) => (deg * Math.PI) / 180;
   const dLat = rad(b.lat - a.lat);
   const dLng = rad(b.lng - a.lng);
   const h =
     Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLng / 2) ** 2;
-  return 6371 * 2 * Math.asin(Math.sqrt(h)) * 1.3;
+  return 6371 * 2 * Math.asin(Math.sqrt(h)) * ROAD_CIRCUITY_FACTOR;
 }
 
 /**

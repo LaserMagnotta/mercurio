@@ -465,7 +465,6 @@
     "needWallet": "Connect your Lightning wallet: the custody bond of every deposit is issued from it.",
     "goWallet": "Connect the wallet",
     "acceptTitle": "Deposit requests",
-    "acceptIntro": "Shipments asking to depart from your hub: accepting locks your bond until a carrier picks the parcel up.",
     "requestsIntro": "Requests awaiting your answer. Incoming ones have a deadline: reply before they lapse.",
     "arrivalBadge": "Incoming",
     "originBadge": "Departing",
