@@ -67,6 +67,7 @@
 // in flight.
 
 import type {
+  ActiveHubStay,
   ActiveLeg,
   FinalizationBonusHold,
   LedgerPosting,
@@ -81,6 +82,7 @@ import type {
   ShipmentState,
   TransitionResult,
 } from '@mercurio/shared';
+import { BOND_RENEWAL_LEAD_HOURS } from '@mercurio/shared';
 import { cancellationCompensation, splitCommitment } from '../economics/economics.js';
 
 const TERMINAL_STATES: readonly ShipmentState[] = ['DELIVERED', 'CANCELLED', 'FORFEITED', 'LOST'];
@@ -127,6 +129,12 @@ function withinDeadline(now: string, deadline: string): boolean {
 /** True when the deadline is reached or passed (timeouts fire at the boundary). */
 function deadlinePassed(now: string, deadline: string): boolean {
   return epoch(now) >= epoch(deadline);
+}
+
+/** Pure clock arithmetic for derived instants (the bond_renewal timer fires
+ *  BOND_RENEWAL_LEAD_HOURS before its window closes — ADR-033). */
+function isoMinusHours(iso: string, hours: number): string {
+  return new Date(epoch(iso) - hours * 60 * 60 * 1000).toISOString();
 }
 
 // ---------------------------------------------------------------------------
@@ -321,6 +329,83 @@ function refundHeldClaimHolds(ctx: ShipmentContext, claim: PendingClaim): Shipme
   return effects;
 }
 
+/** Dissolve whatever was pending on the stay when the storage ends early or
+ *  on time — the branch logic shared by storage_expiry and the bond_renew
+ *  failure arm (ADR-033 §3: a missed renewal IS an early storage expiry). */
+function dissolvePendingOnForfeit(state: ShipmentState, ctx: ShipmentContext): ShipmentEffect[] {
+  const effects: ShipmentEffect[] = [];
+  if (state === 'AT_HUB' && ctx.leg !== null) {
+    // A leg still pending funding: dissolve its holds (the hub-bonus one
+    // included, if this was a final leg) and disarm its window — the
+    // shipment is over.
+    effects.push(...refundPendingLegHolds(ctx.leg, ctx.finalizationBonusHold), {
+      kind: 'cancel_timeout',
+      timeout: 'leg_funding',
+      refId: ctx.leg.legId,
+    });
+  } else if (state === 'AT_HUB' && ctx.pendingLegRequest !== null) {
+    // A deposit request still awaiting the hub's answer dies with the
+    // storage (ADR-029): no hold ever existed, so the only thing to
+    // dissolve is the response window.
+    effects.push({
+      kind: 'cancel_timeout',
+      timeout: 'deposit_response',
+      refId: ctx.pendingLegRequest.legId,
+    });
+  } else if (state === 'AT_HUB' && ctx.pendingClaim !== null) {
+    // A claim still pending funding dies exactly like a pending leg
+    // (ADR-016: storage never pauses for a claim): dissolve its holds —
+    // never commitments yet — and disarm its window.
+    effects.push(...refundPendingClaimHolds(ctx.pendingClaim), {
+      kind: 'cancel_timeout',
+      timeout: 'claim_funding',
+      refId: ctx.pendingClaim.claimId,
+    });
+  } else if (state === 'CLAIMED' && ctx.pendingClaim !== null) {
+    // A funded claim the claimant never collected: the held commitments
+    // return to the sender; the forfeited parcel compensates the hub, as
+    // in every storage expiry (ADR-013, ADR-016).
+    effects.push(...refundHeldClaimHolds(ctx, ctx.pendingClaim));
+  } else if (state === 'AWAITING_PICKUP' && ctx.finalizationBonusHold) {
+    // Expired at the destination: the hub is compensated by the forfeited
+    // parcel, never by the bonus — the held Π_h returns to the sender
+    // (ADR-014 §5).
+    effects.push(
+      ...refundFinalizationBonus(ctx, ctx.finalizationBonusHold, ctx.currentHubStay!.hubStayId),
+    );
+  }
+  return effects;
+}
+
+/** Release the stay's bond and document the early/on-time end of custody:
+ *  the parcel itself, forfeited under the ToS, is the hub's compensation —
+ *  no prefunded pot exists (ADR-013). `reason` tells 'storage' (the sender's
+ *  window elapsed) from 'bond_renewal' (the hub stopped guaranteeing it). */
+function forfeitBondEffects(
+  ctx: ShipmentContext,
+  stay: ActiveHubStay,
+  reason: 'storage' | 'bond_renewal',
+): ShipmentEffect[] {
+  return [
+    { kind: 'refund_conditional_payment', paymentId: stay.bondPaymentId },
+    refundedEntry(
+      'hub_bond_refunded',
+      stayRef(stay.hubStayId),
+      stay.hubUserId,
+      ctx.shipmentId,
+      ctx.custodyBondMsat,
+    ),
+    {
+      kind: 'append_custody_event',
+      type: 'expired',
+      actorUserId: null,
+      legId: null,
+      hubStayId: stay.hubStayId,
+      payload: { reason },
+    },
+  ];
+}
+
 // ---------------------------------------------------------------------------
 // The transition function
 
@@ -396,6 +481,14 @@ export function transition(
           ref,
         },
         heldEntry('hub_bond_held', ref, ctx.originHubUserId, ctx.shipmentId, ctx.custodyBondMsat),
+        // AWAITING_DROPOFF has no deadline of its own and can outlive the
+        // bond's 7-day window: arm the renewal reminder now (ADR-033 §4).
+        {
+          kind: 'schedule_timeout',
+          timeout: 'bond_renewal',
+          refId: event.hubStayId,
+          at: isoMinusHours(event.bondWindowEndsAt, BOND_RENEWAL_LEAD_HOURS),
+        },
         {
           kind: 'append_custody_event',
           type: 'funded',
@@ -823,6 +916,8 @@ export function transition(
           ctx.custodyBondMsat,
         ),
         { kind: 'cancel_timeout', timeout: 'pickup', refId: leg.legId },
+        // The ceding stay's renewal reminder dies with its bond (ADR-033 §4).
+        { kind: 'cancel_timeout', timeout: 'bond_renewal', refId: stay.hubStayId },
         { kind: 'schedule_timeout', timeout: 'transit', refId: leg.legId, at: event.transitDeadlineAt },
         {
           kind: 'append_custody_event',
@@ -927,6 +1022,19 @@ export function transition(
           refId: leg.arrivalHubStayId,
           at: event.storageDeadlineAt,
         },
+        // The arrival bond's renewal reminder starts with the stay (ADR-033
+        // §4): its window was frozen at deposit_accept, when the hold was
+        // created. Absent only on legacy stays, which never renew.
+        ...(leg.arrivalBondWindowEndsAt
+          ? [
+              {
+                kind: 'schedule_timeout',
+                timeout: 'bond_renewal',
+                refId: leg.arrivalHubStayId,
+                at: isoMinusHours(leg.arrivalBondWindowEndsAt, BOND_RENEWAL_LEAD_HOURS),
+              } satisfies ShipmentEffect,
+            ]
+          : []),
         {
           kind: 'append_custody_event',
           type: isDestination ? 'arrived_destination' : 'hub_checkin_intermediate',
@@ -1007,6 +1115,13 @@ export function transition(
           refId: event.returnHubStayId,
           at: event.storageDeadlineAt,
         },
+        // Fresh bond, fresh renewal window (ADR-033 §4).
+        {
+          kind: 'schedule_timeout',
+          timeout: 'bond_renewal',
+          refId: event.returnHubStayId,
+          at: isoMinusHours(event.bondWindowEndsAt, BOND_RENEWAL_LEAD_HOURS),
+        },
         {
           kind: 'append_custody_event',
           type: 'leg_returned',
@@ -1054,6 +1169,7 @@ export function transition(
           ctx.custodyBondMsat,
         ),
         { kind: 'cancel_timeout', timeout: 'storage', refId: stay.hubStayId },
+        { kind: 'cancel_timeout', timeout: 'bond_renewal', refId: stay.hubStayId },
         {
           kind: 'append_custody_event',
           type: 'recipient_pickup',
@@ -1273,6 +1389,7 @@ export function transition(
           ctx.custodyBondMsat,
         ),
         { kind: 'cancel_timeout', timeout: 'storage', refId: stay.hubStayId },
+        { kind: 'cancel_timeout', timeout: 'bond_renewal', refId: stay.hubStayId },
         {
           kind: 'append_custody_event',
           type: 'recipient_claimed',
@@ -1340,66 +1457,135 @@ export function transition(
       if (!deadlinePassed(event.now, stay.storageDeadlineAt)) {
         return guardFailed(state, event.type, 'storage deadline has not passed yet');
       }
-      const effects: ShipmentEffect[] = [];
-      if (state === 'AT_HUB' && ctx.leg !== null) {
-        // A leg still pending funding: dissolve its holds (the hub-bonus one
-        // included, if this was a final leg) and disarm its window — the
-        // shipment is over.
-        effects.push(...refundPendingLegHolds(ctx.leg, ctx.finalizationBonusHold), {
-          kind: 'cancel_timeout',
-          timeout: 'leg_funding',
-          refId: ctx.leg.legId,
-        });
-      } else if (state === 'AT_HUB' && ctx.pendingLegRequest !== null) {
-        // A deposit request still awaiting the hub's answer dies with the
-        // storage (ADR-029): no hold ever existed, so the only thing to
-        // dissolve is the response window.
-        effects.push({
-          kind: 'cancel_timeout',
-          timeout: 'deposit_response',
-          refId: ctx.pendingLegRequest.legId,
-        });
-      } else if (state === 'AT_HUB' && ctx.pendingClaim !== null) {
-        // A claim still pending funding dies exactly like a pending leg
-        // (ADR-016: storage never pauses for a claim): dissolve its holds —
-        // never commitments yet — and disarm its window.
-        effects.push(...refundPendingClaimHolds(ctx.pendingClaim), {
-          kind: 'cancel_timeout',
-          timeout: 'claim_funding',
-          refId: ctx.pendingClaim.claimId,
-        });
-      } else if (state === 'CLAIMED' && ctx.pendingClaim !== null) {
-        // A funded claim the claimant never collected: the held commitments
-        // return to the sender; the forfeited parcel compensates the hub, as
-        // in every storage expiry (ADR-013, ADR-016).
-        effects.push(...refundHeldClaimHolds(ctx, ctx.pendingClaim));
-      } else if (state === 'AWAITING_PICKUP' && ctx.finalizationBonusHold) {
-        // Expired at the destination: the hub is compensated by the forfeited
-        // parcel, never by the bonus — the held Π_h returns to the sender
-        // (ADR-014 §5).
-        effects.push(...refundFinalizationBonus(ctx, ctx.finalizationBonusHold, stay.hubStayId));
+      return ok('FORFEITED', [
+        ...dissolvePendingOnForfeit(state, ctx),
+        // A renewal reminder may still be armed on the stay (ADR-033).
+        { kind: 'cancel_timeout', timeout: 'bond_renewal', refId: stay.hubStayId },
+        ...forfeitBondEffects(ctx, stay, 'storage'),
+      ]);
+    }
+
+    // --------------------------------------------------------- (ADR-033)
+    case 'bond_renew': {
+      // Worker-only, fired by the bond_renewal timer: replace the current
+      // stay's bond hold with the next 7-day window's hold — or, past the
+      // window's end, treat the missed renewal as an early end of storage.
+      if (
+        state !== 'AWAITING_DROPOFF' &&
+        state !== 'AT_HUB' &&
+        state !== 'LEG_BOOKED' &&
+        state !== 'AWAITING_PICKUP' &&
+        state !== 'CLAIMED'
+      ) {
+        return illegal(state, event.type, 'bond_renew is legal only while a hub stay holds a live bond');
       }
-      effects.push(
-        // The hub's bond is released; the parcel itself, forfeited under the
-        // ToS, is the hub's compensation — no prefunded pot exists (ADR-013).
+      const stay = ctx.currentHubStay;
+      if (!stay) return guardFailed(state, event.type, 'no current hub stay in context');
+      if (stay.hubStayId !== event.hubStayId) {
+        return guardFailed(state, event.type, 'bond_renew targets a stay that is no longer current');
+      }
+      if (!stay.bondWindowEndsAt) {
+        // Legacy stay born under the 7-day cap: its single hold covers the
+        // whole storage, nothing to renew — the timer dies as stale.
+        return guardFailed(state, event.type, 'stay has no bond window: nothing to renew');
+      }
+      // An ACTIVE stay whose storage deadline falls inside the current window
+      // needs no renewal: the bond dies with the stay first. Reserved stays
+      // (AWAITING_DROPOFF) carry the epoch sentinel — no deadline yet, renew.
+      const storageDeadline = epoch(stay.storageDeadlineAt);
+      if (storageDeadline > 0 && storageDeadline <= epoch(stay.bondWindowEndsAt)) {
+        return guardFailed(state, event.type, 'bond window already covers the storage deadline');
+      }
+      if (deadlinePassed(event.now, stay.bondWindowEndsAt) && state !== 'LEG_BOOKED') {
+        // The window closed with no successful renewal: the hub declared by
+        // facts that it no longer guarantees custody (ADR-026 §3, ADR-033 §3).
+        // LEG_BOOKED is the deliberate exception: a carrier already has funds
+        // bound and the pickup resolves the stay within hours — forfeiting
+        // would punish carrier and sender for the hub's fault, so the machine
+        // keeps attempting the renewal instead (the arm below).
+        if (state === 'AWAITING_DROPOFF') {
+          // The parcel is still with the sender: the reservation dissolves at
+          // zero cost — nothing to forfeit, nothing to compensate.
+          return ok('CANCELLED', [
+            { kind: 'refund_conditional_payment', paymentId: stay.bondPaymentId },
+            refundedEntry(
+              'hub_bond_refunded',
+              stayRef(stay.hubStayId),
+              stay.hubUserId,
+              ctx.shipmentId,
+              ctx.custodyBondMsat,
+            ),
+            {
+              kind: 'append_custody_event',
+              type: 'cancelled',
+              actorUserId: null,
+              legId: null,
+              hubStayId: stay.hubStayId,
+              payload: { reason: 'bond_renewal' },
+            },
+            {
+              kind: 'queue_email',
+              to: 'sender',
+              template: 'hub_bond_lapsed',
+              payload: { hubId: stay.hubId, phase: 'dropoff' },
+            },
+          ]);
+        }
+        // AT_HUB / AWAITING_PICKUP / CLAIMED: an early storage expiry. Unlike
+        // storage_expiry this consumes the bond_renewal timer (its own) and
+        // must disarm the still-armed storage timer; the sender gets a mail
+        // because no 72/24h warnings preceded this end (ADR-033 §3).
+        return ok('FORFEITED', [
+          ...dissolvePendingOnForfeit(state, ctx),
+          { kind: 'cancel_timeout', timeout: 'storage', refId: stay.hubStayId },
+          ...forfeitBondEffects(ctx, stay, 'bond_renewal'),
+          {
+            kind: 'queue_email',
+            to: 'sender',
+            template: 'hub_bond_lapsed',
+            payload: { hubId: stay.hubId, phase: 'storage' },
+          },
+        ]);
+      }
+      const ref = stayRef(stay.hubStayId);
+      return ok(state, [
+        // The next window's hold FIRST: the executor waits until it is held
+        // before anything commits (same path as origin_hub_accept), so there
+        // is never an instant without a bonded custodian (invariant 4) —
+        // the old hold is still in flight until the new one is observed.
+        {
+          kind: 'create_conditional_payment',
+          purpose: 'custody_bond',
+          payerId: stay.hubUserId,
+          payeeId: ctx.senderId,
+          amountMsat: ctx.custodyBondMsat,
+          ref,
+          // One idem key per renewal round; retries of the same round reuse it.
+          idemNonce: event.newBondWindowEndsAt,
+        },
+        heldEntry('hub_bond_held', ref, stay.hubUserId, ctx.shipmentId, ctx.custodyBondMsat),
+        // Only then the previous hold dissolves: the net bond commitment is
+        // unchanged across the renewal (ADR-010).
         { kind: 'refund_conditional_payment', paymentId: stay.bondPaymentId },
-        refundedEntry(
-          'hub_bond_refunded',
-          stayRef(stay.hubStayId),
-          stay.hubUserId,
-          ctx.shipmentId,
-          ctx.custodyBondMsat,
-        ),
+        refundedEntry('hub_bond_refunded', ref, stay.hubUserId, ctx.shipmentId, ctx.custodyBondMsat),
+        {
+          kind: 'schedule_timeout',
+          timeout: 'bond_renewal',
+          refId: stay.hubStayId,
+          at: isoMinusHours(event.newBondWindowEndsAt, BOND_RENEWAL_LEAD_HOURS),
+        },
         {
           kind: 'append_custody_event',
-          type: 'expired',
-          actorUserId: null,
+          type: 'bond_renewed',
+          actorUserId: stay.hubUserId,
           legId: null,
           hubStayId: stay.hubStayId,
-          payload: { reason: 'storage' },
+          payload: {
+            custodyBondMsat: ctx.custodyBondMsat,
+            bondWindowEndsAt: event.newBondWindowEndsAt,
+          },
         },
-      );
-      return ok('FORFEITED', effects);
+      ]);
     }
 
     // ----------------------------------------------------------------- #14
@@ -1578,6 +1764,7 @@ export function transition(
         const stay = ctx.currentHubStay;
         if (!stay) return guardFailed(state, event.type, 'no reserved hub stay in context');
         return ok('CANCELLED', [
+          { kind: 'cancel_timeout', timeout: 'bond_renewal', refId: stay.hubStayId },
           { kind: 'refund_conditional_payment', paymentId: stay.bondPaymentId },
           refundedEntry(
             'hub_bond_refunded',
@@ -1639,6 +1826,7 @@ export function transition(
             ctx.custodyBondMsat,
           ),
           { kind: 'cancel_timeout', timeout: 'storage', refId: stay.hubStayId },
+          { kind: 'cancel_timeout', timeout: 'bond_renewal', refId: stay.hubStayId },
           {
             kind: 'append_custody_event',
             type: 'cancelled',

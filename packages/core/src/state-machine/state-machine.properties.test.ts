@@ -378,7 +378,12 @@ function buildEvent(walker: Walker, rand: () => number, type: string): ShipmentE
     case 'create':
       return { type };
     case 'origin_hub_accept':
-      return { type, hubStayId: mint('stay'), hubWalletConnected: true };
+      return {
+        type,
+        hubStayId: mint('stay'),
+        hubWalletConnected: true,
+        bondWindowEndsAt: iso(walker.clock + 7 * 24 * 60),
+      };
     case 'origin_checkin':
       return { type, photoSha256: [mint('ph')], storageDeadlineAt: iso(walker.clock + randInt(rand, 60, 2000)) };
     case 'leg_request': {
@@ -410,6 +415,7 @@ function buildEvent(walker: Walker, rand: () => number, type: string): ShipmentE
         arrivalHubStayId: mint('stay'),
         arrivalHubWalletConnected: true,
         fundingDeadlineAt: iso(walker.clock + 60),
+        arrivalBondWindowEndsAt: iso(walker.clock + 7 * 24 * 60),
       };
     case 'deposit_reject':
       return {
@@ -459,6 +465,7 @@ function buildEvent(walker: Walker, rand: () => number, type: string): ShipmentE
         returnHubStayId: mint('stay'),
         photoSha256: [mint('ph')],
         storageDeadlineAt: iso(walker.clock + randInt(rand, 60, 2000)),
+        bondWindowEndsAt: iso(walker.clock + 7 * 24 * 60),
       };
     case 'recipient_pickup':
       return { type, otpVerified: true };
@@ -541,6 +548,7 @@ function apply(walker: Walker, type: string, event: ShipmentEvent, nextState: Sh
         hubUserId: ctx.originHubUserId,
         bondPaymentId: world.paymentByRef('custody_bond', 'hub_stay', stayId).id,
         storageDeadlineAt: iso(walker.clock + 100_000), // set for real at check-in
+        bondWindowEndsAt: (event as Extract<ShipmentEvent, { type: 'origin_hub_accept' }>).bondWindowEndsAt,
       };
       break;
     }
@@ -578,6 +586,7 @@ function apply(walker: Walker, type: string, event: ShipmentEvent, nextState: Sh
         legPaymentId: world.paymentByRef('leg_payment', 'leg', req.legId).id,
         carrierBondId: world.paymentByRef('custody_bond', 'leg', req.legId).id,
         arrivalHubBondId: world.paymentByRef('custody_bond', 'hub_stay', e.arrivalHubStayId).id,
+        arrivalBondWindowEndsAt: e.arrivalBondWindowEndsAt,
         fundingDeadlineAt: e.fundingDeadlineAt,
         pickupDeadlineAt: null,
         transitDeadlineAt: null,
@@ -618,6 +627,7 @@ function apply(walker: Walker, type: string, event: ShipmentEvent, nextState: Sh
         hubUserId: ctx.leg!.toHubUserId,
         bondPaymentId: ctx.leg!.arrivalHubBondId,
         storageDeadlineAt: e.storageDeadlineAt,
+        bondWindowEndsAt: ctx.leg!.arrivalBondWindowEndsAt,
       };
       ctx.leg = null;
       break;
@@ -630,6 +640,7 @@ function apply(walker: Walker, type: string, event: ShipmentEvent, nextState: Sh
         hubUserId: ctx.leg!.fromHubUserId,
         bondPaymentId: world.paymentByRef('custody_bond', 'hub_stay', e.returnHubStayId).id,
         storageDeadlineAt: e.storageDeadlineAt,
+        bondWindowEndsAt: e.bondWindowEndsAt,
       };
       ctx.leg = null;
       ctx.finalizationBonusHold = null;

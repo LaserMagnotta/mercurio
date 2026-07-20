@@ -12,6 +12,7 @@ import { z } from 'zod';
 import { emailOutbox, hubs, legs, shipmentClaims, shipments, users } from '@mercurio/db';
 import { splitCommitment } from '@mercurio/core';
 import {
+  BOND_RENEWAL_WINDOW_DAYS,
   createShipmentBody,
   MAX_CUSTODY_BOND_EUR,
   type DistanceMetric,
@@ -230,6 +231,9 @@ export function registerShipmentRoutes(app: App) {
               type: 'origin_hub_accept',
               hubStayId: randomUUID(),
               hubWalletConnected: true,
+              bondWindowEndsAt: new Date(
+                deps.now().getTime() + BOND_RENEWAL_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+              ).toISOString(),
             },
           });
           originAccepted = true;

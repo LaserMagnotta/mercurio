@@ -130,8 +130,8 @@ export const createShipmentBody = z.object({
   offerMsat: msatString,
   /** The single custody bond required from whoever holds the parcel (§6). */
   custodyBondMsat: msatString,
-  /** Max storage per hub stay, in DAYS; capped by the CLTV budget (ESCROW.md
-   *  §4, ADR-026). */
+  /** Max storage per hub stay, in DAYS; up to 30 now that the hub bond
+   *  renews rolling (ADR-026 Parte 2, ADR-033). */
   maxStorageDays: z.number().int().min(1).max(MAX_STORAGE_DAYS),
   /** Optional sender photos at creation (ADR-022), certified by the
    *  `created` custody event. Distinct keys because one event certifies two

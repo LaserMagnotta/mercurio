@@ -30,6 +30,7 @@ import {
   pendingFinalRequest,
   pendingLeg,
   pendingRequest,
+  RENEWED_WINDOW,
   validEvent,
 } from './fixtures.js';
 
@@ -155,6 +156,8 @@ describe('origin_hub_accept', () => {
           { ownerType: 'shipment', ownerId: IDS.shipment, accountKind: 'commitment', amountMsat: BOND_MSAT },
         ],
       },
+      // ADR-033: renewal reminder armed 24h before the bond window closes.
+      { kind: 'schedule_timeout', timeout: 'bond_renewal', refId: IDS.originStay, at: at(5 * 24 * 60) },
       {
         kind: 'append_custody_event',
         type: 'funded',
@@ -628,6 +631,7 @@ describe('deposit-request interactions (ADR-029)', () => {
     expect(result.nextState).toBe('FORFEITED');
     expect(result.effects).toEqual([
       { kind: 'cancel_timeout', timeout: 'deposit_response', refId: IDS.leg },
+      { kind: 'cancel_timeout', timeout: 'bond_renewal', refId: IDS.originStay },
       // The stay's own bond refund + chain event follow, as in every expiry.
       { kind: 'refund_conditional_payment', paymentId: IDS.originHubBond },
       {
@@ -863,6 +867,7 @@ describe('pickup_checkout', () => {
         ],
       },
       { kind: 'cancel_timeout', timeout: 'pickup', refId: IDS.leg },
+      { kind: 'cancel_timeout', timeout: 'bond_renewal', refId: IDS.originStay },
       { kind: 'schedule_timeout', timeout: 'transit', refId: IDS.leg, at: DEADLINES.transit },
       {
         kind: 'append_custody_event',
@@ -1049,6 +1054,8 @@ describe('leg_checkin at an intermediate hub (row 8)', () => {
       },
       { kind: 'cancel_timeout', timeout: 'transit', refId: IDS.leg },
       { kind: 'schedule_timeout', timeout: 'storage', refId: IDS.arrivalStay, at: DEADLINES.storage },
+      // ADR-033: the arrival bond's renewal reminder starts with the stay.
+      { kind: 'schedule_timeout', timeout: 'bond_renewal', refId: IDS.arrivalStay, at: at(5 * 24 * 60) },
       {
         kind: 'append_custody_event',
         type: 'hub_checkin_intermediate',
@@ -1197,6 +1204,8 @@ describe('leg_return', () => {
       },
       { kind: 'cancel_timeout', timeout: 'transit', refId: IDS.leg },
       { kind: 'schedule_timeout', timeout: 'storage', refId: IDS.returnStay, at: DEADLINES.storage },
+      // ADR-033: fresh bond, fresh renewal window.
+      { kind: 'schedule_timeout', timeout: 'bond_renewal', refId: IDS.returnStay, at: at(5 * 24 * 60) },
       {
         kind: 'append_custody_event',
         type: 'leg_returned',
@@ -1274,6 +1283,7 @@ describe('recipient_pickup', () => {
         ],
       },
       { kind: 'cancel_timeout', timeout: 'storage', refId: IDS.arrivalStay },
+      { kind: 'cancel_timeout', timeout: 'bond_renewal', refId: IDS.arrivalStay },
       {
         kind: 'append_custody_event',
         type: 'recipient_pickup',
@@ -1374,6 +1384,7 @@ describe('storage_expiry', () => {
     expectOk(result);
     expect(result.nextState).toBe('FORFEITED');
     expect(result.effects).toEqual([
+      { kind: 'cancel_timeout', timeout: 'bond_renewal', refId: IDS.originStay },
       { kind: 'refund_conditional_payment', paymentId: IDS.originHubBond },
       {
         kind: 'post_ledger_entry',
@@ -1447,6 +1458,171 @@ describe('storage_expiry', () => {
     expectRejected(
       transition('AT_HUB', { type: 'storage_expiry', now: at(100) }, ctxForState('AT_HUB')),
       'guard_failed',
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// bond_renew (ADR-033): rolling renewal of the hub-bond hold
+
+describe('bond_renew (ADR-033)', () => {
+  // The renewed bond's next reminder: 24h before RENEWED_WINDOW closes.
+  const nextFireAt = at(12 * 24 * 60 - 60);
+
+  it('replaces the bond hold: new hold held first, old refunded, timer re-armed, chain documents the window', () => {
+    const result = transition('AT_HUB', validEvent('bond_renew'), ctxForState('AT_HUB'));
+    expectOk(result);
+    expect(result.nextState).toBe('AT_HUB');
+    expect(result.effects).toEqual([
+      {
+        kind: 'create_conditional_payment',
+        purpose: 'custody_bond',
+        payerId: IDS.originHubUser,
+        payeeId: IDS.sender,
+        amountMsat: BOND_MSAT,
+        ref: { type: 'hub_stay', id: IDS.originStay },
+        idemNonce: RENEWED_WINDOW,
+      },
+      {
+        kind: 'post_ledger_entry',
+        eventType: 'hub_bond_held',
+        ref: { type: 'hub_stay', id: IDS.originStay },
+        postings: [
+          { ownerType: 'user', ownerId: IDS.originHubUser, accountKind: 'external_wallet', amountMsat: -BOND_MSAT },
+          { ownerType: 'shipment', ownerId: IDS.shipment, accountKind: 'commitment', amountMsat: BOND_MSAT },
+        ],
+      },
+      { kind: 'refund_conditional_payment', paymentId: IDS.originHubBond },
+      {
+        kind: 'post_ledger_entry',
+        eventType: 'hub_bond_refunded',
+        ref: { type: 'hub_stay', id: IDS.originStay },
+        postings: [
+          { ownerType: 'shipment', ownerId: IDS.shipment, accountKind: 'commitment', amountMsat: -BOND_MSAT },
+          { ownerType: 'user', ownerId: IDS.originHubUser, accountKind: 'external_wallet', amountMsat: BOND_MSAT },
+        ],
+      },
+      { kind: 'schedule_timeout', timeout: 'bond_renewal', refId: IDS.originStay, at: nextFireAt },
+      {
+        kind: 'append_custody_event',
+        type: 'bond_renewed',
+        actorUserId: IDS.originHubUser,
+        legId: null,
+        hubStayId: IDS.originStay,
+        payload: { custodyBondMsat: BOND_MSAT, bondWindowEndsAt: RENEWED_WINDOW },
+      },
+    ]);
+  });
+
+  it.each(['AWAITING_DROPOFF', 'LEG_BOOKED', 'CLAIMED'] as const)(
+    'keeps the state while renewing in %s',
+    (state) => {
+      const result = transition(state, validEvent('bond_renew'), ctxForState(state));
+      expectOk(result);
+      expect(result.nextState).toBe(state);
+      expect(result.effects[0]).toMatchObject({ kind: 'create_conditional_payment', purpose: 'custody_bond' });
+    },
+  );
+
+  it('guard: a stay that is no longer current is stale', () => {
+    const event = { ...validEvent('bond_renew'), hubStayId: 'stay-somewhere-else' } as ShipmentEvent;
+    expectRejected(transition('AT_HUB', event, ctxForState('AT_HUB')), 'guard_failed');
+  });
+
+  it('guard: a legacy stay without a bond window never renews', () => {
+    const ctx = { ...ctxForState('AT_HUB'), currentHubStay: { ...originStay(), bondWindowEndsAt: null } };
+    expectRejected(transition('AT_HUB', validEvent('bond_renew'), ctx), 'guard_failed');
+  });
+
+  it('guard: no renewal when the window already covers the storage deadline', () => {
+    const stay = { ...originStay(), storageDeadlineAt: at(5 * 24 * 60), bondWindowEndsAt: at(6 * 24 * 60) };
+    const ctx = { ...ctxForState('AT_HUB'), currentHubStay: stay };
+    expectRejected(transition('AT_HUB', validEvent('bond_renew'), ctx), 'guard_failed');
+  });
+
+  it('missed renewal in AT_HUB: early storage end — FORFEITED, storage disarmed, sender mailed', () => {
+    const event = { ...validEvent('bond_renew'), now: at(6 * 24 * 60 + 1) } as ShipmentEvent;
+    const result = transition('AT_HUB', event, ctxForState('AT_HUB'));
+    expectOk(result);
+    expect(result.nextState).toBe('FORFEITED');
+    expect(result.effects).toEqual([
+      { kind: 'cancel_timeout', timeout: 'storage', refId: IDS.originStay },
+      { kind: 'refund_conditional_payment', paymentId: IDS.originHubBond },
+      {
+        kind: 'post_ledger_entry',
+        eventType: 'hub_bond_refunded',
+        ref: { type: 'hub_stay', id: IDS.originStay },
+        postings: [
+          { ownerType: 'shipment', ownerId: IDS.shipment, accountKind: 'commitment', amountMsat: -BOND_MSAT },
+          { ownerType: 'user', ownerId: IDS.originHubUser, accountKind: 'external_wallet', amountMsat: BOND_MSAT },
+        ],
+      },
+      {
+        kind: 'append_custody_event',
+        type: 'expired',
+        actorUserId: null,
+        legId: null,
+        hubStayId: IDS.originStay,
+        payload: { reason: 'bond_renewal' },
+      },
+      { kind: 'queue_email', to: 'sender', template: 'hub_bond_lapsed', payload: { hubId: IDS.originHub, phase: 'storage' } },
+    ]);
+  });
+
+  it('missed renewal in AT_HUB with a pending leg: its holds dissolve like a storage expiry', () => {
+    const event = { ...validEvent('bond_renew'), now: at(6 * 24 * 60 + 1) } as ShipmentEvent;
+    const ctx = { ...ctxForState('AT_HUB'), leg: pendingLeg() };
+    const result = transition('AT_HUB', event, ctx);
+    expectOk(result);
+    expect(result.nextState).toBe('FORFEITED');
+    expect(result.effects.slice(0, 4)).toEqual([
+      { kind: 'refund_conditional_payment', paymentId: IDS.legPayment },
+      { kind: 'refund_conditional_payment', paymentId: IDS.carrierBond },
+      { kind: 'refund_conditional_payment', paymentId: IDS.arrivalHubBond },
+      { kind: 'cancel_timeout', timeout: 'leg_funding', refId: IDS.leg },
+    ]);
+  });
+
+  it('missed renewal in AWAITING_DROPOFF: the reservation dissolves at zero cost — CANCELLED', () => {
+    const event = { ...validEvent('bond_renew'), now: at(6 * 24 * 60 + 1) } as ShipmentEvent;
+    const result = transition('AWAITING_DROPOFF', event, ctxForState('AWAITING_DROPOFF'));
+    expectOk(result);
+    expect(result.nextState).toBe('CANCELLED');
+    expect(result.effects).toEqual([
+      { kind: 'refund_conditional_payment', paymentId: IDS.originHubBond },
+      {
+        kind: 'post_ledger_entry',
+        eventType: 'hub_bond_refunded',
+        ref: { type: 'hub_stay', id: IDS.originStay },
+        postings: [
+          { ownerType: 'shipment', ownerId: IDS.shipment, accountKind: 'commitment', amountMsat: -BOND_MSAT },
+          { ownerType: 'user', ownerId: IDS.originHubUser, accountKind: 'external_wallet', amountMsat: BOND_MSAT },
+        ],
+      },
+      {
+        kind: 'append_custody_event',
+        type: 'cancelled',
+        actorUserId: null,
+        legId: null,
+        hubStayId: IDS.originStay,
+        payload: { reason: 'bond_renewal' },
+      },
+      { kind: 'queue_email', to: 'sender', template: 'hub_bond_lapsed', payload: { hubId: IDS.originHub, phase: 'dropoff' } },
+    ]);
+  });
+
+  it('missed renewal in LEG_BOOKED still attempts the renewal (never punish the booked carrier)', () => {
+    const event = { ...validEvent('bond_renew'), now: at(6 * 24 * 60 + 1) } as ShipmentEvent;
+    const result = transition('LEG_BOOKED', event, ctxForState('LEG_BOOKED'));
+    expectOk(result);
+    expect(result.nextState).toBe('LEG_BOOKED');
+    expect(result.effects[0]).toMatchObject({ kind: 'create_conditional_payment', purpose: 'custody_bond' });
+  });
+
+  it('rejected while IN_TRANSIT (the carrier is the custodian, no stay holds a bond)', () => {
+    expectRejected(
+      transition('IN_TRANSIT', validEvent('bond_renew'), ctxForState('IN_TRANSIT')),
+      'illegal_event',
     );
   });
 });
@@ -1681,6 +1857,7 @@ describe('cancel', () => {
     expectOk(result);
     expect(result.nextState).toBe('CANCELLED');
     expect(result.effects).toEqual([
+      { kind: 'cancel_timeout', timeout: 'bond_renewal', refId: IDS.originStay },
       { kind: 'refund_conditional_payment', paymentId: IDS.originHubBond },
       {
         kind: 'post_ledger_entry',
@@ -1738,6 +1915,7 @@ describe('cancel', () => {
         ],
       },
       { kind: 'cancel_timeout', timeout: 'storage', refId: IDS.originStay },
+      { kind: 'cancel_timeout', timeout: 'bond_renewal', refId: IDS.originStay },
       {
         kind: 'append_custody_event',
         type: 'cancelled',
@@ -1999,6 +2177,7 @@ describe('recipient_claimed_pickup', () => {
         ],
       },
       { kind: 'cancel_timeout', timeout: 'storage', refId: IDS.originStay },
+      { kind: 'cancel_timeout', timeout: 'bond_renewal', refId: IDS.originStay },
       {
         kind: 'append_custody_event',
         type: 'recipient_claimed',
@@ -2064,6 +2243,7 @@ describe('claim interactions with the rest of the protocol (ADR-016)', () => {
       { kind: 'refund_conditional_payment', paymentId: IDS.claimPayment },
       { kind: 'refund_conditional_payment', paymentId: IDS.claimHubBonus },
       { kind: 'cancel_timeout', timeout: 'claim_funding', refId: IDS.claim },
+      { kind: 'cancel_timeout', timeout: 'bond_renewal', refId: IDS.originStay },
       { kind: 'refund_conditional_payment', paymentId: IDS.originHubBond },
       {
         kind: 'post_ledger_entry',
@@ -2110,6 +2290,7 @@ describe('claim interactions with the rest of the protocol (ADR-016)', () => {
           { ownerType: 'user', ownerId: IDS.sender, accountKind: 'external_wallet', amountMsat: HUB_BONUS_MSAT },
         ],
       },
+      { kind: 'cancel_timeout', timeout: 'bond_renewal', refId: IDS.originStay },
       { kind: 'refund_conditional_payment', paymentId: IDS.originHubBond },
       {
         kind: 'post_ledger_entry',
@@ -2138,7 +2319,7 @@ describe('claim interactions with the rest of the protocol (ADR-016)', () => {
 const LEGAL: Record<string, ShipmentEventType[]> = {
   'null': ['create'],
   DRAFT: ['origin_hub_accept', 'cancel'],
-  AWAITING_DROPOFF: ['origin_checkin', 'cancel'],
+  AWAITING_DROPOFF: ['origin_checkin', 'cancel', 'bond_renew'],
   // leg_funded / leg_funding_expired are state-legal in AT_HUB but need a
   // pending leg (claim_funded / claim_funding_expired a pending claim, the
   // deposit_* answers a pending request): with the bare AT_HUB fixture they
@@ -2158,11 +2339,12 @@ const LEGAL: Record<string, ShipmentEventType[]> = {
     'reroute',
     'cancel',
     'storage_expiry',
+    'bond_renew',
   ],
-  LEG_BOOKED: ['pickup_checkout', 'pickup_timeout', 'handoff_reject'],
+  LEG_BOOKED: ['pickup_checkout', 'pickup_timeout', 'handoff_reject', 'bond_renew'],
   IN_TRANSIT: ['leg_checkin', 'leg_return', 'transit_timeout', 'handoff_reject'],
-  AWAITING_PICKUP: ['recipient_pickup', 'reroute', 'boost', 'storage_expiry', 'handoff_reject'],
-  CLAIMED: ['recipient_claimed_pickup', 'storage_expiry', 'handoff_reject'],
+  AWAITING_PICKUP: ['recipient_pickup', 'reroute', 'boost', 'storage_expiry', 'handoff_reject', 'bond_renew'],
+  CLAIMED: ['recipient_claimed_pickup', 'storage_expiry', 'handoff_reject', 'bond_renew'],
   DELIVERED: [],
   CANCELLED: [],
   FORFEITED: [],
@@ -2195,6 +2377,7 @@ const ALL_EVENT_TYPES: ShipmentEventType[] = [
   'boost',
   'reroute',
   'cancel',
+  'bond_renew',
 ];
 
 describe('state × event matrix', () => {
@@ -2253,6 +2436,10 @@ describe('state × event matrix', () => {
       let event = validEvent(eventType);
       if (event.type === 'handoff_reject' && state !== null) {
         event = { ...event, stage: stageFor[state]! };
+      }
+      if (event.type === 'bond_renew' && state === 'AWAITING_PICKUP') {
+        // The AWAITING_PICKUP fixture's current stay is the arrival one.
+        event = { ...event, hubStayId: IDS.arrivalStay };
       }
       const result = transition(state, event, ctx);
       expectOk(result);

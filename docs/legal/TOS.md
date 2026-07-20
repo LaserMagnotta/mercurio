@@ -199,7 +199,7 @@ Conseguenze accettate da tutte le parti con questi Termini:
 ## 10. Fine giacenza: svincolo a favore dell'hub
 
 Il mittente sceglie alla creazione il tempo massimo di giacenza per hub
-(fino a 7 giorni); il sistema rifiuta gli hub il cui limite è più corto
+(fino a 30 giorni); il sistema rifiuta gli hub il cui limite è più corto
 (`hub_storage_too_short`): la finestra scelta dal mittente non è mai
 ristretta in silenzio. La scadenza corrente è sempre visibile nelle pagine
 della spedizione e del tracking. Alla scadenza il bene stesso compensa l'hub
@@ -219,6 +219,14 @@ software cita la sua implementazione:
    eventuali hold di un claim pendente. Qui **termina il coordinamento della
    piattaforma**: le fasi successive sono obbligazioni dirette tra hub e
    mittente, regolate da questi Termini e adempiute fuori dal software.
+   Il vincolo di custodia (bond) dell'hub è rinnovato automaticamente a
+   finestre di 7 giorni per coprire giacenze più lunghe (ADR-033); il
+   **mancato rinnovo** da parte dell'hub produce, in anticipo, lo stesso
+   esito della scadenza (`bond_renew`, ramo di mancato rinnovo): la giacenza
+   termina in quel momento, il mittente è avvisato via email e si applicano
+   la stessa finestra di recupero e la stessa tariffa dei punti 3 e 4. Se il
+   pacco non è ancora stato consegnato all'hub, la prenotazione si dissolve
+   senza alcun costo e senza svincolo.
 3. **Finestra di recupero — 7 giorni**: per 7 giorni di calendario dalla
    scadenza il mittente (o un suo incaricato) può ancora ritirare il pacco
    presso l'hub, pagando direttamente all'hub la giacenza extra maturata

@@ -24,4 +24,9 @@ export const hubStays = pgTable('hub_stays', {
   checkedOutAt: timestamp('checked_out_at', { withTimezone: true }),
   storageDeadlineAt: timestamp('storage_deadline_at', { withTimezone: true }),
   bondConditionalPaymentId: uuid('bond_cp_id').references(() => conditionalPayments.id),
+  // End of the CURRENT bond hold's renewal window (ADR-033): every hold
+  // covers <= 7 days of storage, the coordinator chains the next one before
+  // this instant. NULL on legacy stays (created under the 7-day cap): they
+  // never renew, so a missing window simply means "no renewal scheduled".
+  bondWindowEndsAt: timestamp('bond_window_ends_at', { withTimezone: true }),
 });

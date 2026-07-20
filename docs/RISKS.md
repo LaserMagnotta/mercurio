@@ -217,7 +217,7 @@ nessuna custodia né conversione per conto terzi, piena tracciabilità interna
 | Rischio                                                                                       | Gestione                                                                                           |
 | --------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
 | Wallet capaci di hold invoice richiesti (LND/CLN/Alby Hub) = frizione di onboarding           | Connessione via NWC + adapter diretti; guide; è la selezione naturale del pubblico early-adopter   |
-| HTLC pendenti a lungo (bond hub = intera giacenza) = liquidità congelata, rischio force-close | **Giacenza massima 7 giorni nell'MVP**; rinnovo rolling dei bond come evoluzione                   |
+| HTLC pendenti a lungo = liquidità congelata, rischio force-close | **Rinnovo rolling del bond hub** (ADR-033): ogni hold ≤7 giorni, giacenza fino a 30; mancato rinnovo = svincolo anticipato |
 | Mittente non reattivo: ogni tratta parte solo dopo il suo pagamento (finestra 60 min)         | Notifiche push/email; metrica di reattività visibile in bacheca; l'accettazione decade senza danni |
 | UX dei pagamenti pendenti su alcuni wallet                                                    | Lista di wallet testati/consigliati; documentazione                                                |
 
@@ -290,7 +290,7 @@ erano già implementati.
    la tracciabilità del ledger è la mitigazione (§5, §7). ✔
 10. **Zero custodia in ogni momento** (ADR-013): pagamenti diretti P2P via hold
     invoice, coordinatore per preimage, la piattaforma non ha wallet; giacenza
-    massima 7 giorni nell'MVP. ✔
+    fino a 30 giorni col bond hub a rinnovo rolling (ADR-033). ✔
 
 **Ancora aperti**:
 

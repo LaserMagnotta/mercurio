@@ -23,6 +23,15 @@ export const DEPOSIT_RESPONSE_WINDOW_MINUTES = 30;
  */
 /** From leg_funded to the physical pickup at the ceding hub (row 7). */
 export const PICKUP_WINDOW_HOURS = 24;
+/** Rolling hub-bond renewal (ADR-033): each custody-bond hold covers at most
+ *  this many days — the same sane CLTV budget ESCROW.md §4 fixed for a single
+ *  HTLC. Storage beyond it is covered by a CHAIN of holds, renewed by the
+ *  coordinator before each window closes. */
+export const BOND_RENEWAL_WINDOW_DAYS = 7;
+/** The bond_renewal timer fires this many hours BEFORE the window closes: a
+ *  transient wallet failure gets a day of minute-cadence retries before the
+ *  missed renewal becomes an early storage expiry (ADR-033 §3). */
+export const BOND_RENEWAL_LEAD_HOURS = 24;
 /** From pickup_checkout to the check-in at the arrival hub (row 14). */
 export const TRANSIT_WINDOW_HOURS = 48;
 /** Both halves of the double-confirmation checkout must land within this
@@ -57,6 +66,10 @@ export const CUSTODY_EVENT_TYPES = [
   // 'handoff_rejected' (same primitive: the receiving party declines) and
   // expiry/cancel reuse 'expired' with a payload reason.
   'deposit_requested',
+  // ADR-033 (appended): a hub-bond hold was replaced by the next renewal
+  // window's hold. Failed renewals reuse 'expired'/'cancelled' with a
+  // payload reason, mirroring the ADR-029 convention.
+  'bond_renewed',
 ] as const;
 export type CustodyEventType = (typeof CUSTODY_EVENT_TYPES)[number];
 
@@ -70,6 +83,9 @@ export const TIMEOUT_KINDS = [
   'storage',
   'claim_funding',
   'deposit_response',
+  // ADR-033 (appended): fires BOND_RENEWAL_LEAD_HOURS before the current
+  // hub-bond hold window closes; ref is the hub stay.
+  'bond_renewal',
 ] as const;
 export type TimeoutKind = (typeof TIMEOUT_KINDS)[number];
 
@@ -83,7 +99,10 @@ export type EmailTemplate =
   | 'parcel_arrived'
   | 'parcel_delivered'
   | 'handoff_rejected'
-  | 'deposit_request_rejected';
+  | 'deposit_request_rejected'
+  // ADR-033: the hub failed to renew its custody bond — the sender learns the
+  // stay ended early (no 72/24h warnings preceded it, unlike storage expiry).
+  | 'hub_bond_lapsed';
 
 /** Effects address people by role; the API resolves the actual address.
  *  The recipient may not even have an account (identified by email only).
@@ -132,6 +151,10 @@ export type ShipmentEffect =
       payeeId: string;
       amountMsat: Msat;
       ref: PaymentRef;
+      /** ADR-033: distinguishes renewal rounds of the SAME (purpose, ref) —
+       *  without it every bond renewal would collapse onto the original
+       *  hold's idempotency key. Retries of one round reuse one nonce. */
+      idemNonce?: string;
     }
   /** Reveal the preimage to the payee: they collect directly from the payer. */
   | { kind: 'release_conditional_payment'; paymentId: string }
@@ -193,6 +216,9 @@ export interface ActiveHubStay {
   /** Storage deadline of this stay (ISO 8601 UTC). Kept here so pickup_timeout
    *  can re-arm the storage timer with the ORIGINAL deadline. */
   storageDeadlineAt: string;
+  /** End of the current bond hold's renewal window (ADR-033); null on legacy
+   *  stays created under the 7-day cap, which never need a renewal. */
+  bondWindowEndsAt: string | null;
 }
 
 /**
@@ -214,6 +240,9 @@ export interface ActiveLeg {
   legPaymentId: string;
   carrierBondId: string;
   arrivalHubBondId: string;
+  /** Bond window of the reserved arrival stay (ADR-033), frozen at
+   *  deposit_accept; leg_checkin arms the renewal timer from it. */
+  arrivalBondWindowEndsAt: string | null;
   fundingDeadlineAt: string;
   /** Set when the leg is funded (LEG_BOOKED). */
   pickupDeadlineAt: string | null;
@@ -346,7 +375,14 @@ export type ShipmentEvent =
   // every other photo (ADR-020 §2), certified by the `created` chain event.
   // Two distinct keys because one event certifies two kinds (content/sealed).
   | { type: 'create'; contentPhotoSha256?: string[]; sealedPhotoSha256?: string[] }
-  | { type: 'origin_hub_accept'; hubStayId: string; hubWalletConnected: boolean }
+  | {
+      type: 'origin_hub_accept';
+      hubStayId: string;
+      hubWalletConnected: boolean;
+      /** End of the bond's first renewal window (ADR-033): now + 7 days,
+       *  computed by the route like every other absolute deadline. */
+      bondWindowEndsAt: string;
+    }
   | { type: 'origin_checkin'; photoSha256: string[]; storageDeadlineAt: string }
   | {
       /** ADR-029: the carrier asks the arrival hub to host the parcel. The
@@ -380,6 +416,10 @@ export type ShipmentEvent =
       arrivalHubStayId: string;
       arrivalHubWalletConnected: boolean;
       fundingDeadlineAt: string;
+      /** First renewal window of the arrival bond (ADR-033). No timer is
+       *  armed here — leg_checkin arms it when the stay activates; every
+       *  negative leg outcome cancels the bond before it could matter. */
+      arrivalBondWindowEndsAt: string;
     }
   | {
       /** ADR-029: the arrival hub says no. Documentation, not a judgment
@@ -425,6 +465,8 @@ export type ShipmentEvent =
       returnHubStayId: string;
       photoSha256: string[];
       storageDeadlineAt: string;
+      /** Fresh bond, fresh renewal window (ADR-033). */
+      bondWindowEndsAt: string;
     }
   | { type: 'recipient_pickup'; otpVerified: boolean }
   | {
@@ -454,6 +496,18 @@ export type ShipmentEvent =
       photoSha256: string[];
     }
   | { type: 'storage_expiry'; now: string }
+  | {
+      /** ADR-033: the bond_renewal timer fired — replace the current stay's
+       *  bond hold with the next window's, or (past the window's end) treat
+       *  the missed renewal as an early end of storage. Worker-only, like
+       *  every timeout event. */
+      type: 'bond_renew';
+      now: string;
+      hubStayId: string;
+      /** End of the window the RENEWED bond will cover: now + 7 days,
+       *  computed by the timer sweep. Doubles as the renewal's idem nonce. */
+      newBondWindowEndsAt: string;
+    }
   | { type: 'transit_timeout'; now: string }
   | { type: 'boost'; amountMsat: Msat; atRemainingKm: number }
   | {

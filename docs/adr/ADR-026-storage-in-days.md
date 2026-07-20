@@ -2,10 +2,9 @@
 
 - Stato: **accettato** — 2026-07-17 (decisione di Giacomo). **Parte 1
   implementata** lo stesso giorno: unità in giorni con cap 7, nessun cambio di
-  protocollo. **Parte 2** (tetto a 30 giorni con bond a rinnovo rolling —
-  opzione A del §3, **direzione confermata da Giacomo**) resta da implementare
-  in una sessione dedicata, perché è un cambio all'escrow che il brief mette
-  fuori scope qui.
+  protocollo. **Parte 2 implementata il 2026-07-19** con il rinnovo rolling
+  del bond (opzione A del §3) — dettagli, parametri e limiti noti in
+  [ADR-033](ADR-033-rolling-bond-renewal.md); `MAX_STORAGE_DAYS` è ora 30.
 - Contesto: backlog UX 2026-07-17 punto 2 («giacenza in giorni», range 1–30);
   ESCROW.md §4 (durata dei lock, «giacenza massima 7 giorni nell'MVP», «rinnovo
   rolling del bond come evoluzione»); ADR-013 (zero custodia, ADR-011 (timer

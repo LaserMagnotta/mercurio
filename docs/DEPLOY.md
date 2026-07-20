@@ -35,10 +35,30 @@ preparazione dei dati **fuori dall'host**.
 
 - Un host Linux con **Docker Engine** e il plugin **compose v2**
   (`docker compose version`). 2 vCPU / 2 GB di RAM sono abbondanti per l'MVP.
+  Se l'host è vergine (Debian/Ubuntu), lo script convenience ufficiale basta:
+  ```sh
+  curl -fsSL https://get.docker.com | sh
+  sudo usermod -aG docker "$USER"   # rifai login per applicarlo
+  docker compose version            # conferma il plugin v2
+  ```
 - Un **dominio** con record A (e AAAA se hai IPv6) che punta all'host: Caddy
   ottiene il certificato con la sfida HTTP.
 - **Porte 80 e 443 aperte** dall'esterno. La 80 non è opzionale: serve al
   rinnovo ACME, oltre che al redirect verso HTTPS.
+- **Firewall dell'host**: solo SSH, 80 e 443 vanno esposti — tutto il resto
+  (Postgres, API, web) non pubblica porte per costruzione (`docker-compose.yml`
+  §1). Con `ufw`:
+  ```sh
+  sudo ufw allow OpenSSH   # o la porta SSH reale se non è la 22
+  sudo ufw allow 80/tcp
+  sudo ufw allow 443/tcp
+  sudo ufw enable
+  ```
+  **Nessuna porta LND va aperta**: la piattaforma non gira mai un nodo
+  Lightning proprio (ADR-013 zero custodia, ADR-024 §Non requisiti) — anche
+  con un vettore/hub che usa un nodo LND vero, quel nodo è **suo**, sta fuori
+  da questo host e collega l'utente via NWC o via un endpoint LND REST che
+  l'utente fornisce lui stesso (§11).
 - Un **relay SMTP** con credenziali (le email sono l'unico modo in cui un
   utente entra e riceve gli avvisi del ciclo di vita).
 - **Uscita HTTPS** verso `api.kraken.com`, `www.bitstamp.net` e
@@ -179,6 +199,12 @@ L'API pubblica e la sua OpenAPI (ADR-002) stanno sulla stessa origin del web:
 
 Il primo account si crea da solo: dal browser, `Accedi` → arriva il magic link
 via email (primo accesso = registrazione).
+
+**Nota sui volumi foto**: `api-entrypoint.sh` sistema da solo la proprietà di
+`photos` e `venue-photos` a ogni avvio (ADR-024 §12 — il seeding automatico di
+Docker su un volume nuovo non è affidabile su ogni storage driver): non serve
+nessun intervento manuale, ma se un giorno un caricamento fallisse con un
+errore di permessi, quel paragrafo è il punto da cui ripartire.
 
 ### Se qualcosa non parte
 
@@ -367,3 +393,149 @@ migliora solo le coppie mai viste. Le geometrie della mappa (tabella
 - **Backup**: `road_distances` viaggia dentro `pg_dump` come tutto il resto
   (§7) — è parte della verità dei prezzi. Gli artefatti OSRM invece NON
   vanno nel backup: si rigenerano dalla pipeline.
+
+## 11. Wallet reali: dal fake al vero, senza toccare `COORDINATOR_KEY`
+
+**In questo compose `FAKE_WALLETS` non è una scelta da fare**: `NODE_ENV` è
+fissato a `production` nel servizio `api` (non viene da `.env`), e
+`assertProductionSafeEnv` rifiuta l'avvio se `FAKE_WALLETS=true` con quel
+`NODE_ENV` (ADR-013, ADR-024) — non esiste un modo di accenderlo su questo
+host senza modificare il codice della guardia, cosa che questo deploy non
+fa. Uno staging su questo compose gira quindi **sempre** senza rete
+Lightning finta, a prescindere da quanti utenti reali ci siano già.
+
+Questo è meno limitante di quanto sembri, perché **la piattaforma non ha mai
+un proprio wallet** (ADR-013 zero custodia): "passare a un nodo reale" non è
+un interruttore lato server, è ogni singolo utente (mittente, vettore, hub)
+che collega il **proprio** wallet da `/wallet`. Cosa funziona prima che
+qualcuno lo faccia, e cosa no:
+
+- **Non richiedono nessun wallet collegato**: registrazione/login (magic
+  link), registrazione hub, la bacheca. Lato API, anche la creazione di una
+  spedizione: la rotta legge `hasConnectedWallet` solo per decidere
+  l'auto-accept dell'hub (`apps/api/src/routes/shipments.ts`), non per
+  bloccare la creazione.
+- **La UI web è più severa dell'API**: il bottone "Crea la spedizione" resta
+  disabilitato finché il mittente non ha un wallet collegato
+  (`disabled={busy || walletConnected === false}`,
+  `apps/web/app/send/page.tsx`) — coerente con il banner "le hold di
+  pagamento partono da lì", ma verificato **UI-side**, non solo a leggere la
+  rotta API: senza un wallet non si arriva a inviare il form, punto, anche
+  se il server l'avrebbe accettato.
+- **Richiedono un wallet vero e capace di hold invoice**: creare una
+  spedizione dalla UI (vedi sopra), accettare una tratta (bond vettore),
+  l'hub che accetta un deposito (bond hub), il pagamento di una tratta, la
+  finalizzazione. Fino a quando nessun utente ha collegato un wallet reale,
+  questi passi dello smoke test (§6) restano non verificabili end-to-end —
+  non è un difetto del deploy, è la conseguenza diretta dello zero-custodia.
+
+### Collegare un wallet reale (per l'utente, non per l'host)
+
+1. **NWC (consigliato)** — un servizio come Alby Hub o Alby: da
+   `/wallet`, `kind: 'nwc'` con la connection string
+   `nostr+walletconnect://<pubkey>?relay=wss://...&secret=<hex>`. L'API
+   sonda le capability con `get_info` (ADR-019 §3): se il wallet non espone
+   `make_hold_invoice`/`settle_hold_invoice`/`cancel_hold_invoice` la
+   connessione viene comunque accettata ma l'uso in un ruolo money-bearing è
+   rifiutato con `402 wallet_missing_hold_support` — messaggio esplicito,
+   nessun fallimento silenzioso (ADR-019 §4).
+2. **LND REST diretto** — `kind: 'lnd_rest'`: endpoint e macaroon del nodo
+   LND dell'utente stesso. Utile per chi già gestisce un proprio nodo; non
+   richiede Nostr.
+
+Entrambe le vie sono wallet **dell'utente**, mai dell'host: non aprono
+nessuna porta su questo VPS (§2) e non richiedono nulla lato `.env`.
+
+### Perché `COORDINATOR_KEY` non c'entra
+
+`COORDINATOR_KEY` cifra le preimage e i segreti di connessione **lato
+server**, a prescindere da quale adapter (`fake`/`lnd_rest`/`nwc`) sta
+dietro una riga di `wallet_connections` (ADR-013 "dettagli implementativi",
+punto 1). Il primo utente che collega un wallet NWC vero non tocca quella
+chiave, non richiede un riavvio con una chiave diversa e non invalida i
+wallet già collegati da altri: la cifratura a riposo è ortogonale
+all'adapter, per costruzione. La checklist per passare da "nessuno ha ancora
+collegato un wallet" a "flussi di pagamento verificati" è quindi solo
+umana: un utente reale, con un wallet NWC hold-capable, che compie ogni
+passo del ciclo di vita una volta — nessuna variabile d'ambiente cambia.
+
+## 12. Staging da un PC di casa (Tailscale Funnel + Mailpit) — TEMPORANEO
+
+Prima di avere un VPS, un dominio e un relay SMTP reali, questo stesso
+compose può girare da un normale PC e restare comunque raggiungibile da
+internet con TLS vero, usando [Tailscale Funnel](https://tailscale.com/kb/1223/funnel)
+al posto di un reverse proxy pubblico e [Mailpit](https://mailpit.axllent.org/)
+al posto di un relay SMTP. **Provato il 2026-07-19**: signup reale (magic
+link consegnato via Mailpit), doppia registrazione hub con orari
+strutturati (ADR-032), ricerca hub, form di spedizione con calcolo km/EUR/
+sats dal vero `EUR_RATE_PROVIDER=market`, bacheca vettore — tutto raggiunto
+da un URL pubblico reale (`https://<host>.<tailnet>.ts.net`), zero porte
+aperte sul router di casa.
+
+**Non è un deploy di produzione**: è un rig di prova per collaudare il
+prodotto prima che VPS/dominio/SMTP reali siano pronti (§ resto del
+documento resta la via canonica). Non annunciarlo, non condividerlo con
+utenti reali, non fidarti della sua uptime (§ limiti sotto).
+
+### Setup
+
+1. **Tailscale**: installa (`winget install Tailscale.Tailscale` su
+   Windows), `tailscale up` (login nel browser). Nella console admin
+   (`https://login.tailscale.com/admin/dns`) abilita **HTTPS Certificates**,
+   poi abilita **Funnel** per il tailnet (link diretto stampato la prima
+   volta che lanci `tailscale funnel` se non è ancora attivo). Sono due
+   toggle nella tua console, nessuna azione da qui.
+2. **Espone la porta 80 (Caddy)**: `tailscale funnel --bg 80`. Stampa
+   l'hostname pubblico (`<macchina>.<tailnet>.ts.net`) e resta attivo in
+   background tra un riavvio di Docker e l'altro; `tailscale funnel status`
+   per rivedere l'URL, `tailscale funnel --https=443 off` per spegnerlo.
+3. **`.env`**: **`MERCURIO_DOMAIN` deve combaciare esattamente con l'Host
+   che Funnel inoltra** — cioè l'hostname `.ts.net`, con `http://` (non
+   `https://`, non bare): Funnel termina già il TLS al bordo e inoltra
+   HTTP in chiaro a Caddy, quindi Caddy va tenuto in modalità HTTP-pura
+   sullo stesso host, o il suo blocco non combacia e risponde 200 vuoto a
+   tutto (visto succedere: la causa era `MERCURIO_DOMAIN=http://localhost`
+   lasciato dal test locale — Caddy ignorava ogni richiesta con
+   `Host: <macchina>.ts.net` perché non è `localhost`).
+   ```
+   MERCURIO_DOMAIN=http://<macchina>.<tailnet>.ts.net
+   WEB_URL=https://<macchina>.<tailnet>.ts.net
+   SMTP_HOST=mailpit
+   ```
+4. **Mailpit al posto di un relay vero**:
+   [`infra/production/docker-compose.mailpit.yml`](../infra/production/docker-compose.mailpit.yml)
+   è un overlay — mai un servizio del compose base, mai un default:
+   ```sh
+   docker compose -f infra/production/docker-compose.yml \
+                  -f infra/production/docker-compose.mailpit.yml up -d --build
+   ```
+   La sua UI (`http://localhost:8026`, porta 8026 apposta per non litigare
+   con l'8025 già usato dal Mailpit di `infra/docker/`, la fixture di
+   sviluppo) resta bindata a `127.0.0.1`: **non va mai infilata nel
+   Funnel**, mostra i magic link di chiunque.
+
+### Limiti (perché resta "temporaneo" e non un'alternativa al VPS)
+
+- **Nessuna email esce davvero.** Ogni email — magic link incluso — finisce
+  in Mailpit, non nella casella di un utente vero. Va bene per collaudare
+  la UI e i flussi; non è un test SMTP (quello resta da fare contro il
+  relay reale, §9 di questo documento).
+- **Il PC deve restare acceso e Docker Desktop deve restare sano.** Su
+  questa macchina Docker Desktop ha un bug di avvio noto (socket
+  `dockerInference` che va in stallo, si risolve rinominando
+  `%LOCALAPPDATA%\Docker\run`): un riavvio Windows può quindi lasciare lo
+  staging giù finché qualcuno non se ne accorge e non rilancia Docker.
+  Nessun problema del genere esiste su un VPS con Docker Engine puro.
+- **Un solo host è già la topologia di produzione (ADR-024 §3)**; qui però
+  si aggiunge una dipendenza in più — Tailscale stesso — e un uptime che
+  dipende dal PC di casa restare acceso, non da un provider con SLA.
+- **`TRUST_PROXY=true` (fisso nel compose) presume che Caddy veda l'IP vero
+  del client in `X-Forwarded-For`.** Con Funnel in mezzo questo non è
+  verificato quanto il caso VPS (dove ADR-024 §8 lo dimostra con un test
+  reale): se un giorno serve fidarsi dei rate limit per IP su questo rig,
+  va riverificato con lo stesso esperimento (105 richieste, IP finti,
+  aspettarsi tutte nello stesso bucket).
+- **`COORDINATOR_KEY` generata qui è a perdere**: non è pensata per
+  sopravvivere al passaggio al VPS vero (locale nuova macchina, nuova
+  chiave, nessun dato di questo rig si porta dietro — è un rig di prova,
+  non uno stato da migrare).

@@ -66,8 +66,9 @@ Struttura comune, in quest'ordine per ragioni di caching:
    **Web**: `output: 'standalone'` di Next, che traccia i file necessari e ne
    emette un albero radicato al monorepo (`outputFileTracingRoot`) — senza
    quest'ultimo la `dist` di `@mercurio/shared` resterebbe fuori dal bundle.
-4. Runtime: `node:22-alpine`, utente non privilegiato `node`, `HEALTHCHECK` che
-   usa la `fetch` globale di Node (nessun curl da installare).
+4. Runtime: `node:22-alpine`, utente non privilegiato `node` (per l'API, via
+   un entrypoint che droppa i privilegi dopo un fixup — §12), `HEALTHCHECK`
+   che usa la `fetch` globale di Node (nessun curl da installare).
 
 `output: 'standalone'` è **opt-in** via `NEXT_STANDALONE=true` (impostata solo
 nel Dockerfile): per assemblarlo Next materializza `node_modules` come
@@ -253,6 +254,63 @@ un'API che sta benissimo. `restart: unless-stopped` ovunque, e i `depends_on`
 condizionali fanno il resto. Un check di uptime esterno è un todo umano: da
 qui dentro non si controlla la propria stessa morte.
 
+### 12. Precondizione scoperta: Docker non semina in modo affidabile un secondo volume sotto la stessa directory
+
+Verificando il deploy in locale (`docker compose ... up -d` con le immagini
+reali, non un mock): il volume `venue-photos` risultava creato **root-owned**
+e vuoto, mentre `photos` — stesso pattern, stessa riga `RUN mkdir -p ... &&
+chown -R node:node`, stesso layer immagine — veniva seminato correttamente
+con il contenuto e i permessi dell'immagine (comportamento standard di Docker
+per un volume nominato mai usato prima). Riprodotto fuori da compose con un
+`docker run` diretto e con l'ordine dei due `-v` invertito: `photos` sempre
+seminato, `venue-photos` mai, a prescindere dall'ordine. `docker info` sulla
+macchina di verifica mostra `driver-type: io.containerd.snapshotter.v1`: lo
+snapshotter containerd (lo storage backend più recente di Docker Desktop, non
+ancora il default su un Docker Engine Linux "di fabbrica") sembra seminare
+solo il primo volume-su-sottodirectory di un container multi-volume, lasciando
+gli altri come mountpoint vuoti creati da root. Non è chiaro se un VPS Linux
+con lo storage driver classico (`overlay2`) sia esente — comportamento di
+seeding dei volumi non documentato da Docker come garanzia, solo osservato.
+
+**Perché conta**: senza fix, il primo hub che carica una foto del locale
+(ADR-028) riceverebbe un errore di permessi al primo avvio di un ambiente
+pulito — un fallimento silenzioso fino al primo utilizzo, esattamente il tipo
+di precondizione non testata che questo ADR §2 aveva già trovato una volta
+(le estensioni ESM) e corretto alla radice invece di documentarlo e sperare.
+
+**Decisione**: non fidarsi più del seeding implicito. `api.Dockerfile` ora
+installa `su-exec` e usa un entrypoint
+([`api-entrypoint.sh`](../../infra/production/api-entrypoint.sh)) che parte
+come root, sistema la proprietà di `PHOTO_STORAGE_DIR` e
+`VENUE_PHOTO_STORAGE_DIR` **solo se non è già `node`** (uno `stat` per
+directory, non una `chown -R`: al processo serve solo poter creare file dentro
+la directory, non riscrivere la proprietà di ogni blob già presente) e poi fa
+`exec su-exec node "$@"`. Il codice applicativo non gira mai come root: lo fa
+solo l'entrypoint, per la manciata di millisecondi prima dell'`exec`. Il
+servizio `migrate` (stessa immagine, nessun volume foto montato) attraversa lo
+stesso entrypoint: le directory esistono già nell'immagine come `node`, lo
+`stat` le trova già a posto, zero chown, stesso comportamento di prima.
+
+Alternative scartate:
+
+- **`chmod 777` sulle directory invece della `chown`**: instrada il problema
+  invece di risolverlo — i blob finirebbero scrivibili da chiunque nel
+  container, non solo da `node`, senza nessun beneficio dato che `node` è
+  l'unico processo che ci scrive comunque.
+- **Sperare che sull'host reale (`overlay2`) il bug non si presenti**: non
+  verificabile prima del primo deploy reale, e il costo del fix (uno `stat` in
+  più a ogni avvio) è troppo basso per giustificare la scommessa.
+
+### 13. `.env` fuori dal contesto Docker: verificato, non solo dichiarato
+
+Il paragrafo 6 sopra dichiara che `.dockerignore` esclude `**/.env*` e
+`infra/docker/volumes`. Verificato ora che il file esiste davvero
+(`.dockerignore` in radice) e copre entrambi — punto rilevante perché un
+redeploy gira **sull'host stesso** (`git pull` + `up -d --build`, §7): al
+secondo deploy in poi, l'albero di lavoro contiene già `infra/production/.env`
+con i segreti reali, e senza l'esclusione `COPY . .` nello stage builder li
+manderebbe dentro un layer dell'immagine.
+
 ## Conseguenze
 
 - Esiste un percorso di deploy riproducibile: `docker compose -f
@@ -264,6 +322,15 @@ qui dentro non si controlla la propria stessa morte.
   "estensioni esplicite negli import relativi" vale ora per `apps/api` e
   `packages/*` e va mantenuta nel codice nuovo (`apps/web` non è toccata: la
   compila Next).
+- **Ri-verificato end-to-end il 2026-07-19** (preparazione del primo deploy
+  reale, VPS ancora da fornire): build di entrambe le immagini, `up -d` con
+  `MERCURIO_DOMAIN=http://localhost`, `/api/health` 200, `/`, `/hubs`,
+  `/api/docs` e `/login` 200, una richiesta reale a `/auth/request-link` che
+  fallisce la consegna SMTP senza far fallire la richiesta (l'outbox resta la
+  fonte di verità, §9) — e un ciclo completo di `backup.sh` seguito dal
+  ripristino di §7 su uno stack azzerato (`down -v` + `up -d`): riga Postgres
+  e blob su entrambi i volumi foto tornati intatti. In questo giro è emerso e
+  è stato corretto §12 (il fix non esisteva ancora alla verifica precedente).
 - I limiti anti-abuso di RISKS §7 sono attivi per la prima volta. Chi girava
   senza proxy non se ne accorge; chi mette un proxy davanti **deve** impostare
   `TRUST_PROXY=true`, altrimenti il primo abuso blocca tutti.

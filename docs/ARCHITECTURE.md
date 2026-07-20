@@ -166,8 +166,8 @@ recipient_pickup_otp_hash, recipient_claim_token_hash (credenziale bearer del
 ritiro anticipato, coniata all'origin_checkin e ruotata dal reroute che cambia
 destinatario — ADR-016), qr_token (random 128 bit), dims, weight_g,
 declared_content?, undeclared (bool), offer_msat (impegno di spesa, pagato per
-tratta — ADR-013), custody_bond_msat, max_storage_days (1–7 nell'MVP, in
-giorni — ADR-026; il tetto 7 è il vincolo CLTV dei bond, ESCROW §4),
+tratta — ADR-013), custody_bond_msat, max_storage_days (1–30, in giorni —
+ADR-026; oltre i 7 giorni il bond dell'hub si rinnova rolling, ADR-033),
 eur_rate_snapshot (numeric + source + ts,
 congelato alla creazione), status, distance_km (D: distanza origine→destinazione
 calcolata alla creazione e congelata), created_at`.

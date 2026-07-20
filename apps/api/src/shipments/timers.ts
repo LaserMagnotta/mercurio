@@ -7,7 +7,7 @@
 
 import { asc, eq, lte } from 'drizzle-orm';
 import { shipmentTimers } from '@mercurio/db';
-import type { ShipmentEvent } from '@mercurio/shared';
+import { BOND_RENEWAL_WINDOW_DAYS, type ShipmentEvent } from '@mercurio/shared';
 import { executeShipmentTransition, type LifecycleDeps } from './executor.js';
 import { ConflictError, TransitionRejectedError } from './errors.js';
 
@@ -29,6 +29,19 @@ function timerEvent(timer: TimerRow, nowIso: string): ShipmentEvent {
       // ADR-029: the manual arrival hub never answered — the request
       // dissolves at zero cost and the shipment returns to the board.
       return { type: 'deposit_request_expired', now: nowIso };
+    case 'bond_renewal':
+      // ADR-033: renew the stay's bond for the next window. The renewed hold
+      // covers 7 days from NOW (the instant it will be held), not from the
+      // old window's end: a late renewal never promises coverage the new
+      // HTLC's CLTV budget cannot honor.
+      return {
+        type: 'bond_renew',
+        now: nowIso,
+        hubStayId: timer.refId,
+        newBondWindowEndsAt: new Date(
+          Date.parse(nowIso) + BOND_RENEWAL_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+        ).toISOString(),
+      };
   }
 }
 
